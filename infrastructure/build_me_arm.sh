@@ -7,7 +7,7 @@ REQ_FILE="$(cd "$(dirname "$0")" && pwd)/requirements_arm.txt"
 # ----------------------------------------------------------------------------------------------------------------------
 if [ ! -d "$PATH_VENV" ]; then
     echo "Creating virtual environment at $PATH_VENV ..."
-    $PYTHON_PATH -m venv "$PATH_VENV"
+    $PYTHON_PATH -m venv "$PATH_VENV" --system-site-packages
 fi
 # ----------------------------------------------------------------------------------------------------------------------
 source "$PATH_VENV/bin/activate"
