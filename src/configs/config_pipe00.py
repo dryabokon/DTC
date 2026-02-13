@@ -35,9 +35,6 @@ def get_config_boats():
         do_classification = True
         do_profiling = False
 
-        detection_model = '../models/yolov11x_marine_v8.pt'
-        detection_model_desc = 'yolo fine-tune'
-
     return cnfg()
 # ----------------------------------------------------------------------------------------------------------------------
 def get_config_live_cam_PC():
