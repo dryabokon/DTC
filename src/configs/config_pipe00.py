@@ -33,7 +33,7 @@ def get_config_boats():
         do_detection = True
         do_tracking = True
         do_classification = True
-        do_profiling = True
+        do_profiling = False
 
         detection_model = '../models/yolov11x_marine_v8.pt'
         detection_model_desc = 'yolo fine-tune'
