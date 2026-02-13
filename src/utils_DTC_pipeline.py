@@ -83,8 +83,6 @@ class Pipeliner:
         return username_mlflow, password_mlflow, username_ssh,password_ssh
     # ----------------------------------------------------------------------------------------------------------------------
     def init_detector(self):
-        print('Init model',self.config.detection_model)
-
         D = utils_detector_yolo.Detector_yolo(self.folder_out, self.config)
         return D
     # ----------------------------------------------------------------------------------------------------------------------
