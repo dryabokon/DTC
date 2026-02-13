@@ -1,1 +1,1 @@
-yolo export model=./yolov8n.pt format=ncnn device=cpu
+yolo export model=./yolov8n.pt format=ncnn device=cpu imgsz=640
