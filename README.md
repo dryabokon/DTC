@@ -1,2 +1,3 @@
-# DTC
-Detection, Tracking, and Classification pipeline
+# BGS
+![alt text](/images/Image1.jpg)
+

@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/OBJLoader.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!--Flask-->
+    <!--<script type="module" src="{{ url_for('static', filename='render.js') }}"></script>-->
+    <!--Preview-->
+    <!--<script type="module" src="../static/render.js"></script>-->
+
+    <title>SITL</title>
+
+    <style>
+        body {
+            overflow-y: hidden;
+            margin: 0;
+            height: 100vh;
+        }
+
+        .sidebar {
+            height: 100%;
+            background-color: #FFFFFF;
+            transition: width 0.3s ease;
+            overflow-y: auto;
+        }
+
+        .sidebar.collapsed {
+            width: 0;
+            overflow: hidden;
+            padding: 0 !important;
+        }
+
+    </style>
+
+</head>
+
+<body>
+
+<div class="container-fluid h-100">
+    <div class="row">
+        <div id="sidebar" class="col-md-2 sidebar">
+
+            <div class="mt-3 w-100 p-3 rounded" style="border: 0px solid #CCCCCC; background-color: transparent;">
+
+            <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="do_detection">
+                    <label class="form-check-label" for="do_detection">Detection ON</label>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="do_classification">
+                    <label class="form-check-label" for="do_classification">Classification ON</label>
+                </div>
+
+                <div class="mb-3 form-check">
+                    <input type="checkbox" class="form-check-input" id="do_tracking">
+                    <label class="form-check-label" for="do_tracking">Tracking ON</label>
+                </div>
+
+            </div>
+
+        </div>
+
+        <div id="videoContainer" class="col" style="background-color: #EEEEEE;">
+            <img src="{{ url_for('video_feed') }}" id="cameraFeed" onclick="getClickPosition(event)">
+        </div>
+    </div>
+</div>
+<script>
+    //------------------------------------------------------------------------------------------------------------------
+    function updateSliderValuesFromFlask() {
+        fetch('/get_config')
+                .then(response => response.json())
+                .then(data => {
+                    document.getElementById('do_detection').checked = Boolean(data.do_detection);
+                    document.getElementById('do_classification').checked = Boolean(data.do_classification);
+                    document.getElementById('do_tracking').checked = Boolean(data.do_tracking);
+                });
+    }
+    //------------------------------------------------------------------------------------------------------------------
+    document.getElementById('do_detection').addEventListener('change', function () {
+        fetch('/update_do_detection', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: this.checked})
+        })
+    });
+    //------------------------------------------------------------------------------------------------------------------
+    document.getElementById('do_classification').addEventListener('change', function () {
+        fetch('/update_do_classification', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: this.checked})
+        })
+    });
+    //------------------------------------------------------------------------------------------------------------------
+    document.getElementById('do_tracking').addEventListener('change', function () {
+        fetch('/update_do_tracking', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({enabled: this.checked})
+        })
+    });
+    //------------------------------------------------------------------------------------------------------------------
+    function getClickPosition(event) {
+        const rect = event.target.getBoundingClientRect();
+        const x = event.clientX - rect.left;
+        const y = event.clientY - rect.top;
+        console.log(`Mouse clicked at: (${x}, ${y})`);
+
+        // Send click coordinates to Flask
+        fetch('/mouse_click', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `x=${x}&y=${y}`,
+        }).then(response => {
+            if (response.ok) {
+                console.log('Mouse click data sent successfully');
+            } else {
+                console.error('Error sending mouse click data');
+            }
+        });
+    }
+
+    // -------------------------------------------------------------------------------------------------------------------
+    document.addEventListener('keydown', function (event) {
+        if (event.code === 'Space') {
+            event.preventDefault();
+
+            fetch('/toggle_sidebar', {
+                method: 'POST',
+            })
+                    .then(res => res.json())
+                    .then(data => {
+                        const sidebar = document.getElementById('sidebar');
+                        if (data.visible) {
+                            sidebar.classList.remove('collapsed');
+                        } else {
+                            sidebar.classList.add('collapsed');
+                        }
+                    });
+        } else {
+            fetch('/key_press', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: `key=${event.key}`,
+            }).then(response => {
+                if (response.ok) {
+                    console.log('Key press data sent successfully');
+                } else {
+                    console.error('Error sending key press data');
+                }
+            });
+        }
+
+    });
+    // -------------------------------------------------------------------------------------------------------------------
+
+    document.addEventListener('wheel', function (event) {
+        const delta = event.deltaY;
+        console.log(`Mouse wheel moved: ${delta}`);
+
+        // Send mouse wheel data to Flask
+        fetch('/mouse_wheel', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+            },
+            body: `delta=${delta}`,
+        }).then(response => {
+            if (response.ok) {
+                console.log('Mouse wheel data sent successfully');
+            } else {
+                console.error('Error sending mouse wheel data');
+            }
+        });
+    });
+
+    //------------------------------------------------------------------------------------------------------------------
+    setInterval(updateSliderValuesFromFlask, 1000);
+    
+</script>
+</body>
+</html>
