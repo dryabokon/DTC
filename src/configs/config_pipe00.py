@@ -13,6 +13,18 @@ def get_config_campus():
 
     return cnfg()
 # ----------------------------------------------------------------------------------------------------------------------
+def get_config_Oxford():
+    class cnfg(cnfg_common):
+        exp_name = '[offline] Oxford'
+        source = '../images/v01/TownCentreXVID.mp4'
+
+        do_detection = True
+        do_tracking = True
+        do_classification = True
+        do_profiling = False
+
+    return cnfg()
+# ----------------------------------------------------------------------------------------------------------------------
 def get_config_boats():
     class cnfg(cnfg_common):
         exp_name = '[offline] boats'
