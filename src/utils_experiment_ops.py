@@ -46,6 +46,9 @@ class Experimentor():
 
         self.config.folder_out = self.folder_output_current_experiment
         self.Grabber = utils_grabber_av.Grabber_AV(self.config.source)
+        if not os.path.isfile(self.config.detection_model_fallback):
+            self.config.detection_model = self.config.detection_model_fallback
+
         self.Perceptioner = utils_DTC_pipeline.Pipeliner(self.folder_output_current_experiment, self.config,self.Grabber)
 
         self.Saver = None

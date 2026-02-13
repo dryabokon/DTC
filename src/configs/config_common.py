@@ -13,7 +13,8 @@ class cnfg_common(config_base.cnfg_base):
 
 
     do_detection = False
-    detection_model = 'yolov8n.pt'
+    detection_model_fallback = 'yolov8n.pt'
+    detection_model = 'yolov8n_ncnn_model'
 
     #imgsz = (640, 640)
     detection_model_desc = 'default model'

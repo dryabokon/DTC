@@ -83,19 +83,7 @@ class Pipeliner:
         return username_mlflow, password_mlflow, username_ssh,password_ssh
     # ----------------------------------------------------------------------------------------------------------------------
     def init_detector(self):
-        if 'model_sea' in self.config.detection_model:
-            import utils_detector_sea
-            print('SEA model init..')
-            D = utils_detector_sea.SeaModel(self.config)
-        elif self.config.detection_model == 'BG_Sub2':
-            from DL import utils_detector_BG_Sub2
-            D = utils_detector_BG_Sub2.Detector_BG_Sub2(self.folder_out, self.config)
-        elif self.config.detection_model == 'Detectron':
-            from DL import utils_detector_detectron2
-            D = utils_detector_detectron2.Detector_detectron2(self.folder_out, self.config)
-        else:
-            D = utils_detector_yolo.Detector_yolo(self.folder_out, self.config)
-
+        D = utils_detector_yolo.Detector_yolo(self.folder_out, self.config)
         return D
     # ----------------------------------------------------------------------------------------------------------------------
     def init_tracker(self):
