@@ -20,8 +20,8 @@ class cnfg_common(config_base.cnfg_base):
     confidence_th = None
 
     do_tracking = False
-    #tracking_model = 'BOXMOT'
-    tracking_model = 'DEEPSORT'
+    tracking_model = 'BOXMOT'
+    #tracking_model = 'DEEPSORT'
     track_lifetime = 2
 
     do_classification = False

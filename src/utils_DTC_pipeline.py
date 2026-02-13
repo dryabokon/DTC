@@ -19,7 +19,7 @@ import tools_time_profiler
 # ----------------------------------------------------------------------------------------------------------------------
 from DL import utils_detector_yolo
 from DL import utils_classifier_yolo
-from DL import utils_tracker_deep_sort
+from DL import utils_tracker_deep_sort,utils_tracker_SiamFC
 from DL import utils_tracker_yolo
 # ----------------------------------------------------------------------------------------------------------------------
 class Pipeliner:
@@ -30,6 +30,7 @@ class Pipeliner:
 
         self.df_true = None
         self.df_pred = None
+        self.Tracker_SiamFC = utils_tracker_SiamFC.Tracker_SiamFC(self.folder_out)
         self.Tracker = self.init_tracker()
         self.Detector = self.init_detector()
 

@@ -17,6 +17,7 @@ pip uninstall -y torch torchvision torchaudio 2>/dev/null || true
 pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
 python -c "import torch; print('PyTorch:', torch.__version__, '| CPU only (RPi4)')"
 pip install av
+pip install boxmot==15.0.2 --no-deps
 # ----------------------------------------------------------------------------------------------------------------------
 echo "-----------------------------------------------"
 echo "Virtual environment created and configured at: $PATH_VENV"
