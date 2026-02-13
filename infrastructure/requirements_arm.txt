@@ -21,3 +21,4 @@ mplcursors>=0.6
 yacs==0.1.8
 filterpy==1.4.5
 flask
+got10k

@@ -1,0 +1,1 @@
+yolo export model=./yolov8n.pt format=engine device=0 int8=False dynamic=True
