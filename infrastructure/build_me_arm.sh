@@ -3,7 +3,7 @@ set -e
 # ----------------------------------------------------------------------------------------------------------------------
 PATH_VENV="$HOME/venv/p311_dtc"
 PYTHON_PATH="python3"
-REQ_FILE="$(cd "$(dirname "$0")" && pwd)/requirements.txt"
+REQ_FILE="$(cd "$(dirname "$0")" && pwd)/requirements_arm.txt"
 # ----------------------------------------------------------------------------------------------------------------------
 if [ ! -d "$PATH_VENV" ]; then
     echo "Creating virtual environment at $PATH_VENV ..."
