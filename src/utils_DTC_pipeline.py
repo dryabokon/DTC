@@ -23,7 +23,7 @@ from DL import utils_tracker_deep_sort,utils_tracker_SiamFC
 from DL import utils_tracker_yolo
 # ----------------------------------------------------------------------------------------------------------------------
 class Pipeliner:
-    def __init__(self,folder_out,config,Grabber,save_tracks=True):
+    def __init__(self,folder_out,config,save_tracks=True):
 
         self.folder_out = folder_out
         self.config = config
@@ -33,11 +33,6 @@ class Pipeliner:
         self.Tracker_SiamFC = utils_tracker_SiamFC.Tracker_SiamFC(self.folder_out)
         self.Tracker = self.init_tracker()
         self.Detector = self.init_detector()
-
-        self.Grabber = None
-        self.update_grabber(Grabber)
-
-
 
         self.update_config(self.config)
         self.save_tracks = save_tracks
@@ -691,138 +686,7 @@ class Pipeliner:
 
         return dct_metrics
     # ----------------------------------------------------------------------------------------------------------------------
-    def create_profiles(self,use_gt=False):
-        images,significance,track_ids,meta_seconds = [],[],[],[]
-        resize_ratio = self.config.resize_ratio
 
-        if use_gt:
-            for obj_id in self.df_true['track_id'].unique():
-                df_repr = self.df_true[self.df_true['track_id'] == obj_id].copy()
-                df_repr['size'] = (df_repr['x2'] - df_repr['x1']) * (df_repr['y2'] - df_repr['y1'])
-                df_repr = df_repr.sort_values(by='size', ascending=False)
-                image = self.Grabber.get_frame(frame_id=df_repr.iloc[0]['frame_id'])
-                rect = df_repr.iloc[0][['x1', 'y1', 'x2', 'y2']].values.astype(int)
-                rect = (rect / resize_ratio).astype(int) if resize_ratio is not None else rect
-
-                images.append(image[rect[1]:rect[3], rect[0]:rect[2]])
-                track_ids.append(obj_id)
-        else:
-            for obj_id in self.df_pred['track_id'].unique():
-                df_repr = self.df_pred[self.df_pred['track_id'] == obj_id].copy()
-                df_repr['size'] = (df_repr['x2'] - df_repr['x1']) * (df_repr['y2'] - df_repr['y1'])
-                df_repr = df_repr.sort_values(by='size', ascending=False)
-                image = self.Grabber.get_frame(frame_id=df_repr.iloc[0]['frame_id'])
-                if image is None:
-                    print(f'Warning: Frame {df_repr.iloc[0]["frame_id"]} not found for object {obj_id}. Skipping.')
-                    continue
-
-                rect = df_repr.iloc[0][['x1', 'y1', 'x2', 'y2']].values.astype(int)
-                rect[0] = max(0, rect[0])
-                rect[1] = max(0, rect[1])
-                rect[2] = min(image.shape[1], rect[2])
-                rect[3] = min(image.shape[0], rect[3])
-                rect = (rect / resize_ratio).astype(int) if resize_ratio is not None else rect
-
-                images.append(image[rect[1]:rect[3], rect[0]:rect[2]])
-                significance.append(df_repr['frame_id'].min())
-                track_ids.append(obj_id)
-                meta_seconds.append(int((self.HB.get_frame_id() - self.df_pred[self.df_pred['track_id'] == obj_id]['frame_id'].min()) / self.HB.get_fps()))
-
-            idx = numpy.argsort(significance)[::-1]
-            images = [images[i] for i in idx]
-            track_ids = [track_ids[i] for i in idx]
-
-        return images, track_ids,meta_seconds
-    # ----------------------------------------------------------------------------------------------------------------------
-
-    def stack_profiles(self,images,track_ids,width=64,height=64,seconds_keep_inactive=30,color_bg=(240, 240, 240),color_fg=(0, 0, 0)):
-        tol = 2
-        result = None
-        images_live = []
-        images_retro = []
-
-        for i,image in enumerate(images):
-            track_id = track_ids[i]
-            class_name = None
-            if 'class_name' in self.df_pred.columns:
-                class_name = self.df_pred[self.df_pred['track_id'] == track_id]['class_name'].values[-1]
-                if str(class_name) == 'nan':
-                    class_name = None
-
-            is_live = self.df_pred[self.df_pred['frame_id']>= self.HB.get_frame_id()-tol]['track_id'].isin([track_id]).any()
-            color = (self.colors80[track_id % 80] if track_id >= 0 else (0, 128, 255)) if is_live else (64, 64, 64)
-            color_fg_id = (0, 0, 0) if 10 * int(color[0]) + 60 * int(color[1]) + 30 * int(color[2]) > 100 * 128 else (255, 255, 255)
-
-            meta_seconds = int((self.HB.get_frame_id() - self.df_pred[self.df_pred['track_id'] == track_id]['frame_id'].min() )/ self.HB.get_fps())
-            image_obj = tools_image.smart_resize(image, height, width,bg_color=color_bg,align_center=False)
-            image_metadata = numpy.full((height, 80, 3), color_bg, dtype=numpy.uint8)
-            image_metadata = tools_draw_numpy.draw_text_fast(image_metadata, f'{class_name}', (2, 2), color_fg=color_fg, clr_bg=color_bg, font_size=16) if class_name is not None else image_metadata
-            image_metadata = tools_draw_numpy.draw_text_fast(image_metadata, f'{meta_seconds} sec', (2, 20),color_fg=color_fg, clr_bg=color_bg, font_size=16)
-            image_colorbar = numpy.full((height, 30, 3), color, dtype=numpy.uint8)
-            image_colorbar = tools_draw_numpy.draw_text_fast(image_colorbar, f'{self.get_hash(track_id)[:2]}',(int(2), int(2)), color_fg=color_fg_id, clr_bg=color,font_size=16)
-            image = numpy.concatenate((image_metadata, image_colorbar, image_obj), axis=1)
-
-            if is_live                              :images_live.append(image)
-            elif meta_seconds<=seconds_keep_inactive:images_retro.append(image)
-
-        if len(images_live+images_retro)>0:
-            image_break = numpy.full((24, width+80+30, 3), color_bg, dtype=numpy.uint8)
-            image_break[12] = color_fg
-            result = numpy.concatenate(images_live +[image_break] +images_retro,axis=0)
-
-        return result
-    # ----------------------------------------------------------------------------------------------------------------------
-    def save_profiles(self):
-
-        tools_IO.remove_files(self.folder_out, 'profile_*.png')
-        if not self.Grabber.exhausted:
-            progress_bar = tqdm(total=self.Grabber.get_max_frame_id(), desc='Profiling',bar_format="{l_bar}{bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}]")
-            prev = 0
-            while not self.Grabber.exhausted:
-                time.sleep(0.1)
-                current = len(self.Grabber.frame_buffer)
-                progress_bar.update(current-prev)
-                prev = len(self.Grabber.frame_buffer)
-            progress_bar.close()
-
-        images,track_ids,meta_seconds = self.create_profiles(use_gt=False)
-
-        for i,image in enumerate(images):
-            cv2.imwrite(self.folder_out + f'profile_{self.get_hash(track_ids[i])[:2]}.png', image)
-        return
-    # ----------------------------------------------------------------------------------------------------------------------
-    def draw_time_lapse(self,df_pred,W,H,color_bg_rgb,dct_profiles,W_seconds = 10):
-        max_items = 5
-        margin = 100
-        height_px = int(H/ max_items)
-        now = self.HB.get_frame_id()
-        fps = self.HB.get_fps()
-        W_frames = int(W_seconds*fps)
-        def frame_id_to_pixel_id(frame_id):return (W-1-margin) - (now - frame_id)*(W-1-margin)/W_frames
-
-        image = numpy.full((H, W, 3), color_bg_rgb, dtype=numpy.uint8)
-        if df_pred is None or df_pred.shape[0] == 0:
-            return image
-
-        df_pos_start = tools_DF.my_agg(df_pred,cols_groupby=['track_id'],cols_value=['frame_id'],aggs=['min'],list_res_names=['position_start'])
-        df_pos_stop  = tools_DF.my_agg(df_pred,cols_groupby=['track_id'],cols_value=['frame_id'],aggs=['max'],list_res_names=['position_stop'])
-        df_pos = df_pos_start.merge(df_pos_stop, on='track_id', how='inner')
-        df_pos = df_pos.sort_values(by=['track_id'],ascending=False)
-
-        for r,track_id in enumerate(dct_profiles.keys()):
-            if r * height_px> H:break
-            track_id = df_pos['track_id'].iloc[r]
-            small_image = dct_profiles[track_id]
-            scale = height_px / small_image.shape[0]
-            small_image = cv2.resize(small_image, (int(small_image.shape[1] * scale), height_px))
-            i1 = frame_id_to_pixel_id(df_pos['position_start'].iloc[r])
-            i2 = frame_id_to_pixel_id(df_pos['position_stop'].iloc[r])
-            Y = int(r * height_px)
-            col = self.colors80[(track_id) % 80]
-            image = tools_draw_numpy.draw_line_fast(image, Y+height_px/2, i1, Y+height_px/2, i2, color_bgr=col, w=2)
-            image= tools_image.put_image(image,small_image,Y,int(i2)-10)
-
-        return image
     # ----------------------------------------------------------------------------------------------------------------------
     def create_folder_train_test_val(self):
         for name in ['train/', 'test/', 'val/']:
@@ -871,18 +735,6 @@ class Pipeliner:
 
                 sub_folder = self.get_train_test_val_type() + ('P/' if is_TP else 'N/')
                 cv2.imwrite(self.folder_out + sub_folder + name , small)
-
-        return
-    # ----------------------------------------------------------------------------------------------------------------------
-    def update_grabber(self, Grabber):
-        if self.Grabber is not None:
-            self.Grabber.should_be_closed = True
-            time.sleep(0.1)
-
-        self.Grabber = Grabber
-        self.df_pred = None
-        time.sleep(0.2)
-        self.HB = tools_heartbeat.tools_HB()
 
         return
     # ----------------------------------------------------------------------------------------------------------------------

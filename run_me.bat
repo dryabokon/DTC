@@ -1,7 +1,7 @@
 @echo off
 setlocal EnableExtensions EnableDelayedExpansion
 ::----------------------------------------------------------------------------------------------------------------------
-set "VENV_ACTIVATE=D:\venv\p310_dtc\Scripts\activate.bat"
+set "VENV_ACTIVATE=%~dp0\infrastructure\venv\p310_dtc\Scripts\activate.bat"
 ::----------------------------------------------------------------------------------------------------------------------
 set CMD_MAIN=cd /d "%~dp0src" ^&^& call "%VENV_ACTIVATE%" ^&^& cls ^&^& python main.py
 ::----------------------------------------------------------------------------------------------------------------------

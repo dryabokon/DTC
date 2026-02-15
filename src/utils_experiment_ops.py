@@ -147,7 +147,7 @@ class Experimentor():
     def run_experiment(self):
         self.HB = tools_heartbeat.tools_HB()
 
-        while not self.should_be_closed:
+        while not self.should_be_closed and not self.Grabber.finished:
             time.sleep(0.01)
             self.HB.do_heartbeat()
             self.grab_and_process()

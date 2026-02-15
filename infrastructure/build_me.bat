@@ -1,5 +1,5 @@
 @echo off
-SET "PATH_VENV=D:\venv\p310_dtc"
+SET "PATH_VENV=%~dp0\venv\p310_dtc"
 SET "PYTHON_PATH=%LOCALAPPDATA%\Programs\Python\Python310\python.exe"
 SET "REQ_FILE=%~dp0requirements.txt"
 ::----------------------------------------------------------------------------------------------------------------------

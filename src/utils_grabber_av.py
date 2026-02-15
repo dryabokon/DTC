@@ -4,7 +4,7 @@ import threading
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 class Grabber_AV:
-    def __init__(self, url: str, *, stale_s: float = 0.7, loop: bool = True):
+    def __init__(self, url: str, *, stale_s: float = 0.7, loop: bool = False):
         self.url = url
         self.stale_s = stale_s
         self.loop = loop
