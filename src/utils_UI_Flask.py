@@ -25,6 +25,7 @@ class WebApp:
         self.app.logger.disabled = True
         self.target_fps = 10
         self.image = numpy.full((480, 640, 3), 127, dtype=numpy.uint8)
+        self.P = None
         self.setup_routes()
         self._key_lock = threading.Lock()
         self.key = None
@@ -42,10 +43,21 @@ class WebApp:
 #----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/mouse_click', methods=['POST'])
         def mouse_click():
+            if self.P is None:
+                return 'Pipeline not ready', 503
+
             x = request.form.get('x')
             y = request.form.get('y')
             current_mouse_pos = [int(float(x)), int(float(y))]
             self.P.update_ROI(current_mouse_pos)
+            return {'status': 'tracking'}, 200
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/cancel_sot', methods=['POST'])
+        def cancel_sot():
+            if self.P is None:
+                return 'Pipeline not ready', 503
+
+            self.P.cancel_sot()
             return 'Success', 200
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/button_takeoff', methods=['POST'])

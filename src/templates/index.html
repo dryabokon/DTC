@@ -63,6 +63,10 @@
                     <label class="form-check-label" for="do_tracking">Tracking ON</label>
                 </div>
 
+                <div class="mb-3">
+                    <button type="button" class="btn btn-outline-secondary btn-sm" id="cancel_sot">Cancel object tracking</button>
+                </div>
+
             </div>
 
         </div>
@@ -110,8 +114,10 @@
     //------------------------------------------------------------------------------------------------------------------
     function getClickPosition(event) {
         const rect = event.target.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
+        const scaleX = event.target.naturalWidth / rect.width;
+        const scaleY = event.target.naturalHeight / rect.height;
+        const x = (event.clientX - rect.left) * scaleX;
+        const y = (event.clientY - rect.top) * scaleY;
         console.log(`Mouse clicked at: (${x}, ${y})`);
 
         // Send click coordinates to Flask
@@ -129,6 +135,10 @@
             }
         });
     }
+    //------------------------------------------------------------------------------------------------------------------
+    document.getElementById('cancel_sot').addEventListener('click', function () {
+        fetch('/cancel_sot', {method: 'POST'})
+    });
 
     // -------------------------------------------------------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {

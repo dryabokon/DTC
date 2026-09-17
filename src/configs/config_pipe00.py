@@ -40,13 +40,15 @@ def get_config_boats():
 def get_config_live_cam_PC():
     class cnfg(cnfg_common):
         exp_name = '[live] PC cam'
-        source = 0
+        source = '0'
         do_detection = True
         do_tracking = True
         do_classification = True
-        do_profiling = False
+        do_profiling = True
 
-        detection_model = '../models/yolov8n.pt'
+        #detection_model = '../models/yolov8n.pt'
+        #detection_model = '../models/fly_yolov8mp2_640_relu_07102025_rect_1_int8_win.engine'
+        detection_model = '../models/yolov8n-detect-4-classes_v56.pt'
         detection_model_desc = 'Airborne'
         imgsz = (384, 640)
 

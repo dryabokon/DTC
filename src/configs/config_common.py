@@ -11,10 +11,10 @@ class cnfg_common(config_base.cnfg_base):
     iou_th = 0.25
     min_object_size = 10
 
-
     do_detection = False
     detection_model_fallback = 'yolov8n.pt'
-    detection_model = '../models/yolov8n_ncnn_model'
+    detection_model = detection_model_fallback
+    #detection_model = '../models/yolov8n_ncnn_model'
 
     imgsz = 640
     detection_model_desc = 'default model'
@@ -24,6 +24,10 @@ class cnfg_common(config_base.cnfg_base):
     #tracking_model = 'BOXMOT'
     tracking_model = 'DEEPSORT'
     track_lifetime = 2
+
+    sot_tracking_model = 'YEMEN_NANO'
+    sot_lost_th = 30
+    sot_click_box_size = 60
 
     do_classification = False
     classification_model = 'yolo'

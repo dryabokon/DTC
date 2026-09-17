@@ -4,12 +4,13 @@ import threading
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 class Grabber_AV:
-    def __init__(self, url: str, *, stale_s: float = 0.7, loop: bool = False):
+    def __init__(self, url: str, *, stale_s: float = 0.7, looped: bool = False):
         self.url = url
         self.stale_s = stale_s
-        self.loop = loop
+        self.looped = looped
         self.is_file = os.path.isfile(url)
 
+        self.max_frame_id = None
         self._lock = threading.Lock()
         self._frame = None
         self._frame_ts = 0.0
@@ -120,7 +121,7 @@ class Grabber_AV:
             except Exception as e:
                 print(f"Grabber_AV file error: {e}")
 
-            if not self.loop:
+            if not self.looped:
                 self._finished.set()
                 break
 
@@ -136,9 +137,7 @@ class Grabber_AV:
             return self._frame.copy()
 
     # ------------------------------------------------------------------------------------------------------------------
-    @property
-    def finished(self):
-        """True when a local file has been fully played (non-looping mode)."""
+    def is_finished(self):
         return self._finished.is_set()
 
     # ------------------------------------------------------------------------------------------------------------------
