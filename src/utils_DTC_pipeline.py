@@ -19,23 +19,31 @@ import tools_time_profiler
 # ----------------------------------------------------------------------------------------------------------------------
 from DL import utils_detector_yolo
 from DL import utils_classifier_yolo
-from DL import utils_tracker_deep_sort,utils_tracker_SiamFC
+from DL import utils_tracker_deep_sort,utils_tracker_SiamFC,utils_tracker_KCF
 from DL import utils_tracker_yolo
+from DL import utils_tracker_yemen
+# ----------------------------------------------------------------------------------------------------------------------
+SOT_TRACKER_CLASSES = ['Tracker_KCF', 'Tracker_SiamFC', 'Tracker_Nano', 'Tracker_optical_flow', 'Tracker_Yemen']
 # ----------------------------------------------------------------------------------------------------------------------
 class Pipeliner:
-    def __init__(self,folder_out,config,save_tracks=True):
+    def __init__(self,folder_out,config,save_tracks=True,init_detectors=True,Grabber=None):
 
         self.folder_out = folder_out
         self.config = config
+        self.Grabber = Grabber
 
         self.df_true = None
         self.df_pred = None
-        self.Tracker_SiamFC = utils_tracker_SiamFC.Tracker_SiamFC(self.folder_out)
-        self.Tracker = self.init_tracker()
-        self.Detector = self.init_detector()
+
+        if init_detectors:
+            self.device = 'cuda'
+            self.Tracker_SiamFC = utils_tracker_SiamFC.Tracker_SiamFC(self.folder_out)
+            self.Tracker = self.init_tracker()
+            self.Detector = self.init_detector()
 
         self.update_config(self.config)
         self.save_tracks = save_tracks
+
 
 
         self.HB = tools_heartbeat.tools_HB()
@@ -45,6 +53,8 @@ class Pipeliner:
         self.colors80 = tools_draw_numpy.get_colors(80, colormap='nipy_spectral', shuffle=True)
         self.frame_buffer = []
         self.ROI = None
+        self._mot_tracking_model = self.config.tracking_model
+        self._sot_lost_cnt = 0
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def init_MLflow(self):
@@ -84,11 +94,13 @@ class Pipeliner:
     def init_tracker(self):
         if self.config.tracking_model == 'DEEPSORT':
             T = utils_tracker_deep_sort.Tracker_deep_sort(self.folder_out)
-        elif self.config.tracking_model == 'BOXMOT'    :
+        elif self.config.tracking_model == 'BOXMOT':
             from DL import utils_tracker_boxmot
             T = utils_tracker_boxmot.Tracker_boxmot(self.folder_out)
+        elif self.config.tracking_model in ('YEMEN_NANO', 'YEMEN_VIT'):
+            T = utils_tracker_yemen.Tracker_Yemen(self.folder_out, model_id='nano' if self.config.tracking_model == 'YEMEN_NANO' else 'vit',weights_dir='../models',device=self.device)
         else:
-            T = utils_tracker_yolo.Tracker_yolo(self.folder_out,self.config)
+            T = utils_tracker_yolo.Tracker_yolo(self.folder_out, self.config)
         return T
     # ----------------------------------------------------------------------------------------------------------------------
     def init_classifier(self):
@@ -205,10 +217,11 @@ class Pipeliner:
         if self.config.do_tracking or self.config.do_profiling:
             if self.Tracker is None:
                 df_track = tools_DF.add_column(df_det.copy(), 'track_id', -1, pos=1)
-            elif self.Tracker.__class__.__name__ in ['Tracker_KCF','Tracker_SiamFC','Tracker_Nano','Tracker_optical_flow']:
-                df_track = self.Tracker.track_detections(self.cnfg.ROI, filename,frame_id=frame_id, do_debug=do_debug)
+            elif self.Tracker.__class__.__name__ in SOT_TRACKER_CLASSES:
+                df_track = self.Tracker.track_detections(self.ROI, filename,frame_id=frame_id)
+                self.track_sot_lost(df_track)
             else:
-                df_track = self.Tracker.track_detections(df_det, filename,frame_id=frame_id, do_debug=do_debug)
+                df_track = self.Tracker.track_detections(df_det, filename,frame_id=frame_id)
         else:
             df_track = tools_DF.add_column(df_det.copy(), 'track_id', -1, pos=1)
 
@@ -218,6 +231,60 @@ class Pipeliner:
         df_track = df_track.astype({'frame_id':int,'track_id': int,'x1':int,'x2':int,'y1':int,'y2':int,'conf':float})
 
         return df_track
+    # ----------------------------------------------------------------------------------------------------------------------
+    def track_sot_lost(self, df_track):
+        if self.Tracker.__class__.__name__ not in ('Tracker_KCF', 'Tracker_Yemen') or not self.Tracker.is_initialized:
+            return
+
+        if df_track.shape[0] == 0 or float(df_track.iloc[0]['conf']) <= 0:
+            self._sot_lost_cnt += 1
+        else:
+            self._sot_lost_cnt = 0
+
+        if self.config.sot_lost_th is not None and self._sot_lost_cnt >= self.config.sot_lost_th:
+            self.cancel_sot()
+
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def update_ROI(self, point_xy, box_size=None):
+        x, y = point_xy
+        box_size = box_size or self.config.sot_click_box_size
+        half = box_size / 2.0
+
+        x1, y1, x2, y2 = x - half, y - half, x + half, y + half
+        H, W = getattr(self, 'frame_shape', (None, None))
+        if W is not None:
+            x1, x2 = max(0, x1), min(W, x2)
+        if H is not None:
+            y1, y2 = max(0, y1), min(H, y2)
+
+        ROI = [int(x1), int(y1), int(x2), int(y2)]
+
+        self.start_sot(ROI)
+        return True
+    # ----------------------------------------------------------------------------------------------------------------------
+    def start_sot(self, ROI):
+        if self.Tracker.__class__.__name__ not in SOT_TRACKER_CLASSES:
+            self._mot_tracking_model = self.config.tracking_model
+            self.config.tracking_model = self.config.sot_tracking_model
+            self.Tracker = self.init_tracker()
+        elif hasattr(self.Tracker, 'reset'):
+            self.Tracker.reset()
+
+        self.ROI = ROI
+        self._sot_lost_cnt = 0
+        self.config.do_detection = True
+        self.config.do_tracking = True
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def cancel_sot(self):
+        if self.Tracker.__class__.__name__ in SOT_TRACKER_CLASSES:
+            self.config.tracking_model = self._mot_tracking_model
+            self.Tracker = self.init_tracker()
+
+        self.ROI = None
+        self._sot_lost_cnt = 0
+        return
     # ----------------------------------------------------------------------------------------------------------------------
     def match_E00(self,df_det,df_track):
 
@@ -534,6 +601,7 @@ class Pipeliner:
         return df_track_frame_reach
     # ----------------------------------------------------------------------------------------------------------------------
     def draw_debug_image(self,frame,df_track_frame_filtered):
+        if frame is None: return frame
 
         self.TP.tic('IO:draw')
         image_debug = tools_image.desaturate(frame, 0.3)
@@ -559,8 +627,9 @@ class Pipeliner:
 
         self.TP.tic('IO:read')
         frame = cv2.imread(filename) if isinstance(filename, str) else filename
-        filename_out = 'df_track.csv'
-        self.mode = 'a' if os.path.isfile(self.folder_out + filename_out) else 'w'
+        if frame is not None:
+            self.frame_shape = frame.shape[:2]
+
         frame_id = self.HB.get_frame_id()
         self.TP.tic('IO:read')
 
@@ -585,11 +654,6 @@ class Pipeliner:
         df_track_frame_filtered = self.df_pred[self.df_pred['frame_id'] == frame_id]
         df_track_frame_filtered,df_retro = self.filter_short_timers(df_track_frame_filtered)
         self.TP.tic('track')
-
-        self.TP.tic('IO:write')
-        df_track_frame_filtered.to_csv(self.folder_out + filename_out, index=False, header=True if self.mode == 'w' else False,mode=self.mode, float_format='%.2f')
-        df_retro.to_csv               (self.folder_out + filename_out, index=False, header=False,mode='a', float_format='%.2f')
-        self.TP.tic('IO:write')
 
         if 'class_ids' not in df_track_frame.columns:
             df_track_frame['class_ids'] = numpy.nan
@@ -686,6 +750,127 @@ class Pipeliner:
 
         return dct_metrics
     # ----------------------------------------------------------------------------------------------------------------------
+    def create_profiles(self,use_gt=False):
+        images,significance,track_ids = [],[],[]
+        resize_ratio = self.config.resize_ratio
+
+        if use_gt:
+            for obj_id in self.df_true['track_id'].unique():
+                df_repr = self.df_true[self.df_true['track_id'] == obj_id].copy()
+                df_repr['size'] = (df_repr['x2'] - df_repr['x1']) * (df_repr['y2'] - df_repr['y1'])
+                df_repr = df_repr.sort_values(by='size', ascending=False)
+                image = self.Grabber.get_frame(frame_id=df_repr.iloc[0]['frame_id'])
+                rect = df_repr.iloc[0][['x1', 'y1', 'x2', 'y2']].values.astype(int)
+                rect = (rect / resize_ratio).astype(int) if resize_ratio is not None else rect
+
+                images.append(image[rect[1]:rect[3], rect[0]:rect[2]])
+                track_ids.append(obj_id)
+        else:
+            for obj_id in self.df_pred['track_id'].unique():
+                df_repr = self.df_pred[self.df_pred['track_id'] == obj_id].copy()
+                df_repr['size'] = (df_repr['x2'] - df_repr['x1']) * (df_repr['y2'] - df_repr['y1'])
+                df_repr = df_repr.sort_values(by='size', ascending=False)
+                image = self.Grabber.get_frame(frame_id=df_repr.iloc[0]['frame_id'])
+                if image is None:
+                    print(f'Warning: Frame {df_repr.iloc[0]["frame_id"]} not found for object {obj_id}. Skipping.')
+                    continue
+
+                rect = df_repr.iloc[0][['x1', 'y1', 'x2', 'y2']].values.astype(int)
+                rect[0] = max(0, rect[0])
+                rect[1] = max(0, rect[1])
+                rect[2] = min(image.shape[1], rect[2])
+                rect[3] = min(image.shape[0], rect[3])
+                rect = (rect / resize_ratio).astype(int) if resize_ratio is not None else rect
+
+                images.append(image[rect[1]:rect[3], rect[0]:rect[2]])
+                significance.append(df_repr['frame_id'].min())
+                track_ids.append(obj_id)
+
+            idx = numpy.argsort(significance)[::-1]
+            images = [images[i] for i in idx]
+            track_ids = [track_ids[i] for i in idx]
+
+        return images, track_ids
+    # ----------------------------------------------------------------------------------------------------------------------
+
+    def stack_profiles(self,images,track_ids,width=64,height=64,seconds_keep_inactive=30,color_bg=(240, 240, 240),color_fg=(0, 0, 0)):
+        tol = 2
+        result = None
+        images_live = []
+        images_retro = []
+
+        for i,image in enumerate(images):
+            track_id = track_ids[i]
+            class_name = None
+            if 'class_name' in self.df_pred.columns:
+                class_name = self.df_pred[self.df_pred['track_id'] == track_id]['class_name'].values[-1]
+                if str(class_name) == 'nan':
+                    class_name = None
+
+            is_live = self.df_pred[self.df_pred['frame_id']>= self.HB.get_frame_id()-tol]['track_id'].isin([track_id]).any()
+            color = (self.colors80[track_id % 80] if track_id >= 0 else (0, 128, 255)) if is_live else (64, 64, 64)
+            color_fg_id = (0, 0, 0) if 10 * int(color[0]) + 60 * int(color[1]) + 30 * int(color[2]) > 100 * 128 else (255, 255, 255)
+
+            meta_seconds = int((self.HB.get_frame_id() - self.df_pred[self.df_pred['track_id'] == track_id]['frame_id'].min() )/ self.HB.get_fps())
+            image_obj = tools_image.smart_resize(image, height, width,bg_color=color_bg,align_center=False)
+            image_metadata = numpy.full((height, 80, 3), color_bg, dtype=numpy.uint8)
+            image_metadata = tools_draw_numpy.draw_text_fast(image_metadata, f'{class_name}', (2, 2), color_fg=color_fg, clr_bg=color_bg, font_size=16) if class_name is not None else image_metadata
+            image_metadata = tools_draw_numpy.draw_text_fast(image_metadata, f'{meta_seconds} sec', (2, 20),color_fg=color_fg, clr_bg=color_bg, font_size=16)
+            image_colorbar = numpy.full((height, 30, 3), color, dtype=numpy.uint8)
+            image_colorbar = tools_draw_numpy.draw_text_fast(image_colorbar, f'{self.get_hash(track_id)[:2]}',(int(2), int(2)), color_fg=color_fg_id, clr_bg=color,font_size=16)
+            image = numpy.concatenate((image_metadata, image_colorbar, image_obj), axis=1)
+
+            if is_live                              :images_live.append(image)
+            elif meta_seconds<=seconds_keep_inactive:images_retro.append(image)
+
+        if len(images_live+images_retro)>0:
+            image_break = numpy.full((24, width+80+30, 3), color_bg, dtype=numpy.uint8)
+            image_break[12] = color_fg
+            result = numpy.concatenate(images_live +[image_break] +images_retro,axis=0)
+
+        return result
+    # ----------------------------------------------------------------------------------------------------------------------
+    def save_profiles(self):
+
+        tools_IO.remove_files(self.folder_out, 'profile_*.png')
+        images,track_ids = self.create_profiles(use_gt=False)
+
+        for i,image in enumerate(images):
+            cv2.imwrite(self.folder_out + f'profile_{self.get_hash(track_ids[i])[:2]}.png', image)
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def draw_time_lapse(self,df_pred,W,H,color_bg_rgb,dct_profiles,W_seconds = 10):
+        max_items = 5
+        margin = 100
+        height_px = int(H/ max_items)
+        now = self.HB.get_frame_id()
+        fps = self.HB.get_fps()
+        W_frames = int(W_seconds*fps)
+        def frame_id_to_pixel_id(frame_id):return (W-1-margin) - (now - frame_id)*(W-1-margin)/W_frames
+
+        image = numpy.full((H, W, 3), color_bg_rgb, dtype=numpy.uint8)
+        if df_pred is None or df_pred.shape[0] == 0:
+            return image
+
+        df_pos_start = tools_DF.my_agg(df_pred,cols_groupby=['track_id'],cols_value=['frame_id'],aggs=['min'],list_res_names=['position_start'])
+        df_pos_stop  = tools_DF.my_agg(df_pred,cols_groupby=['track_id'],cols_value=['frame_id'],aggs=['max'],list_res_names=['position_stop'])
+        df_pos = df_pos_start.merge(df_pos_stop, on='track_id', how='inner')
+        df_pos = df_pos.sort_values(by=['track_id'],ascending=False)
+
+        for r,track_id in enumerate(dct_profiles.keys()):
+            if r * height_px> H:break
+            track_id = df_pos['track_id'].iloc[r]
+            small_image = dct_profiles[track_id]
+            scale = height_px / small_image.shape[0]
+            small_image = cv2.resize(small_image, (int(small_image.shape[1] * scale), height_px))
+            i1 = frame_id_to_pixel_id(df_pos['position_start'].iloc[r])
+            i2 = frame_id_to_pixel_id(df_pos['position_stop'].iloc[r])
+            Y = int(r * height_px)
+            col = self.colors80[(track_id) % 80]
+            image = tools_draw_numpy.draw_line_fast(image, Y+height_px/2, i1, Y+height_px/2, i2, color_bgr=col, w=2)
+            image= tools_image.put_image(image,small_image,Y,int(i2)-10)
+
+        return image
 
     # ----------------------------------------------------------------------------------------------------------------------
     def create_folder_train_test_val(self):

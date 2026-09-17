@@ -3,12 +3,14 @@ import time
 import os
 import datetime
 import threading
+from tqdm import tqdm
 #----------------------------------------------------------------------------------------------------------------------
 import tools_IO
 import tools_heartbeat
 import tools_time_profiler
 import tools_draw_numpy
 import tools_DF
+import tools_grabber
 # ----------------------------------------------------------------------------------------------------------------------
 import utils_video_saver
 import utils_UI_Flask
@@ -21,7 +23,6 @@ class Experimentor():
         self.folder_runs = folder_runs
         self.folder_output_current_experiment = None
         self.config.folder_out = self.folder_output_current_experiment
-        self.df_det_frame_empty = pd.DataFrame({'class_ids': [], 'class_name': [],'track_id':[],'lifetime':[], 'x1': [], 'y1': [], 'x2': [], 'y2': [], 'conf': []})
         self.df_det_frame_global = pd.DataFrame([])
 
         self.HB = tools_heartbeat.tools_HB()
@@ -35,8 +36,9 @@ class Experimentor():
             self.setup_experiment()
         else:
             self.folder_output_current_experiment = folder_output_current_experiment
+            self.Grabber = tools_grabber.Grabber(self.config.source, looped=False)
+            self.Perceptioner = utils_DTC_pipeline.Pipeliner(self.folder_output_current_experiment, self.config,init_detectors=False,Grabber = self.Grabber)
 
-        self.df_det_frame = self.df_det_frame_empty
         self.popup_message = None
         self.should_be_closed = False
 
@@ -45,7 +47,13 @@ class Experimentor():
     def setup_experiment(self):
 
         self.config.folder_out = self.folder_output_current_experiment
-        self.Grabber = utils_grabber_av.Grabber_AV(self.config.source)
+
+        if 'rtsp' in self.config.source:
+            self.Grabber = utils_grabber_av.Grabber_AV(self.config.source,looped=False)
+        else:
+            self.Grabber =tools_grabber.Grabber(self.config.source,looped=False)
+
+
         if not (os.path.isfile(self.config.detection_model) or os.path.isdir(self.config.detection_model)):
             print('Model not found:', self.config.detection_model)
             self.config.detection_model = self.config.detection_model_fallback
@@ -57,8 +65,11 @@ class Experimentor():
             self.Saver = utils_video_saver.utils_video_saver(self.folder_output_current_experiment)
 
         self.UI = utils_UI_Flask.WebApp(self.config)
+        self.UI.P = self.Perceptioner
+        print('[  UI   ] webapp:', self.UI.get_connection_string())
+
         threading.Thread(target=self.UI.run_web_server).start()
-        print('[  UI   ] webapp:',self.UI.get_connection_string())
+
 
         return
     # ----------------------------------------------------------------------------------------------------------------------
@@ -108,13 +119,15 @@ class Experimentor():
     def construct_report(self):
         print('Constructing report ...')
 
-        self.df_det_frame_global.to_csv(self.folder_output_current_experiment + 'df_track2.csv', index=False,header=True, float_format='%.2f')
+        #self.Perceptioner.calc_benchmarks_custom()
+
+        self.df_det_frame_global.to_csv(self.folder_output_current_experiment + 'df_track.csv', index=False,header=True, float_format='%.2f')
 
         with open(self.folder_output_current_experiment + 'df_config.csv', 'w') as f:
             df_config = pd.DataFrame([(k, v) for k, v in zip(*self.config.get_keys_values())if k != 'parser'], columns=['param', 'value'])
             f.write(tools_DF.prettify(df_config))
 
-        self.config.save_as_python_script(self.folder_output_current_experiment+'config.py')
+        self.config.save_as_python_script(self.folder_output_current_experiment+'config.py',class_name='config')
         self.TP.stage_stats(self.folder_output_current_experiment + 'df_time.csv')
         self.Perceptioner.TP.stage_stats(self.folder_output_current_experiment + 'df_time_perception.csv')
         return
@@ -126,11 +139,6 @@ class Experimentor():
         self.Perceptioner.HB.do_heartbeat()
         self.Perceptioner.process_frame(image,do_debug=False)
         df_det_frame = self.Perceptioner.df_det_frame
-
-        df_det_frame['frame_id'] = int(self.HB.get_frame_id())
-        df_det_frame = tools_DF.add_column(df_det_frame, 'time', time.time(), pos=1)
-        df_det_frame['time'] = df_det_frame['time'].apply(lambda x: (datetime.datetime.fromtimestamp(x).strftime('%H:%M:%S.%f'))[:-4])
-        df_det_frame = df_det_frame[['frame_id', 'track_id','lifetime','time', 'x1', 'y1', 'x2', 'y2', 'conf', 'class_ids', 'class_name']]
 
         return df_det_frame
     # ----------------------------------------------------------------------------------------------------------------------
@@ -147,7 +155,9 @@ class Experimentor():
     def run_experiment(self):
         self.HB = tools_heartbeat.tools_HB()
 
-        while not self.should_be_closed and not self.Grabber.finished:
+        progress_bar = tqdm(total=self.Grabber.max_frame_id,bar_format="{l_bar}{bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+        while not self.should_be_closed and not self.Grabber.is_finished():
+            progress_bar.update(1)
             time.sleep(0.01)
             self.HB.do_heartbeat()
             self.grab_and_process()
@@ -172,19 +182,15 @@ class Experimentor():
         self.TP.tic('perception')
         df_det_frame = self.process_frame(image)
 
+        if self.config.do_save:
+            self.TP.tic('IO: save df_track2')
+            self.df_det_frame_global = pd.concat([self.df_det_frame_global,df_det_frame],ignore_index=True)
+
         self.TP.tic('draw_debug_image')
         image = self.Perceptioner.draw_debug_image(image,df_det_frame)
 
         self.TP.tic('logging: print_debug_info')
         image = self.print_debug_info(image)
-
-        if self.config.do_save:
-            self.TP.tic('IO: save df_track2')
-            if df_det_frame is None or df_det_frame.empty:
-                df_det_frame = pd.DataFrame(columns=['frame_id','track_id','lifetime','time','x1','y1','x2','y2','conf','class_ids','class_name','x','y','z','x_trg','y_trg','z_trg','roll','pitch','yaw'])
-                df_det_frame.loc[0] = [int(self.HB.get_frame_id()), None, None, (datetime.datetime.fromtimestamp(time.time()).strftime('%H:%M:%S.%f'))[:-4], None, None, None, None, None, None, None,None, None, None, None, None, None,None, None, None]
-
-            self.df_det_frame_global = pd.concat([self.df_det_frame_global,df_det_frame],ignore_index=True)
 
         if self.Saver is not None:
             self.TP.tic('logging: append frame')
