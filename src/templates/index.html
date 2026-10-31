@@ -1,194 +1,284 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
+<script>try { const t = localStorage.getItem("dtc-ui-theme"); if (t === "light" || t === "dark") document.documentElement.dataset.theme = t; } catch (e) {}</script>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/loaders/OBJLoader.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/three@0.128/examples/js/controls/OrbitControls.js"></script>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DTC</title>
+<style>
+  /* monochrome palette (same as fly2 stand pages); colour only for status. Dark by default, the ◐ button switches (remembered in this browser) */
+  :root { --bg: #0e0e0e; --surface: #161616; --field: #1f1f1f; --line: #2a2a2a; --text: #ececec; --muted: #9b9b9b;
+          --faint: #666; --accent: #5c5c5c; --accent-text: #fff; --good: #30d158; --bad: #ff453a; --warn: #ff9f0a;
+          --good-soft: rgba(48,209,88,.13); --bad-soft: rgba(255,69,58,.13); --video-bg: #050505; --sot: #00e5ff; color-scheme: dark; }
+  :root[data-theme=light] { --bg: #f6f6f5; --surface: #fff; --field: #fff; --line: #e2e2df; --text: #141414; --muted: #6b6b6b;
+          --faint: #a1a1a1; --accent: #dcdcda; --accent-text: #141414; --good: #0c9b47; --bad: #e0281f; --warn: #b86200;
+          --good-soft: rgba(48,209,88,.22); --bad-soft: rgba(255,69,58,.18); --video-bg: #e9e9e7; --sot: #0090c8; color-scheme: light; }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 13px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+         -webkit-font-smoothing: antialiased; font-variant-numeric: tabular-nums; display: grid; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; }
+  h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -.01em; }
+  button, input, select { font: inherit; color: inherit; }
 
-    <!--Flask-->
-    <!--<script type="module" src="{{ url_for('static', filename='render.js') }}"></script>-->
-    <!--Preview-->
-    <!--<script type="module" src="../static/render.js"></script>-->
+  .topbar { border-bottom: 1px solid var(--line); padding: 0 16px; height: 44px; display: flex; align-items: center; gap: 14px; white-space: nowrap; background: var(--surface); }
+  .topbar .meta { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+  .spacer { flex: 1; }
+  .icon-btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; height: 30px; min-width: 30px; padding: 0 8px; cursor: pointer; flex: none; }
+  .icon-btn:hover { border-color: var(--faint); }
+  .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
+  .pill.good { border-color: var(--good); color: var(--good); background: var(--good-soft); cursor: pointer; }
+  .pill.bad { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
+  .btn.stop { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); margin-top: 8px; }
 
-    <title>SITL</title>
+  main { min-height: 0; display: flex; }
+  #sidebar { width: 280px; flex: none; overflow-y: auto; padding: 12px 14px; background: var(--surface); border-right: 1px solid var(--line); }
+  #sidebar.collapsed { display: none; }
+  .group { font-size: 10.5px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 16px 0 6px; }
+  .group:first-child { margin-top: 0; }
+  .check { display: flex; align-items: center; gap: 8px; padding: 4px 0; cursor: pointer; }
+  .check input { accent-color: var(--muted); width: 15px; height: 15px; margin: 0; }
+  .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 4px 0; }
+  .row label { color: var(--muted); }
+  .val { font-weight: 600; }
+  input[type=range] { width: 100%; accent-color: var(--muted); margin: 2px 0 6px; }
+  select, input[type=text] { width: 100%; padding: 5px 7px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--text); margin-bottom: 6px; }
+  .seg { display: flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; margin-bottom: 6px; }
+  .seg button { flex: 1; padding: 5px 4px; border: 0; background: var(--field); cursor: pointer; color: var(--muted); font-size: 12px; }
+  .seg button + button { border-left: 1px solid var(--line); }
+  .seg button.on { background: var(--accent); color: var(--accent-text); }
+  .btn { width: 100%; padding: 7px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-text); font-weight: 600; cursor: pointer; }
+  .btn:hover { filter: brightness(1.1); }
+  .hint { color: var(--muted); font-size: 12px; }
+  .hint b { color: var(--text); font-weight: 600; }
+  #source_status { margin-top: 6px; word-break: break-all; }
 
-    <style>
-        body {
-            overflow-y: hidden;
-            margin: 0;
-            height: 100vh;
-        }
-
-        .sidebar {
-            height: 100%;
-            background-color: #FFFFFF;
-            transition: width 0.3s ease;
-            overflow-y: auto;
-        }
-
-        .sidebar.collapsed {
-            width: 0;
-            overflow: hidden;
-            padding: 0 !important;
-        }
-
-    </style>
-
+  #videoContainer { flex: 1; min-width: 0; overflow: auto; background: var(--video-bg); display: flex; align-items: flex-start; justify-content: center; padding: 12px; }
+  #videoWrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
+  #cameraFeed { max-width: 100%; height: auto; display: block; cursor: crosshair; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
+  #sotPreview { position: absolute; border: 2px dashed var(--sot); pointer-events: none; display: none; border-radius: 2px; }
+  #sotPreview.drag { border-style: solid; }
+</style>
 </head>
-
 <body>
 
-<div class="container-fluid h-100">
-    <div class="row">
-        <div id="sidebar" class="col-md-2 sidebar">
+<header class="topbar">
+  <h1>DTC</h1>
+  <span class="meta" id="topMeta">detection · tracking · classification</span>
+  <span class="spacer"></span>
+  <span class="pill" id="modePill">idle</span>
+  <button class="icon-btn" id="themeBtn" type="button" title="Light / dark theme" aria-label="Light / dark theme">◐</button>
+</header>
 
-            <div class="mt-3 w-100 p-3 rounded" style="border: 0px solid #CCCCCC; background-color: transparent;">
+<main>
+  <aside id="sidebar">
+    <div class="group">Pipeline</div>
+    <label class="check"><input type="checkbox" id="do_detection"> Detection</label>
+    <label class="check"><input type="checkbox" id="do_classification"> Classification</label>
+    <label class="check"><input type="checkbox" id="do_tracking"> Tracking</label>
 
-            <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="do_detection">
-                    <label class="form-check-label" for="do_detection">Detection ON</label>
-                </div>
-
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="do_classification">
-                    <label class="form-check-label" for="do_classification">Classification ON</label>
-                </div>
-
-                <div class="mb-3 form-check">
-                    <input type="checkbox" class="form-check-input" id="do_tracking">
-                    <label class="form-check-label" for="do_tracking">Tracking ON</label>
-                </div>
-
-            </div>
-
-        </div>
-
-        <div id="videoContainer" class="col" style="background-color: #EEEEEE;">
-            <img src="{{ url_for('video_feed') }}" id="cameraFeed" onclick="getClickPosition(event)">
-        </div>
+    <div class="group">Click-to-track box</div>
+    <div class="row"><label for="sot_size">Size</label><span class="val" id="sot_size_val">10%</span></div>
+    <input type="range" id="sot_size" min="2" max="50" step="1" value="10">
+    <div class="seg" id="sot_shape">
+      <button data-v="frame" class="on" title="Frame aspect ratio">Frame</button>
+      <button data-v="tall" title="Tall box, 1 : 2.5 (a person)">Person</button>
+      <button data-v="square" title="Square">Square</button>
+      <button data-v="wide" title="Wide box, 2 : 1 (car, boat)">Wide</button>
     </div>
-</div>
-<script>
-    //------------------------------------------------------------------------------------------------------------------
-    function updateSliderValuesFromFlask() {
-        fetch('/get_config')
-                .then(response => response.json())
-                .then(data => {
-                    document.getElementById('do_detection').checked = Boolean(data.do_detection);
-                    document.getElementById('do_classification').checked = Boolean(data.do_classification);
-                    document.getElementById('do_tracking').checked = Boolean(data.do_tracking);
-                });
-    }
-    //------------------------------------------------------------------------------------------------------------------
-    document.getElementById('do_detection').addEventListener('change', function () {
-        fetch('/update_do_detection', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({enabled: this.checked})
-        })
-    });
-    //------------------------------------------------------------------------------------------------------------------
-    document.getElementById('do_classification').addEventListener('change', function () {
-        fetch('/update_do_classification', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({enabled: this.checked})
-        })
-    });
-    //------------------------------------------------------------------------------------------------------------------
-    document.getElementById('do_tracking').addEventListener('change', function () {
-        fetch('/update_do_tracking', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({enabled: this.checked})
-        })
-    });
-    //------------------------------------------------------------------------------------------------------------------
-    function getClickPosition(event) {
-        const rect = event.target.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const y = event.clientY - rect.top;
-        console.log(`Mouse clicked at: (${x}, ${y})`);
+    <div class="hint"><b>Click</b> to track a box of this size · <b>drag</b> to draw your own · <b>wheel</b> over the video resizes · <b>right click</b>, <b>Esc</b> or the button below stops. Stops by itself when the target leaves the frame or is lost.</div>
+    <button id="sot_stop" class="btn stop" type="button" hidden>■ Stop tracking</button>
 
-        // Send click coordinates to Flask
-        fetch('/mouse_click', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `x=${x}&y=${y}`,
-        }).then(response => {
-            if (response.ok) {
-                console.log('Mouse click data sent successfully');
-            } else {
-                console.error('Error sending mouse click data');
+    <div class="group">Video source</div>
+    <select id="source_select"></select>
+    <input id="source_custom" type="text" placeholder="or rtsp://... / path to video">
+    <button id="source_apply" class="btn" type="button">Switch source</button>
+    <div id="source_status" class="hint"></div>
+  </aside>
+
+  <div id="videoContainer">
+    <div id="videoWrap">
+      <img src="{{ url_for('video_feed') }}" id="cameraFeed" draggable="false" alt="video">
+      <div id="sotPreview"></div>
+    </div>
+  </div>
+</main>
+
+<script>
+    const $ = id => document.getElementById(id);
+    const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
+
+    //------------------------------------------------------------------------------------------------------------------
+    $('themeBtn').onclick = () => {
+        const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+        document.documentElement.dataset.theme = t;
+        try { localStorage.setItem('dtc-ui-theme', t); } catch (e) {}
+    };
+
+    //------------------------------------------------------------------------------------------------------------------
+    function updateFromFlask() {
+        fetch('/get_config').then(r => r.json()).then(data => {
+            $('do_detection').checked = Boolean(data.do_detection);
+            $('do_classification').checked = Boolean(data.do_classification);
+            $('do_tracking').checked = Boolean(data.do_tracking);
+            const pill = $('modePill');
+            $('sot_stop').hidden = !data.sot_active;
+            if (data.sot_active) { pill.textContent = 'SOT tracking  ✕'; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
+            else if (data.sot_stop_reason && data.sot_stop_age !== null && data.sot_stop_age < 8) {
+                pill.textContent = data.sot_stop_reason === 'stopped by user' ? 'tracking stopped' : 'SOT: ' + data.sot_stop_reason;
+                pill.className = data.sot_stop_reason === 'stopped by user' ? 'pill' : 'pill bad'; pill.title = '';
             }
+            else {
+                pill.title = '';
+                const on = ['do_detection', 'do_tracking', 'do_classification'].filter(k => data[k]).map(k => k.slice(3));
+                pill.textContent = on.length ? on.join(' + ') : 'video only'; pill.className = 'pill';
+            }
+            if (sotSize === null && data.sot_box_ratio) setSize(Math.round(data.sot_box_ratio * 100), false);
         });
     }
+    ['do_detection', 'do_classification', 'do_tracking'].forEach(k =>
+        $(k).addEventListener('change', function () { post('/update_' + k, {enabled: this.checked}).then(updateFromFlask); }));
 
-    // -------------------------------------------------------------------------------------------------------------------
+    //------------------------------------------------------------------------------------------------------------------
+    // click-to-track box: size (% of frame) + shape, remembered in this browser; preview follows the cursor
+    const ASPECT = {tall: 0.4, square: 1.0, wide: 2.0};      // width / height; 'frame' = frame aspect
+    let sotSize = null, sotShape = 'frame';
+    try {
+        const s = parseInt(localStorage.getItem('dtc-sot-size')); if (s >= 2 && s <= 50) sotSize = s;
+        const sh = localStorage.getItem('dtc-sot-shape'); if (sh && (sh === 'frame' || sh in ASPECT)) sotShape = sh;
+    } catch (e) {}
+
+    function setSize(v, remember = true) {
+        sotSize = Math.max(2, Math.min(50, v));
+        $('sot_size').value = sotSize; $('sot_size_val').textContent = sotSize + '%';
+        if (remember) try { localStorage.setItem('dtc-sot-size', sotSize); } catch (e) {}
+        redrawPreview();
+    }
+    function setShape(v) {
+        sotShape = v;
+        document.querySelectorAll('#sot_shape button').forEach(b => b.classList.toggle('on', b.dataset.v === v));
+        try { localStorage.setItem('dtc-sot-shape', v); } catch (e) {}
+        redrawPreview();
+    }
+    $('sot_size').addEventListener('input', function () { setSize(parseInt(this.value)); });
+    document.querySelectorAll('#sot_shape button').forEach(b => b.onclick = () => setShape(b.dataset.v));
+    const img = $('cameraFeed'), preview = $('sotPreview');
+    let hover = null, dragStart = null, dragging = false;
+    if (sotSize !== null) setSize(sotSize, false);
+    setShape(sotShape);
+
+    function scale() {                       // CSS px -> frame px
+        const r = img.getBoundingClientRect();
+        return {r, sx: img.naturalWidth ? img.naturalWidth / r.width : 1, sy: img.naturalHeight ? img.naturalHeight / r.height : 1};
+    }
+    function cssPoint(e) { const r = img.getBoundingClientRect(); return [Math.max(0, Math.min(r.width, e.clientX - r.left)), Math.max(0, Math.min(r.height, e.clientY - r.top))]; }
+    function boxAt(p) {                      // box centred at p, in CSS px, kept inside the image (as the server does)
+        const r = img.getBoundingClientRect(), s = (sotSize || 10) / 100;
+        let w, h;
+        if (sotShape === 'frame') { w = r.width * s; h = r.height * s; }
+        else { h = r.height * s; w = h * ASPECT[sotShape]; }
+        w = Math.min(w, r.width); h = Math.min(h, r.height);
+        const x1 = Math.max(0, Math.min(p[0] - w / 2, r.width - w)), y1 = Math.max(0, Math.min(p[1] - h / 2, r.height - h));
+        return [x1, y1, x1 + w, y1 + h];
+    }
+    function showBox(b, isDrag) {
+        preview.style.display = 'block'; preview.classList.toggle('drag', isDrag);
+        preview.style.left = b[0] + 'px'; preview.style.top = b[1] + 'px';
+        preview.style.width = (b[2] - b[0]) + 'px'; preview.style.height = (b[3] - b[1]) + 'px';
+    }
+    function redrawPreview() { if (hover && !dragging) showBox(boxAt(hover), false); }
+
+    img.addEventListener('mousemove', e => {
+        hover = cssPoint(e);
+        if (dragStart) {
+            if (!dragging && Math.hypot(hover[0] - dragStart[0], hover[1] - dragStart[1]) > 6) dragging = true;
+            if (dragging) { showBox([Math.min(dragStart[0], hover[0]), Math.min(dragStart[1], hover[1]), Math.max(dragStart[0], hover[0]), Math.max(dragStart[1], hover[1])], true); return; }
+        }
+        showBox(boxAt(hover), false);
+    });
+    img.addEventListener('mouseleave', () => { hover = null; if (!dragStart) preview.style.display = 'none'; });
+    img.addEventListener('mousedown', e => { if (e.button !== 0) return; e.preventDefault(); dragStart = cssPoint(e); dragging = false; });
+    document.addEventListener('mousemove', e => {          // keep drawing when the drag leaves the image
+        if (!dragStart || !dragging || e.target === img) return;
+        const p = cssPoint(e);
+        showBox([Math.min(dragStart[0], p[0]), Math.min(dragStart[1], p[1]), Math.max(dragStart[0], p[0]), Math.max(dragStart[1], p[1])], true);
+    });
+    document.addEventListener('mouseup', e => {
+        if (e.button !== 0 || !dragStart) return;
+        const p = cssPoint(e);
+        const b = dragging ? [Math.min(dragStart[0], p[0]), Math.min(dragStart[1], p[1]), Math.max(dragStart[0], p[0]), Math.max(dragStart[1], p[1])] : boxAt(dragStart);
+        const c = dragging ? [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2] : dragStart;
+        dragStart = null; dragging = false;
+        if (b[2] - b[0] < 4 || b[3] - b[1] < 4) return;
+        const {sx, sy} = scale();
+        const f = v => Math.round(v);
+        const body = `x=${f(c[0] * sx)}&y=${f(c[1] * sy)}&x1=${f(b[0] * sx)}&y1=${f(b[1] * sy)}&x2=${f(b[2] * sx)}&y2=${f(b[3] * sy)}`;
+        fetch('/mouse_click', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body}).then(updateFromFlask);
+        if (hover) showBox(boxAt(hover), false); else preview.style.display = 'none';
+    });
+    let wheelAcc = 0;                        // 1% per mouse-wheel notch; trackpads (many small deltas) accumulate
+    img.addEventListener('wheel', e => {
+        e.preventDefault();
+        wheelAcc += e.deltaMode === 1 ? e.deltaY * 33 : e.deltaY;
+        const steps = Math.trunc(wheelAcc / 100);
+        if (steps !== 0) { wheelAcc -= steps * 100; setSize((sotSize || 10) - steps); }
+    }, {passive: false});
+    const stopSOT = () => fetch('/cancel_sot', {method: 'POST'}).then(() => setTimeout(updateFromFlask, 150));
+    img.addEventListener('contextmenu', e => { e.preventDefault(); stopSOT(); });
+    $('sot_stop').onclick = stopSOT;
+    $('modePill').onclick = () => { if ($('modePill').classList.contains('good')) stopSOT(); };
+
+    //------------------------------------------------------------------------------------------------------------------
+    function loadSources() {
+        fetch('/sources').then(r => r.json()).then(data => {
+            const sel = $('source_select');
+            sel.innerHTML = '';
+            let found = false;
+            data.sources.forEach(s => {
+                const o = document.createElement('option');
+                o.value = s.name; o.textContent = s.label;
+                if (s.name === data.current) { o.selected = true; found = true; }
+                sel.appendChild(o);
+            });
+            if (!found && data.current) {           // current source is a URL / custom path
+                const o = document.createElement('option');
+                o.value = data.current; o.textContent = data.current; o.selected = true;
+                sel.appendChild(o);
+            }
+            $('source_status').textContent = 'Current: ' + data.current_path;
+            $('topMeta').textContent = data.current + '  ·  ' + data.current_path;
+        });
+    }
+    function switchSource() {
+        const custom = $('source_custom').value.trim();
+        const spec = custom !== '' ? custom : $('source_select').value;
+        $('source_status').textContent = 'Switching to ' + spec + ' ...';
+        post('/switch_source', {source: spec}).then(r => r.json()).then(data => {
+            if (data.ok) { $('source_custom').value = ''; setTimeout(loadSources, 1500); }
+            else $('source_status').textContent = 'Error: ' + data.error;
+        });
+    }
+    $('source_apply').addEventListener('click', switchSource);
+    $('source_custom').addEventListener('keydown', e => { if (e.key === 'Enter') switchSource(); });
+
+    //------------------------------------------------------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {
+        // typing in form fields must not reach the app (Escape closes it, 'c' cancels SOT, Space toggles sidebar)
+        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName) && event.target.type !== 'checkbox' && event.target.type !== 'range') return;
         if (event.code === 'Space') {
             event.preventDefault();
-
-            fetch('/toggle_sidebar', {
-                method: 'POST',
-            })
-                    .then(res => res.json())
-                    .then(data => {
-                        const sidebar = document.getElementById('sidebar');
-                        if (data.visible) {
-                            sidebar.classList.remove('collapsed');
-                        } else {
-                            sidebar.classList.add('collapsed');
-                        }
-                    });
-        } else {
-            fetch('/key_press', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
-                body: `key=${event.key}`,
-            }).then(response => {
-                if (response.ok) {
-                    console.log('Key press data sent successfully');
-                } else {
-                    console.error('Error sending key press data');
-                }
+            fetch('/toggle_sidebar', {method: 'POST'}).then(res => res.json()).then(data => {
+                $('sidebar').classList.toggle('collapsed', !data.visible);
             });
+        } else {
+            fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: `key=${event.key}`});
         }
-
-    });
-    // -------------------------------------------------------------------------------------------------------------------
-
-    document.addEventListener('wheel', function (event) {
-        const delta = event.deltaY;
-        console.log(`Mouse wheel moved: ${delta}`);
-
-        // Send mouse wheel data to Flask
-        fetch('/mouse_wheel', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-            },
-            body: `delta=${delta}`,
-        }).then(response => {
-            if (response.ok) {
-                console.log('Mouse wheel data sent successfully');
-            } else {
-                console.error('Error sending mouse wheel data');
-            }
-        });
     });
 
     //------------------------------------------------------------------------------------------------------------------
-    setInterval(updateSliderValuesFromFlask, 1000);
-    
+    loadSources();
+    updateFromFlask();
+    setInterval(updateFromFlask, 1000);
 </script>
 </body>
 </html>

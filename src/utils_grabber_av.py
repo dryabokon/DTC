@@ -4,8 +4,9 @@ import threading
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 class Grabber_AV:
-    def __init__(self, url: str, *, stale_s: float = 0.7, loop: bool = True):
+    def __init__(self, url: str, *, stale_s: float = 0.7, loop: bool = True, max_width=None):
         self.url = url
+        self.max_width = max_width
         self.stale_s = stale_s
         self.loop = loop
         self.is_file = os.path.isfile(url)
@@ -44,6 +45,14 @@ class Grabber_AV:
         return container, stream, fps
 
     # ------------------------------------------------------------------------------------------------------------------
+    def _to_bgr(self, frame):
+        # downscale in the decoder thread (swscale) so the main loop never sees oversized frames
+        if self.max_width and frame.width > self.max_width:
+            h = int(round(frame.height * self.max_width / frame.width / 2.0)) * 2
+            return frame.to_ndarray(width=int(self.max_width), height=h, format="bgr24")
+        return frame.to_ndarray(format="bgr24")
+
+    # ------------------------------------------------------------------------------------------------------------------
     def _run_stream(self):
         container, stream = None, None
         last_ok = time.time()
@@ -58,7 +67,7 @@ class Grabber_AV:
                     if self.stop_event.is_set():
                         break
                     for frame in packet.decode():
-                        img = frame.to_ndarray(format="bgr24")
+                        img = self._to_bgr(frame)
                         now = time.time()
                         with self._lock:
                             self._frame = img
@@ -102,7 +111,7 @@ class Grabber_AV:
                         if self.stop_event.is_set():
                             break
 
-                        img = frame.to_ndarray(format="bgr24")
+                        img = self._to_bgr(frame)
                         now = time.time()
                         with self._lock:
                             self._frame = img
@@ -134,6 +143,13 @@ class Grabber_AV:
             if not self.is_file and (time.time() - self._frame_ts) > max_age_s:
                 return None
             return self._frame.copy()
+
+    # ------------------------------------------------------------------------------------------------------------------
+    @property
+    def frame_ts(self):
+        # timestamp of the latest decoded frame (changes once per new frame)
+        with self._lock:
+            return self._frame_ts if self._frame is not None else None
 
     # ------------------------------------------------------------------------------------------------------------------
     @property

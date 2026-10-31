@@ -14,6 +14,7 @@ import utils_video_saver
 import utils_UI_Flask
 import utils_DTC_pipeline
 import utils_grabber_av
+import utils_sources
 #----------------------------------------------------------------------------------------------------------------------
 class Experimentor():
     def __init__(self,folder_runs,config,folder_output_current_experiment=None):
@@ -23,6 +24,13 @@ class Experimentor():
         self.config.folder_out = self.folder_output_current_experiment
         self.df_det_frame_empty = pd.DataFrame({'class_ids': [], 'class_name': [],'track_id':[],'lifetime':[], 'x1': [], 'y1': [], 'x2': [], 'y2': [], 'conf': []})
         self.df_det_frame_global = pd.DataFrame([])
+        self.log_frames = []            # per-frame dfs, concatenated once in construct_report (was O(N^2) pd.concat per frame)
+        self._last_frame_ts = None
+        self._last_frame_time = time.time()
+        self._no_signal_shown = False
+        self._source_lock = threading.Lock()
+        self._source_request = None
+        self.source_segment = 0
 
         self.HB = tools_heartbeat.tools_HB()
         self.TP = tools_time_profiler.Time_Profiler(verbose=False)
@@ -45,7 +53,7 @@ class Experimentor():
     def setup_experiment(self):
 
         self.config.folder_out = self.folder_output_current_experiment
-        self.Grabber = utils_grabber_av.Grabber_AV(self.config.source)
+        self.Grabber = self.create_grabber(self.config.source)
         if not (os.path.isfile(self.config.detection_model) or os.path.isdir(self.config.detection_model)):
             print('Model not found:', self.config.detection_model)
             self.config.detection_model = self.config.detection_model_fallback
@@ -57,9 +65,75 @@ class Experimentor():
             self.Saver = utils_video_saver.utils_video_saver(self.folder_output_current_experiment)
 
         self.UI = utils_UI_Flask.WebApp(self.config)
+        self.UI.P = self.Perceptioner
+        self.UI.E = self
         threading.Thread(target=self.UI.run_web_server).start()
         print('[  UI   ] webapp:',self.UI.get_connection_string())
 
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def create_grabber(self, source):
+        return utils_grabber_av.Grabber_AV(source, max_width=getattr(self.config, 'max_frame_width', None))
+    # ----------------------------------------------------------------------------------------------------------------------
+    def current_source_name(self):
+        return getattr(self.config, 'source_name', None) or str(self.config.source)
+    # ----------------------------------------------------------------------------------------------------------------------
+    def request_source(self, spec):
+        """Called from the web UI thread. Validates the spec; the switch itself happens in the main loop."""
+        name, source, gt = utils_sources.resolve_source(spec)      # raises ValueError for bad specs
+        with self._source_lock:
+            self._source_request = spec
+        return name
+    # ----------------------------------------------------------------------------------------------------------------------
+    def switch_source(self, spec):
+        name, source, gt = utils_sources.resolve_source(spec)
+        print('[Source ] switching to', source)
+
+        old = self.Grabber
+        self.Grabber = self.create_grabber(source)
+        if old is not None:
+            old.stop()
+
+        utils_sources.apply_to_config(self.config, spec)
+
+        P = self.Perceptioner
+        with P._sot_lock:
+            P._sot_request = None
+        P.SOT.stop('source switched')
+        P.update_grabber(self.Grabber)
+        P.Tracker = P.init_tracker()
+        P.df_true = None
+        P.update_config(self.config)
+
+        if self.Saver is not None:          # new video file per source (frame size may differ)
+            if self.Saver.writer_initialized:
+                self.Saver.save_captured_video()
+            else:                           # nothing was recorded (e.g. dead URL): drop the empty segment
+                self.Saver.stop()
+                if os.path.normpath(self.Saver.folder_output) != os.path.normpath(self.folder_output_current_experiment):
+                    try:
+                        os.rmdir(self.Saver.folder_output)
+                    except OSError:
+                        pass
+            self.source_segment += 1
+            safe = ''.join(c if c.isalnum() or c in '-_' else '_' for c in name)[:40]
+            folder = os.path.join(self.folder_output_current_experiment, f'src{self.source_segment:02d}_{safe}/')
+            os.makedirs(folder, exist_ok=True)
+            self.Saver = utils_video_saver.utils_video_saver(folder)
+
+        self._last_frame_ts = None
+        self._last_frame_time = time.time()
+        self._no_signal_shown = False
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def show_no_signal(self):
+        import numpy, cv2
+        H, W = (self.H, self.W) if self.H is not None else (480, 640)
+        image = numpy.full((H, W, 3), 48, dtype=numpy.uint8)
+        cv2.putText(image, 'Waiting for source:', (20, H // 2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.putText(image, str(self.config.source)[:80], (20, H // 2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 1, cv2.LINE_AA)
+        if self.config.do_display:
+            self.UI.set_image(image)
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
@@ -108,6 +182,8 @@ class Experimentor():
     def construct_report(self):
         print('Constructing report ...')
 
+        if len(self.log_frames) > 0:
+            self.df_det_frame_global = pd.concat(self.log_frames, ignore_index=True)
         self.df_det_frame_global.to_csv(self.folder_output_current_experiment + 'df_track2.csv', index=False,header=True, float_format='%.2f')
 
         with open(self.folder_output_current_experiment + 'df_config.csv', 'w') as f:
@@ -139,7 +215,13 @@ class Experimentor():
         #self.UI.is_config_updated = True
 
         if key in ['Escape','esc']:
-            self.should_be_closed = True
+            if self.Perceptioner.SOT.is_active:         # first Escape only stops click-to-track
+                self.Perceptioner.cancel_sot()
+            else:
+                self.should_be_closed = True
+
+        if key in ['c','C','Delete']:
+            self.Perceptioner.cancel_sot()
 
         return
     # ----------------------------------------------------------------------------------------------------------------------
@@ -148,17 +230,46 @@ class Experimentor():
         self.HB = tools_heartbeat.tools_HB()
 
         while not self.should_be_closed:
-            time.sleep(0.01)
-            self.HB.do_heartbeat()
-            self.grab_and_process()
             if self.UI is not None:
                 self.process_key(self.UI.get_key())
+
+            with self._source_lock:
+                source_request, self._source_request = self._source_request, None
+            if source_request is not None:
+                try:
+                    self.switch_source(source_request)
+                except Exception as e:
+                    print('[Source ] switch failed:', e)
+
+            # process each grabbed frame once: skip until the grabber delivers a new one
+            frame_ts = getattr(self.Grabber, 'frame_ts', 'n/a')
+            if frame_ts != 'n/a' and (frame_ts is None or frame_ts == self._last_frame_ts):
+                if not self._no_signal_shown and time.time() - self._last_frame_time > 2.0:
+                    self.show_no_signal()
+                    self._no_signal_shown = True
+                time.sleep(0.002)
+                continue
+            self._last_frame_ts = frame_ts
+            self._last_frame_time = time.time()
+            self._no_signal_shown = False
+
+            self.HB.do_heartbeat()
+            self.grab_and_process()
 
             if self.UI is not None and self.UI.config_updated():
                 self.config = self.UI.get_config()
                 self.Perceptioner.update_config(self.config)
                 self.UI.clear_config_update_status()
         return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def sot_to_log(self, df_sot):
+        df = df_sot.copy()
+        df.insert(0, 'frame_id', int(self.HB.get_frame_id()))
+        df['lifetime'] = None
+        df['time'] = (datetime.datetime.fromtimestamp(time.time()).strftime('%H:%M:%S.%f'))[:-4]
+        df['class_ids'] = None
+        df['class_name'] = 'SOT'
+        return df[['frame_id', 'track_id', 'lifetime', 'time', 'x1', 'y1', 'x2', 'y2', 'conf', 'class_ids', 'class_name']]
     # ----------------------------------------------------------------------------------------------------------------------
     def grab_and_process(self):
 
@@ -170,10 +281,16 @@ class Experimentor():
             self.H, self.W = image.shape[:2]
 
         self.TP.tic('perception')
-        df_det_frame = self.process_frame(image)
-
-        self.TP.tic('draw_debug_image')
-        image = self.Perceptioner.draw_debug_image(image,df_det_frame)
+        df_sot = self.Perceptioner.sot_step(image)
+        if df_sot is not None:
+            # SOT mode: tracker only, detector / MOT / heavy drawing are bypassed
+            df_det_frame = self.sot_to_log(df_sot)
+            self.TP.tic('draw_debug_image')
+            image = self.Perceptioner.draw_sot(image, df_sot)
+        else:
+            df_det_frame = self.process_frame(image)
+            self.TP.tic('draw_debug_image')
+            image = self.Perceptioner.draw_debug_image(image,df_det_frame)
 
         self.TP.tic('logging: print_debug_info')
         image = self.print_debug_info(image)
@@ -184,7 +301,7 @@ class Experimentor():
                 df_det_frame = pd.DataFrame(columns=['frame_id','track_id','lifetime','time','x1','y1','x2','y2','conf','class_ids','class_name','x','y','z','x_trg','y_trg','z_trg','roll','pitch','yaw'])
                 df_det_frame.loc[0] = [int(self.HB.get_frame_id()), None, None, (datetime.datetime.fromtimestamp(time.time()).strftime('%H:%M:%S.%f'))[:-4], None, None, None, None, None, None, None,None, None, None, None, None, None,None, None, None]
 
-            self.df_det_frame_global = pd.concat([self.df_det_frame_global,df_det_frame],ignore_index=True)
+            self.log_frames.append(df_det_frame)
 
         if self.Saver is not None:
             self.TP.tic('logging: append frame')

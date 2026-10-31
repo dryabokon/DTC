@@ -1,5 +1,6 @@
 import time
 import inspect
+import threading
 import os
 import hashlib
 import pandas as pd
@@ -21,6 +22,7 @@ from DL import utils_detector_yolo
 from DL import utils_classifier_yolo
 from DL import utils_tracker_deep_sort,utils_tracker_SiamFC
 from DL import utils_tracker_yolo
+import utils_tracker_sot
 # ----------------------------------------------------------------------------------------------------------------------
 class Pipeliner:
     def __init__(self,folder_out,config,Grabber,save_tracks=True):
@@ -50,6 +52,16 @@ class Pipeliner:
         self.colors80 = tools_draw_numpy.get_colors(80, colormap='nipy_spectral', shuffle=True)
         self.frame_buffer = []
         self.ROI = None
+
+        self.SOT = utils_tracker_sot.Tracker_SOT(model=getattr(self.config, 'sot_tracking_model', 'NANO'),
+                                                 models_dir=getattr(self.config, 'sot_models_dir', '../models/nanotrack/'),
+                                                 score_th=getattr(self.config, 'sot_score_th', 0.3),
+                                                 lost_th=getattr(self.config, 'sot_lost_th', 15),
+                                                 edge_frames=getattr(self.config, 'sot_lost_edge_frames', 8),
+                                                 app_rel=getattr(self.config, 'sot_lost_appearance', 0.6),
+                                                 app_window=getattr(self.config, 'sot_lost_window', 30))
+        self._sot_lock = threading.Lock()
+        self._sot_request = None
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def init_MLflow(self):
@@ -873,6 +885,77 @@ class Pipeliner:
                 cv2.imwrite(self.folder_out + sub_folder + name , small)
 
         return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def update_ROI(self, point_xy, box_xyxy=None):
+        """Called from the web UI thread on mouse click: request SOT start at the clicked point (or with the given box)."""
+        with self._sot_lock:
+            self._sot_request = ('start', ((int(point_xy[0]), int(point_xy[1])), box_xyxy))
+        return True
+    # ----------------------------------------------------------------------------------------------------------------------
+    def cancel_sot(self):
+        with self._sot_lock:
+            self._sot_request = ('cancel', None)
+        return
+    # ----------------------------------------------------------------------------------------------------------------------
+    def click_to_box(self, point_xy, frame_shape):
+        H, W = frame_shape[:2]
+        ratio = getattr(self.config, 'sot_box_ratio', 0.10)
+        bw, bh = max(8, int(W * ratio)), max(8, int(H * ratio))
+        x, y = point_xy
+        x1 = min(max(0, x - bw // 2), W - bw)
+        y1 = min(max(0, y - bh // 2), H - bh)
+        return [x1, y1, x1 + bw, y1 + bh]
+    # ----------------------------------------------------------------------------------------------------------------------
+    def clamp_box(self, box_xyxy, frame_shape):
+        H, W = frame_shape[:2]
+        x1, x2 = sorted([int(box_xyxy[0]), int(box_xyxy[2])])
+        y1, y2 = sorted([int(box_xyxy[1]), int(box_xyxy[3])])
+        x1, y1 = max(0, min(x1, W - 8)), max(0, min(y1, H - 8))
+        x2, y2 = max(x1 + 8, min(x2, W)), max(y1 + 8, min(y2, H))
+        return [x1, y1, x2, y2]
+    # ----------------------------------------------------------------------------------------------------------------------
+    def sot_step(self, frame):
+        """Main-thread SOT step. Returns df row (frame_id,track_id,x1..y2,conf) if SOT is active, else None."""
+        with self._sot_lock:
+            request, self._sot_request = self._sot_request, None
+
+        if frame is None:
+            return None
+
+        if request is not None:
+            action, point = request
+            if action == 'cancel':
+                self.SOT.stop('stopped by user')
+            elif action == 'start':
+                point, box = point
+                self.ROI = self.clamp_box(box, frame.shape) if box is not None else self.click_to_box(point, frame.shape)
+                if self.SOT.start(frame, self.ROI):
+                    return self.sot_df(self.SOT.box, 1.0)
+
+        if not self.SOT.is_active:
+            return None
+
+        box, score = self.SOT.update(frame)
+        if not self.SOT.is_active:          # just lost the target -> fall back to the regular pipeline
+            return None
+        return self.sot_df(box, score)
+    # ----------------------------------------------------------------------------------------------------------------------
+    def sot_df(self, box, score):
+        if box is None:
+            return pd.DataFrame({'track_id': [], 'x1': [], 'y1': [], 'x2': [], 'y2': [], 'conf': []})
+        x1, y1, x2, y2 = box
+        return pd.DataFrame({'track_id': [0], 'x1': [x1], 'y1': [y1], 'x2': [x2], 'y2': [y2], 'conf': [round(score, 3)]})
+    # ----------------------------------------------------------------------------------------------------------------------
+    def draw_sot(self, image, df_sot):
+        """Cheap overlay for SOT mode (no desaturation / alpha blending)."""
+        if image is None:
+            return image
+        image = image.copy()
+        color = (0, 255, 0) if df_sot is not None and df_sot.shape[0] > 0 else (0, 0, 255)
+        box = self.SOT.box
+        if box is not None:
+            cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), color, 2)
+        return image
     # ----------------------------------------------------------------------------------------------------------------------
     def update_grabber(self, Grabber):
         if self.Grabber is not None:
