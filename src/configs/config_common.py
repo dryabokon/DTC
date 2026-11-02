@@ -21,6 +21,7 @@ class cnfg_common(config_base.cnfg_base):
     #detection_model = '../models/yolov8n_ncnn_model'
 
     imgsz = 640
+    imgsz_hw = ''                               # 'H,W' for rectangular models, e.g. --imgsz_hw 256,416 (overrides imgsz)
     detection_model_desc = 'default model'
     confidence_th = None
 

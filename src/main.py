@@ -51,6 +51,8 @@ if __name__ == '__main__':
     if gt_explicit:
         config.gt = gt_value
     print('[Source ]', config.source)
+    if getattr(config, 'imgsz_hw', ''):            # rectangular input (e.g. NCNN exported at 256x416); the CLI cannot pass a tuple to imgsz
+        config.imgsz = tuple(int(v) for v in str(config.imgsz_hw).split(','))
 
     E = utils_experiment_ops.Experimentor(folder_runs, config)
     E.run_experiment()
