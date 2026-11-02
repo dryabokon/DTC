@@ -4,6 +4,7 @@
 
 # outputs
 .pi_last_host
+.pi_sync.bundle
 runs/
 models/runs/
 

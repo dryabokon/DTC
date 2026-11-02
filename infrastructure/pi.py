@@ -4,6 +4,7 @@
     python infrastructure/pi.py run "<cmd>"     # run a command on the Pi over SSH
     python infrastructure/pi.py push <local> <remote>   /  pull <remote> <local>
     python infrastructure/pi.py url             # web UI address, e.g. http://169.254.93.37:8509/
+    python infrastructure/pi.py sync            # put the Pi's DTC checkout on this laptop's current branch/commit
 
 Settings come from .env in the repo root: PI_USER, PI_PASSWORD, PI_HOST (default pi.local),
 PI_HOSTKEY (SSH host key fingerprint, SHA256:...), PI_MACS (comma separated, eth0 and wlan0).
@@ -151,8 +152,54 @@ def find(verbose=True):
     log('[pi] is it powered, on the same Wi-Fi / cable as this laptop? PI_HOST=' + ENV['PI_HOST'])
     return None
 # ----------------------------------------------------------------------------------------------------------------------
+PI_REPO = '~/sources/DTC'
+# ----------------------------------------------------------------------------------------------------------------------
+def pi_run(host, cmd, timeout=120):
+    r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout)
+    return r.returncode, r.stdout.strip(), r.stderr.strip()
+# ----------------------------------------------------------------------------------------------------------------------
+def git(*args):
+    return subprocess.run(['git', '-C', ROOT] + list(args), capture_output=True, text=True).stdout.strip()
+# ----------------------------------------------------------------------------------------------------------------------
+def sync(host):
+    """Pi checkout -> laptop's current branch and commit (committed; pushing is not required).
+    Tries GitHub first (fetch on the Pi); if the Pi has no internet (e.g. direct cable) or the commit is not pushed,
+    ships the missing commits from this laptop as a git bundle over SSH. Never touches uncommitted changes on the Pi."""
+    branch, head = git('rev-parse', '--abbrev-ref', 'HEAD'), git('rev-parse', 'HEAD')
+    if git('status', '--porcelain', '--untracked-files=no'):
+        log('[pi] note: uncommitted local changes are NOT synced, only commits')
+    _, dirty, _ = pi_run(host, f'cd {PI_REPO} && git status --porcelain --untracked-files=no')
+    if dirty:
+        log('[pi] the Pi has uncommitted changes, not touching it: ' + dirty.replace('\n', '; ')); return 1
+
+    def checkout(ref):      # switch the Pi to `branch` and fast-forward it to `ref`; returns the Pi's HEAD
+        _, out, _ = pi_run(host, f'cd {PI_REPO} && (git checkout -q {branch} 2>/dev/null || git checkout -q -b {branch} {ref}) '
+                                 f'&& git merge -q --ff-only {ref}; git rev-parse HEAD')
+        return out.splitlines()[-1] if out else ''
+
+    rc, _, _ = pi_run(host, f'cd {PI_REPO} && timeout 20 git fetch -q origin {branch}')
+    if rc == 0 and checkout(f'origin/{branch}') == head:
+        log(f'[pi] synced from GitHub: {branch} @ {head[:7]}'); return 0
+
+    log('[pi] GitHub not reachable from the Pi (or commit not pushed) - shipping commits from this laptop')
+    _, pi_head, _ = pi_run(host, f'cd {PI_REPO} && git rev-parse HEAD')
+    if pi_head == head:
+        log(f'[pi] already at {head[:7]}'); return 0
+    known = subprocess.run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', pi_head, head], capture_output=True).returncode == 0
+    bundle = os.path.join(ROOT, '.pi_sync.bundle')
+    r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True)
+    if r.returncode != 0:
+        log('[pi] git bundle failed: ' + r.stderr); return 1
+    pscp = ['pscp', '-batch', '-q', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']]
+    subprocess.run(pscp + [bundle, f"{ENV['PI_USER']}@{host}:/tmp/dtc_sync.bundle"], check=True)
+    os.remove(bundle)
+    rc, _, err = pi_run(host, f'cd {PI_REPO} && git fetch -q /tmp/dtc_sync.bundle {branch}:refs/remotes/laptop/{branch} && rm -f /tmp/dtc_sync.bundle')
+    if rc == 0 and checkout(f'laptop/{branch}') == head:
+        log(f'[pi] synced from laptop: {branch} @ {head[:7]}'); return 0
+    log(f'[pi] sync failed {err}'); return 1
+# ----------------------------------------------------------------------------------------------------------------------
 def main():
-    if len(sys.argv) < 2 or sys.argv[1] not in ('find', 'run', 'push', 'pull', 'url'):
+    if len(sys.argv) < 2 or sys.argv[1] not in ('find', 'run', 'push', 'pull', 'url', 'sync'):
         print(__doc__); return 2
     cmd = sys.argv[1]
     host = find(verbose=(cmd == 'find' or cmd == 'url'))
@@ -164,6 +211,8 @@ def main():
         print(f'http://{host}:{UI_PORT}/'); return 0
     if cmd == 'run':
         return subprocess.run(plink_args(host) + [' '.join(sys.argv[2:])]).returncode
+    if cmd == 'sync':
+        return sync(host)
     pscp = ['pscp', '-batch', '-pw', ENV.get('PI_PASSWORD', '')] + (['-hostkey', ENV['PI_HOSTKEY']] if ENV.get('PI_HOSTKEY') else [])
     remote = lambda p: f"{ENV['PI_USER']}@{host}:{p}"
     if cmd == 'push':
