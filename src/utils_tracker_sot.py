@@ -15,10 +15,13 @@ class Tracker_SOT:
       edge       - the box touches the frame border for edge_frames consecutive frames: the target has left the frame
       appearance - NanoTrack backbone embedding of the current box vs the one taken at start (1.4 ms on RPi5):
                    median over app_window frames below app_rel x its value in the first frames -> occluded / drifted away
+      empty box  - contrast (grey std) inside the box drops below empty_rel x its start value for empty_frames frames:
+                   on sky / water NanoTrack keeps a box with nothing in it and drifts steadily to the frame edge
+                   (Fly2 sim with camera yaw: silent drift after the target left the view 860 -> 28 frames)
     Known limit: a swap to another similar-looking person at a crossing mostly goes unnoticed (needs a detector / ReID).
     """
     def __init__(self, model='NANO', models_dir='../models/nanotrack/', score_th=0.3, lost_th=15,
-                 edge_frames=8, edge_px=3, app_rel=0.6, app_window=30, app_base_frames=10):
+                 edge_frames=8, edge_px=3, app_rel=0.6, app_window=30, app_base_frames=10, empty_rel=0.35, empty_frames=5):
         self.model = model.upper()
         self.models_dir = models_dir
         self.score_th = score_th
@@ -28,6 +31,8 @@ class Tracker_SOT:
         self.app_rel = app_rel                  # 0/None disables the appearance check
         self.app_window = app_window
         self.app_base_frames = app_base_frames
+        self.empty_rel = empty_rel              # 0/None disables the empty-box check
+        self.empty_frames = empty_frames
         self.tracker = None
         self.embedder = None
         self.box = None
@@ -67,6 +72,12 @@ class Tracker_SOT:
         v = self.embedder.forward()[0].mean(axis=(1, 2))
         return v / (np.linalg.norm(v) + 1e-9)
     # ----------------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def _contrast(frame, box):
+        x1, y1, x2, y2 = [int(v) for v in box]
+        p = frame[max(0, y1):max(0, y2), max(0, x1):max(0, x2)]
+        return float(cv2.cvtColor(p, cv2.COLOR_BGR2GRAY).std()) if p.size else 0.0
+    # ----------------------------------------------------------------------------------------------------------------------
     @property
     def is_active(self):
         return self.tracker is not None
@@ -86,6 +97,8 @@ class Tracker_SOT:
         self.sims = []
         self.app_base = None
         self.edge_cnt = 0
+        self.contrast0 = self._contrast(frame, self.box)
+        self.empty_cnt = 0
         self.last_ms = (time.perf_counter() - t) * 1000
         self.score = 1.0
         self.similarity = 1.0
@@ -115,6 +128,11 @@ class Tracker_SOT:
             self.edge_cnt = self.edge_cnt + 1 if at_edge else 0
             if self.edge_cnt >= self.edge_frames:
                 return 'left the frame'
+
+        if self.empty_rel and self.contrast0 > 1.0:
+            self.empty_cnt = self.empty_cnt + 1 if self._contrast(frame, box) < self.empty_rel * self.contrast0 else 0
+            if self.empty_cnt >= self.empty_frames:
+                return 'target lost (empty box)'
 
         if self.emb0 is not None:
             self.similarity = float(self._embed(frame, box) @ self.emb0)

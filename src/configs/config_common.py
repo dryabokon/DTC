@@ -39,6 +39,7 @@ class cnfg_common(config_base.cnfg_base):
     sot_lost_edge_frames = 8                    # box touching the frame border this many frames in a row -> target left the frame (0 = off)
     sot_lost_appearance = 0.60                  # appearance similarity (median over sot_lost_window) below this x start value -> lost (0 = off)
     sot_lost_window = 30                        # frames
+    sot_lost_empty = 0.35                       # box contrast below this x start contrast for 5 frames -> lost (target gone from sky/water) (0 = off)
 
     do_classification = False
     classification_model = 'yolo'

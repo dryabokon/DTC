@@ -61,7 +61,8 @@ class Pipeliner:
                                                  lost_th=getattr(self.config, 'sot_lost_th', 15),
                                                  edge_frames=getattr(self.config, 'sot_lost_edge_frames', 8),
                                                  app_rel=getattr(self.config, 'sot_lost_appearance', 0.6),
-                                                 app_window=getattr(self.config, 'sot_lost_window', 30))
+                                                 app_window=getattr(self.config, 'sot_lost_window', 30),
+                                                 empty_rel=getattr(self.config, 'sot_lost_empty', 0.35))
         self._sot_lock = threading.Lock()
         self._sot_request = None
         return
