@@ -4,8 +4,10 @@ import threading
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 class Grabber_AV:
-    def __init__(self, url: str, *, stale_s: float = 0.7, looped: bool = False, max_width=None):
+    def __init__(self, url: str, *, stale_s: float = 0.7, looped: bool = False, max_width=None, camera_size='1280x720', camera_fps=30):
         self.url = url
+        self.camera_size = camera_size
+        self.camera_fps = camera_fps
         self.max_width = max_width
         self.stale_s = stale_s
         self.looped = looped
@@ -22,6 +24,12 @@ class Grabber_AV:
 
     # ------------------------------------------------------------------------------------------------------------------
     def _open_stream(self):
+        if self.url.startswith('/dev/video'):           # V4L2 camera: MJPEG gives 720p/1080p at 30 fps (raw YUYV only 10/5 fps)
+            container = av.open(self.url, mode="r", format="v4l2",
+                                options={"input_format": "mjpeg", "video_size": self.camera_size, "framerate": str(self.camera_fps)})
+            stream = container.streams.video[0]
+            stream.thread_type = "AUTO"
+            return container, stream
         options = {
             "rtsp_transport": "tcp",
             "stimeout": "2000000",

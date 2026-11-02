@@ -4,6 +4,8 @@ class cnfg_common(config_base.cnfg_base):
     exp_name = 'default'
     source = None
     realtime = True                             # True: files paced to source FPS and looped (PyAV); False: read once, as fast as possible (offline runs)
+    camera_size = '1280x720'                    # V4L2 cameras (/dev/videoN, MJPEG): capture size and fps
+    camera_fps = 30
     max_frame_width = 1280                      # frames wider than this are downscaled by the grabber (e.g. 1080p -> 1280x720)
 
     resize_ratio = None

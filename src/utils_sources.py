@@ -19,10 +19,26 @@ def _gt_for(video_path):
     videos = [f for f in os.listdir(folder) if f.lower().endswith(VIDEO_EXT)]
     return gt if (os.path.isfile(gt) and len(videos) == 1) else None
 # ----------------------------------------------------------------------------------------------------------------------
-def list_sources(images_dir=IMAGES_DIR):
-    """Ordered list of dicts {name, label, source, gt} for every video file found under images_dir."""
-    alias_of = {v: k for k, v in ALIASES.items()}
+def list_cameras():
+    """USB/V4L2 cameras on Linux: [(name, device, title)], e.g. ('camera', '/dev/video0', 'HD Pro Webcam C920').
+    Only the capture node of each camera is listed (/dev/v4l/by-id/*-video-index0); re-scanned on every call (hot-plug)."""
     result = []
+    for link in sorted(glob.glob('/dev/v4l/by-id/*-video-index0')):
+        device = os.path.realpath(link)
+        try:
+            title = open(f'/sys/class/video4linux/{os.path.basename(device)}/name').read().strip()
+        except OSError:
+            title = os.path.basename(link)
+        result.append((device, title))
+    return [('camera' if i == 0 else f'camera{i}', device, title) for i, (device, title) in enumerate(result)]
+# ----------------------------------------------------------------------------------------------------------------------
+def is_device(spec):
+    return str(spec).startswith('/dev/video')
+# ----------------------------------------------------------------------------------------------------------------------
+def list_sources(images_dir=IMAGES_DIR):
+    """Ordered list of dicts {name, label, source, gt}: connected cameras first, then every video file under images_dir."""
+    alias_of = {v: k for k, v in ALIASES.items()}
+    result = [{'name': name, 'label': f'{name}: {title} ({device})', 'source': device, 'gt': None} for name, device, title in list_cameras()]
     for path in sorted(glob.glob(os.path.join(images_dir, '**', '*'), recursive=True)):
         if not path.lower().endswith(VIDEO_EXT):
             continue
@@ -51,7 +67,12 @@ def resolve_source(spec, images_dir=IMAGES_DIR):
     if is_url(spec):
         return spec, spec, None
 
-    if spec.isdigit():                       # webcam index, read by tools_grabber
+    if is_device(spec) and os.path.exists(spec):
+        return next((n for n, d, t in list_cameras() if d == spec), os.path.basename(spec)), spec, None
+
+    if spec.isdigit():                       # webcam index: /dev/videoN on Linux (PyAV), else tools_grabber (e.g. DirectShow on Windows)
+        if os.path.exists(f'/dev/video{spec}'):
+            return resolve_source(f'/dev/video{spec}', images_dir)
         return f'webcam {spec}', spec, None
 
     if os.path.isdir(spec):                  # folder of images, read by tools_grabber
@@ -68,6 +89,6 @@ def apply_to_config(config, spec, images_dir=IMAGES_DIR):
     config.source = source
     config.gt = gt
     config.source_name = name
-    config.exp_name = ('[live] ' if is_url(source) else '[offline] ') + name
+    config.exp_name = ('[live] ' if is_url(source) or is_device(source) or str(source).isdigit() else '[offline] ') + name
     return config
 # ----------------------------------------------------------------------------------------------------------------------

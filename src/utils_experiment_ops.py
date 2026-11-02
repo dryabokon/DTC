@@ -79,11 +79,12 @@ class Experimentor():
     def create_grabber(self, source):
         # realtime (default): files and URLs via PyAV - paced to the source FPS, files looped, wide frames downscaled.
         # --realtime false: files are read frame by frame as fast as possible, once, by tools_grabber (offline runs).
-        # webcam indices, image folders etc. always go to tools_grabber.
+        # V4L2 cameras (/dev/videoN) via PyAV as MJPEG; webcam indices, image folders etc. go to tools_grabber.
         src = str(source)
-        is_url, is_file = '://' in src, os.path.isfile(src)
+        is_url, is_file = '://' in src or utils_sources.is_device(src), os.path.isfile(src)
         if is_url or (is_file and getattr(self.config, 'realtime', True)):
-            return utils_grabber_av.Grabber_AV(src, looped=is_file, max_width=getattr(self.config, 'max_frame_width', None))
+            return utils_grabber_av.Grabber_AV(src, looped=is_file, max_width=getattr(self.config, 'max_frame_width', None),
+                                               camera_size=getattr(self.config, 'camera_size', '1280x720'), camera_fps=getattr(self.config, 'camera_fps', 30))
         return tools_grabber.Grabber(source, looped=False)
     # ----------------------------------------------------------------------------------------------------------------------
     @staticmethod
