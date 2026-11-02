@@ -1,0 +1,17 @@
+# secrets
+.env
+*.env
+
+# outputs
+runs/
+models/runs/
+
+# python
+__pycache__/
+*.pyc
+
+# local model files (large / machine-specific)
+*.pt
+*.torchscript
+*.engine
+models/*_ncnn_model/

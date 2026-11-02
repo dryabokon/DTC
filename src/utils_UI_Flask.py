@@ -25,7 +25,9 @@ class WebApp:
         self.app.logger.disabled = True
         self.target_fps = 10
         self.image = numpy.full((480, 640, 3), 127, dtype=numpy.uint8)
+        self.image_id = 0
         self.P = None
+        self.E = None
         self.setup_routes()
         self._key_lock = threading.Lock()
         self.key = None
@@ -43,21 +45,40 @@ class WebApp:
 #----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/mouse_click', methods=['POST'])
         def mouse_click():
-            if self.P is None:
-                return 'Pipeline not ready', 503
-
             x = request.form.get('x')
             y = request.form.get('y')
             current_mouse_pos = [int(float(x)), int(float(y))]
-            self.P.update_ROI(current_mouse_pos)
-            return {'status': 'tracking'}, 200
+            if self.P is None:
+                return 'Pipeline not ready', 503
+            box = None
+            if request.form.get('x1') is not None:      # box drawn / sized in the browser (frame pixels)
+                box = [int(float(request.form.get(k))) for k in ('x1', 'y1', 'x2', 'y2')]
+            self.P.update_ROI(current_mouse_pos, box)
+            return 'Success', 200
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/sources', methods=['GET'])
+        def sources():
+            import utils_sources
+            current = self.E.current_source_name() if self.E is not None else None
+            return {'current': current, 'current_path': str(self.config.source),
+                    'sources': [{'name': s['name'], 'label': s['label']} for s in utils_sources.list_sources()]}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/switch_source', methods=['POST'])
+        def switch_source():
+            data = request.get_json(silent=True) or {}
+            spec = str(data.get('source', '')).strip()
+            if self.E is None:
+                return {'ok': False, 'error': 'pipeline not ready'}, 503
+            try:
+                name = self.E.request_source(spec)
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'name': name}, 200
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():
-            if self.P is None:
-                return 'Pipeline not ready', 503
-
-            self.P.cancel_sot()
+            if self.P is not None:
+                self.P.cancel_sot()
             return 'Success', 200
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/button_takeoff', methods=['POST'])
@@ -135,7 +156,10 @@ class WebApp:
         # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/get_config', methods=['GET'])
         def get_config():
-            return {'do_detection':self.config.do_detection,'do_classification':self.config.do_classification,'do_tracking':self.config.do_tracking,'do_profiling':self.config.do_profiling}
+            return {'do_detection':self.config.do_detection,'do_classification':self.config.do_classification,'do_tracking':self.config.do_tracking,'do_profiling':self.config.do_profiling,
+                    'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
+                    'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
+                    'sot_stop_age': (time.time() - self.P.SOT.stop_time) if self.P is not None and self.P.SOT.stop_reason else None}
         # ----------------------------------------------------------------------------------------------------------------------
     def get_key(self):
         with self._key_lock:
@@ -158,8 +182,12 @@ class WebApp:
         self.fps = 0
         self.frame_id = 0
         self.start_frame, self.start_time = 0, time.time()
+        last_id = -1
         while not self.stop_event.is_set():
-            time.sleep(0.01)
+            time.sleep(0.005)
+            if self.image_id == last_id:       # encode only new frames (was: re-encode every 10 ms)
+                continue
+            last_id = self.image_id
             image = self.image if self.image is not None else tools_draw_numpy.random_noise(480, 640, (128, 128, 128))
             yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + cv2.imencode('.jpg', image)[1].tobytes() + b'\r\n')
     # ----------------------------------------------------------------------------------------------------------------------
@@ -186,6 +214,7 @@ class WebApp:
     # ----------------------------------------------------------------------------------------------------------------------
     def set_image(self,image):
         self.image = image
+        self.image_id += 1
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def stop(self):

@@ -3,6 +3,8 @@ from DL import config_base
 class cnfg_common(config_base.cnfg_base):
     exp_name = 'default'
     source = None
+    realtime = True                             # True: files paced to source FPS and looped (PyAV); False: read once, as fast as possible (offline runs)
+    max_frame_width = 1280                      # frames wider than this are downscaled by the grabber (e.g. 1080p -> 1280x720)
 
     resize_ratio = None
     start = 0
@@ -25,9 +27,15 @@ class cnfg_common(config_base.cnfg_base):
     tracking_model = 'DEEPSORT'
     track_lifetime = 2
 
-    sot_tracking_model = 'YEMEN_NANO'
-    sot_lost_th = 30
-    sot_click_box_size = 60
+    # click-to-track single-object tracking (SOT): detector/MOT are bypassed while SOT is active
+    sot_tracking_model = 'NANO'                 # 'NANO' (cv2.TrackerNano) | 'MIL'
+    sot_models_dir = '../models/nanotrack/'
+    sot_box_ratio = 0.10                        # ROI on click: this fraction of frame width and height
+    sot_score_th = 0.30                         # below this NanoTrack score the frame counts as "lost"
+    sot_lost_th = 15                            # consecutive lost frames before SOT is cancelled
+    sot_lost_edge_frames = 8                    # box touching the frame border this many frames in a row -> target left the frame (0 = off)
+    sot_lost_appearance = 0.60                  # appearance similarity (median over sot_lost_window) below this x start value -> lost (0 = off)
+    sot_lost_window = 30                        # frames
 
     do_classification = False
     classification_model = 'yolo'

@@ -6,9 +6,9 @@ def get_config_campus():
         source = '../images/v00/PETS09-S2L1.mp4'
         gt     = '../images/v00/gt.txt'
 
-        do_detection = True
-        do_tracking = True
-        do_classification = True
+        do_detection = False
+        do_tracking = False
+        do_classification = False
         do_profiling = False
 
     return cnfg()
@@ -18,9 +18,9 @@ def get_config_Oxford():
         exp_name = '[offline] Oxford'
         source = '../images/v01/TownCentreXVID.mp4'
 
-        do_detection = True
-        do_tracking = True
-        do_classification = True
+        do_detection = False
+        do_tracking = False
+        do_classification = False
         do_profiling = False
 
     return cnfg()
@@ -30,9 +30,9 @@ def get_config_boats():
         exp_name = '[offline] boats'
         source = '../images/v10/boats10a.mp4'
 
-        do_detection = True
-        do_tracking = True
-        do_classification = True
+        do_detection = False
+        do_tracking = False
+        do_classification = False
         do_profiling = False
 
     return cnfg()
@@ -41,9 +41,9 @@ def get_config_live_cam_PC():
     class cnfg(cnfg_common):
         exp_name = '[live] PC cam'
         source = '0'
-        do_detection = True
-        do_tracking = True
-        do_classification = True
+        do_detection = False
+        do_tracking = False
+        do_classification = False
         do_profiling = True
 
         #detection_model = '../models/yolov8n.pt'
