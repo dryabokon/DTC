@@ -121,7 +121,7 @@ class WebApp:
             with self._key_lock:
                 self.key = request.form.get('key')
             if self.key == 'Escape' or self.key == 'esc':
-                pass
+                print(f'[  UI   ] Escape from {request.remote_addr} ({request.headers.get("User-Agent", "?")[:60]})')
 
             return 'Success', 200
         # ----------------------------------------------------------------------------------------------------------------------

@@ -3,6 +3,7 @@
 *.env
 
 # outputs
+.pi_last_host
 runs/
 models/runs/
 
