@@ -45,6 +45,20 @@ class TestPause(unittest.TestCase):
             time.sleep(0.005)
         self.assertGreater(seen, 15); self.assertLess(seen, 40)        # ~25 fps, no catch-up burst after the pause
 
+    def test_restart_goes_back_to_the_first_frame(self):
+        time.sleep(1.5)
+        self.assertGreater(self.g.position, 20)
+        self.g.restart(); time.sleep(0.3)
+        self.assertLess(self.g.position, 12, 'not back at the start')
+
+    def test_restart_while_paused_shows_frame_1_and_stays_paused(self):
+        time.sleep(1.0); self.g.set_paused(True); time.sleep(0.3)
+        self.g.restart(); time.sleep(0.6)
+        self.assertEqual(self.g.position, 1)
+        self.assertTrue(self.g.paused)
+        p = self.g.position; time.sleep(0.5)
+        self.assertEqual(p, self.g.position, 'moved on while paused')
+
 
 if __name__ == '__main__':
     unittest.main()

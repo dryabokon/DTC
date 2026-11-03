@@ -185,6 +185,7 @@ class Experimentor():
                 'fps': round(float(self.HB.get_fps()), 2) if getattr(self, 'frames_processed', 0) else 0.0,
                 'no_signal': bool(self._no_signal_shown),
                 'paused': self.is_paused(), 'can_pause': bool(getattr(self.Grabber, 'can_pause', False)),
+                'video_pos': getattr(self.Grabber, 'position', None),
                 'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
                 'sot_stop_reason': P.SOT.stop_reason if P is not None else None}
@@ -277,6 +278,12 @@ class Experimentor():
 
         if key == 'ArrowRight' and self.is_paused():
             self.Grabber.step()
+
+        if key in ['r', 'R', 'Home'] and getattr(self.Grabber, 'can_pause', False):     # video from the start (stays paused if paused)
+            self.Perceptioner.cancel_sot()
+            self.Perceptioner.Tracker = self.Perceptioner.init_tracker()                # tracks of the old pass would continue into frame 1
+            self.Grabber.restart()
+            print('[ Video ] from the start', flush=True)
 
         return
     # ----------------------------------------------------------------------------------------------------------------------

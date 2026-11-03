@@ -69,6 +69,7 @@
   <span class="spacer"></span>
   <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
   <span class="pill" id="modePill">idle</span>
+  <button class="icon-btn" id="restartBtn" type="button" hidden title="Video from the start (R / Home)" aria-label="Video from the start">⏮</button>
   <button class="icon-btn" id="themeBtn" type="button" title="Light / dark theme" aria-label="Light / dark theme">◐</button>
 </header>
 
@@ -109,6 +110,7 @@
     const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
     //------------------------------------------------------------------------------------------------------------------
+    $('restartBtn').onclick = () => { fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'key=Home'}); $('restartBtn').blur(); };
     $('themeBtn').onclick = () => {
         const t = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
         document.documentElement.dataset.theme = t;
@@ -119,6 +121,7 @@
     function updateFromFlask() {
         fetch('/get_config').then(r => r.json()).then(data => {
             $('pausePill').hidden = !data.paused;
+            $('restartBtn').hidden = !data.can_pause;          // video files only
             $('do_detection').checked = Boolean(data.do_detection);
             $('do_classification').checked = Boolean(data.do_classification);
             $('do_tracking').checked = Boolean(data.do_tracking);
@@ -287,7 +290,7 @@
         }
         let key = event.key;
         if (event.code === 'Space') { event.preventDefault(); key = 'Space'; }                 // Space: pause / resume a video file
-        if (key === 'ArrowRight') event.preventDefault();                                       // -> while paused: next frame
+        if (key === 'ArrowRight' || key === 'Home') event.preventDefault();                     // -> while paused: next frame; Home / R: from the start
         fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: `key=${encodeURIComponent(key)}`})
             .then(() => { if (key === 'Space') setTimeout(updateFromFlask, 150); });
     });

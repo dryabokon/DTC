@@ -22,6 +22,8 @@ class Grabber_AV:
         self._finished = threading.Event()
         self._paused = False                    # files only: playback holds the current frame
         self._step = False                      # while paused: release exactly one more frame
+        self._restart = False                   # files: start again from the first frame
+        self.position = 0                       # files: index of the frame on screen (1 = first)
         self.stop_event = threading.Event()
         threading.Thread(target=self._run_file if self.is_file else self._run_stream, daemon=True).start()
         return
@@ -120,22 +122,25 @@ class Grabber_AV:
                 frame_idx = 0
 
                 for packet in container.demux(stream):
-                    if self.stop_event.is_set():
+                    if self.stop_event.is_set() or self._restart:
                         break
                     for frame in packet.decode():
-                        if self.stop_event.is_set():
+                        if self.stop_event.is_set() or self._restart:
                             break
 
                         img = self._to_bgr(frame)
-                        if self._paused and not self._step:          # hold the frame on screen until resumed / stepped
-                            while self._paused and not self._step and not self.stop_event.is_set():
+                        if self._paused and not self._step and frame_idx > 0:   # hold the frame on screen until resumed / stepped
+                            while self._paused and not self._step and not self.stop_event.is_set() and not self._restart:
                                 time.sleep(0.02)
+                            if self._restart:
+                                break
                             t0 = time.time() - frame_idx * interval  # keep pacing from here, no catch-up burst
                         self._step = False
                         now = time.time()
                         with self._lock:
                             self._frame = img
                             self._frame_ts = now
+                            self.position = frame_idx + 1
 
                         # Pace playback to match source FPS
                         frame_idx += 1
@@ -149,6 +154,9 @@ class Grabber_AV:
             except Exception as e:
                 print(f"Grabber_AV file error: {e}")
 
+            if self._restart:                                # from the first frame again (a paused video shows it and stays paused)
+                self._restart = False
+                continue
             if not self.looped:
                 self._finished.set()
                 break
@@ -184,6 +192,11 @@ class Grabber_AV:
         if self.can_pause:
             self._paused = bool(paused)
         return self._paused
+
+    def restart(self):
+        """Files: jump back to the first frame."""
+        if self.is_file:
+            self._restart = True
 
     def step(self):
         """While paused: show the next frame and stay paused."""

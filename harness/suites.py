@@ -104,6 +104,11 @@ def _pause_check(R, pi):
     R.check('pause: Space resumes at source speed, SOT keeps tracking', bool(st and b and not b['paused'] and b['frames'] - a['frames'] >= 30 and b['sot_active']),
             f'{(b["frames"] - a["frames"]) / 2 if a and b else 0:.0f} fps, SOT {"on" if b and b["sot_active"] else "off"}')
     pi.key('Escape'); pi.wait_for(lambda s: not s['sot_active'], 3)
+    time.sleep(1)
+    pos = (pi.status() or {}).get('video_pos') or 0
+    pi.key('r')
+    st = pi.wait_for(lambda s: (s.get('video_pos') or 999) < 15, 3)
+    R.check('R: video from the start', bool(st and pos > 15 and st['video_pos'] < 15), f'frame {pos} -> {st and st["video_pos"]}')
 # ----------------------------------------------------------------------------------------------------------------------
 def unit(R, pi=None, sync=True):
     pi = pi or pi_app.Pi()
