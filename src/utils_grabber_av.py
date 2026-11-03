@@ -1,11 +1,13 @@
 import av
+import cv2
 import os
 import threading
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 class Grabber_AV:
-    def __init__(self, url: str, *, stale_s: float = 0.7, looped: bool = False, max_width=None, camera_size='1280x720', camera_fps=30):
+    def __init__(self, url: str, *, stale_s: float = 0.7, looped: bool = False, max_width=None, camera_size='1280x720', camera_fps=30, mirror=False):
         self.url = url
+        self.mirror = mirror                            # left-right flip (selfie view), applied in the decoder thread
         self.camera_size = camera_size
         self.camera_fps = camera_fps
         self.max_width = max_width
@@ -58,8 +60,10 @@ class Grabber_AV:
         # downscale in the decoder thread (swscale) so the main loop never sees oversized frames
         if self.max_width and frame.width > self.max_width:
             h = int(round(frame.height * self.max_width / frame.width / 2.0)) * 2
-            return frame.to_ndarray(width=int(self.max_width), height=h, format="bgr24")
-        return frame.to_ndarray(format="bgr24")
+            img = frame.to_ndarray(width=int(self.max_width), height=h, format="bgr24")
+        else:
+            img = frame.to_ndarray(format="bgr24")
+        return cv2.flip(img, 1) if self.mirror else img
 
     # ------------------------------------------------------------------------------------------------------------------
     def _run_stream(self):

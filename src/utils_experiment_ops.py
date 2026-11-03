@@ -1,3 +1,4 @@
+import cv2
 import pandas as pd
 import time
 import os
@@ -80,12 +81,22 @@ class Experimentor():
         # realtime (default): files and URLs via PyAV - paced to the source FPS, files looped, wide frames downscaled.
         # --realtime false: files are read frame by frame as fast as possible, once, by tools_grabber (offline runs).
         # V4L2 cameras (/dev/videoN) via PyAV as MJPEG; webcam indices, image folders etc. go to tools_grabber.
+        # Cameras (V4L2 devices and webcam indices) are mirrored left-right when config.camera_mirror (selfie view).
         src = str(source)
         is_url, is_file = '://' in src or utils_sources.is_device(src), os.path.isfile(src)
+        mirror = getattr(self.config, 'camera_mirror', False) and (utils_sources.is_device(src) or src.isdigit())
         if is_url or (is_file and getattr(self.config, 'realtime', True)):
             return utils_grabber_av.Grabber_AV(src, looped=is_file, max_width=getattr(self.config, 'max_frame_width', None),
-                                               camera_size=getattr(self.config, 'camera_size', '1280x720'), camera_fps=getattr(self.config, 'camera_fps', 30))
-        return tools_grabber.Grabber(source, looped=False)
+                                               camera_size=getattr(self.config, 'camera_size', '1280x720'), camera_fps=getattr(self.config, 'camera_fps', 30),
+                                               mirror=mirror)
+        G = tools_grabber.Grabber(source, looped=False)
+        if mirror:
+            get_frame = G.get_frame
+            def get_frame_mirrored(*args, **kwargs):
+                frame = get_frame(*args, **kwargs)
+                return None if frame is None else cv2.flip(frame, 1)
+            G.get_frame = get_frame_mirrored
+        return G
     # ----------------------------------------------------------------------------------------------------------------------
     @staticmethod
     def stop_grabber(G):
