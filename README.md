@@ -22,6 +22,12 @@ dtc sim pi                        DTC on the Pi on the simulator stream (drone d
 dtc clips record NAME --maneuver yaw|yaw_fast|sweep|none --seconds 60     reference clip -> clips/NAME
 ```
 
+## Web UI keys
+Click / drag on the video: track a box (SOT) · right click, Esc, C: stop tracking (Esc again quits) ·
+Space: pause / resume (video files) · ->: next frame while paused · R / Home / ⏮: video from the start · H: hide the panel.
+Behind a full-tunnel VPN (Windows blocked, WSL not) the harness reaches the Pi through WSL; `dtc pi open` gives the UI on
+http://localhost:8509.
+
 ## Tests
 ```
 dtc test unit          tests/unit on the Pi (unittest, seconds)
