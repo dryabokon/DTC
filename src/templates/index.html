@@ -90,8 +90,7 @@
 
     <div class="group">Video source</div>
     <select id="source_select"></select>
-    <input id="source_custom" type="text" placeholder="or rtsp://... / path to video">
-    <button id="source_apply" class="btn" type="button">Switch source</button>
+    <input id="source_custom" type="text" placeholder="or rtsp://... / path to video, Enter" title="Type a URL or a file path and press Enter">
     <div id="source_status" class="hint"></div>
   </aside>
 
@@ -233,7 +232,7 @@
     $('modePill').onclick = () => { if ($('modePill').classList.contains('good')) stopSOT(); };
 
     //------------------------------------------------------------------------------------------------------------------
-    function loadSources() {
+    function loadSources(message) {
         fetch('/sources').then(r => r.json()).then(data => {
             const sel = $('source_select');
             sel.innerHTML = '';
@@ -249,21 +248,24 @@
                 o.value = data.current; o.textContent = data.current; o.selected = true;
                 sel.appendChild(o);
             }
-            $('source_status').textContent = 'Current: ' + data.current_path;
+            $('source_status').textContent = message || ('Current: ' + data.current_path);
             $('topMeta').textContent = data.current + '  ·  ' + data.current_path;
         });
     }
-    function switchSource() {
-        const custom = $('source_custom').value.trim();
-        const spec = custom !== '' ? custom : $('source_select').value;
+    function switchSource(spec) {
+        spec = (spec || '').trim();
+        if (spec === '') return;
+        const sel = $('source_select');
+        sel.disabled = true;                          // one switch at a time
         $('source_status').textContent = 'Switching to ' + spec + ' ...';
         post('/switch_source', {source: spec}).then(r => r.json()).then(data => {
-            if (data.ok) { $('source_custom').value = ''; setTimeout(loadSources, 1500); }
-            else $('source_status').textContent = 'Error: ' + data.error;
-        });
+            if (data.ok) { $('source_custom').value = ''; setTimeout(() => { sel.disabled = false; loadSources(); }, 1500); }
+            else { sel.disabled = false; loadSources('Error: ' + data.error); }     // dropdown back to the current source, error stays visible
+        }).catch(() => { sel.disabled = false; loadSources(); });
     }
-    $('source_apply').addEventListener('click', switchSource);
-    $('source_custom').addEventListener('keydown', e => { if (e.key === 'Enter') switchSource(); });
+    // picking an entry switches right away; a typed URL / path switches on Enter
+    $('source_select').addEventListener('change', e => switchSource(e.target.value));
+    $('source_custom').addEventListener('keydown', e => { if (e.key === 'Enter') switchSource(e.target.value); });
 
     //------------------------------------------------------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {
