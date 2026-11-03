@@ -66,11 +66,17 @@ WSL_KNOWN_HOSTS = '/tmp/dtc_pi_known_hosts'
 def wsl_available():
     if not shutil.which('wsl'):
         return False
-    r = subprocess.run(['wsl', '-e', 'sh', '-c', 'command -v ssh scp sshpass nc >/dev/null && echo ok'], capture_output=True, text=True)
+    try:
+        r = subprocess.run(['wsl', '-e', 'sh', '-c', 'command -v ssh scp sshpass nc >/dev/null && echo ok'], capture_output=True, text=True, timeout=90)
+    except subprocess.TimeoutExpired:
+        log('[pi] WSL did not answer in 90 s'); return False
     return 'ok' in r.stdout
 # ----------------------------------------------------------------------------------------------------------------------
 def wsl_port_open(host, port=22):
-    return subprocess.run(['wsl', '-e', 'nc', '-z', '-w', '2', host, str(port)], capture_output=True).returncode == 0
+    try:
+        return subprocess.run(['wsl', '-e', 'nc', '-z', '-w', '2', host, str(port)], capture_output=True, timeout=30).returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 # ----------------------------------------------------------------------------------------------------------------------
 def wsl_trust(host):
     """Scan the host key from WSL, accept it only if its fingerprint is PI_HOSTKEY, store it for ssh/scp in WSL."""
@@ -114,7 +120,10 @@ def copy(host, src, dst, to_pi=True, recursive=False, quiet=True):
     else:
         argv = ['pscp', '-batch', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']] + (['-q'] if quiet else []) + (['-r'] if recursive else [])
         argv += [src, remote(dst)] if to_pi else [remote(src), dst]
-    return subprocess.run(argv, capture_output=quiet, env=ssh_env()).returncode == 0
+    try:
+        return subprocess.run(argv, capture_output=quiet, env=ssh_env(), timeout=600).returncode == 0
+    except subprocess.TimeoutExpired:
+        log(f'[pi] copy did not finish in 600 s: {src} -> {dst}'); return False
 # ----------------------------------------------------------------------------------------------------------------------
 def is_our_pi(host, timeout=15):
     """True only if SSH works and the host presents PI_HOSTKEY (directly, or through WSL when Windows is blocked)."""
