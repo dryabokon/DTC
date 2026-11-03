@@ -57,6 +57,7 @@
   #videoContainer { flex: 1; min-width: 0; overflow: auto; background: var(--video-bg); display: flex; align-items: flex-start; justify-content: center; padding: 12px; }
   #videoWrap { position: relative; display: inline-block; max-width: 100%; line-height: 0; }
   #cameraFeed { max-width: 100%; height: auto; display: block; cursor: crosshair; border-radius: 4px; user-select: none; -webkit-user-drag: none; }
+  #freeze { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; border-radius: 4px; }
   #sotPreview { position: absolute; border: 2px dashed var(--sot); pointer-events: none; display: none; border-radius: 2px; }
   #sotPreview.drag { border-style: solid; }
 </style>
@@ -100,6 +101,7 @@
   <div id="videoContainer">
     <div id="videoWrap">
       <img src="{{ url_for('video_feed') }}" id="cameraFeed" draggable="false" alt="video">
+      <canvas id="freeze" hidden></canvas>
       <div id="sotPreview"></div>
     </div>
   </div>
@@ -110,6 +112,19 @@
     const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
     //------------------------------------------------------------------------------------------------------------------
+    // Space reaches the Pi ~3 frames after the frame was shown; the Pi then goes back to that frame. Without this the video
+    // visibly ran on and jumped back. The frame on screen is frozen here at once and released when the Pi shows the same frame.
+    let freezeTimer = null;
+    function freezeScreen() {
+        const img = $('cameraFeed'), c = $('freeze');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        c.hidden = false;
+        clearTimeout(freezeTimer);
+        freezeTimer = setTimeout(unfreeze, 1500);               // the Pi has re-sent the matching paused frame by then
+    }
+    function unfreeze() { clearTimeout(freezeTimer); $('freeze').hidden = true; }
+
     function seenThumb() {      // 64x36 grey thumbnail of the frame on screen: block means, like cv2.INTER_AREA on the Pi
         try {
             const img = $('cameraFeed'), W = img.naturalWidth, H = img.naturalHeight, TW = 64, TH = 36;
@@ -218,6 +233,7 @@
     });
     img.addEventListener('mouseleave', () => { hover = null; if (!dragStart) preview.style.display = 'none'; });
     img.addEventListener('mousedown', e => {
+        unfreeze();                                              // show the Pi's frame (it carries the SOT box)
         if (e.button !== 0) return;
         e.preventDefault();                                  // no image drag / text selection while drawing a box ...
         if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();   // ... but take the focus off sidebar buttons, so Esc / C reach the app
@@ -308,7 +324,8 @@
         if (event.code === 'Space') { event.preventDefault(); key = 'Space'; }                 // Space: pause / resume a video file
         if (key === 'ArrowRight' || key === 'Home') event.preventDefault();                     // -> while paused: next frame; Home / R: from the start
         let extra = '';
-        if (key === 'Space' && $('pausePill').hidden) extra = '&thumb=' + seenThumb();         // pausing: tell which frame is on screen
+        if (key === 'Space' && $('pausePill').hidden) { extra = '&thumb=' + seenThumb(); freezeScreen(); }   // pausing: freeze what is on screen now
+        else if (key === 'Space') unfreeze();                                                           // resuming
         fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: `key=${encodeURIComponent(key)}` + extra})
             .then(() => { if (key === 'Space') setTimeout(updateFromFlask, 150); });
     });
