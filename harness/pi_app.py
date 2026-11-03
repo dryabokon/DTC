@@ -40,6 +40,11 @@ class Pi:
         cmd = ['pscp', '-batch', '-q', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY']] + (['-r'] if recursive else [])
         return subprocess.run(cmd + [f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}", local], capture_output=True).returncode == 0
 
+    def push_dir(self, local, remote):
+        cmd = ['pscp', '-batch', '-q', '-r', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY'], local,
+               f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}"]
+        return subprocess.run(cmd, capture_output=True).returncode == 0
+
     def push(self, local, remote):
         cmd = ['pscp', '-batch', '-q', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY'], local,
                f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}"]

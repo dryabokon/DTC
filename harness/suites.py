@@ -249,9 +249,10 @@ def quality(R, sync=True):
         try:
             q = json.loads(out); json.dump(q, open(R.path('sot_clips.json'), 'w'), indent=2)
             for name, v in q.items():
-                R.metric(f'clip_{name}_on_target_pct', v['on_target_pct'], '%', min=LIMITS['clip_on_target_pct'])
-                R.metric(f'clip_{name}_drift_gone', v['drift_gone'], 'frames', max=LIMITS['clip_drift_gone'], better='lower')
-                R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', max=LIMITS['clip_drift_visible'], better='lower')
+                gated = name.startswith('sim_')       # limits were set on the sim clips; dataset clips are tracked as a baseline (no limit yet)
+                R.metric(f'clip_{name}_on_target_pct', v['on_target_pct'], '%', min=LIMITS['clip_on_target_pct'] if gated else None)
+                R.metric(f'clip_{name}_drift_gone', v['drift_gone'], 'frames', max=LIMITS['clip_drift_gone'] if gated else None, better='lower')
+                R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', max=LIMITS['clip_drift_visible'] if gated else None, better='lower')
         except Exception as e:
             R.check('sot_clips', False, f'{e}: {pi.sh("tail -5 /tmp/q_clips.log")[1]}')
 

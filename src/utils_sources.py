@@ -5,6 +5,7 @@ import glob
 # A source spec can be: a preset alias, a listed name (e.g. 'v10/boats10b'), a file path, or a URL (rtsp://, http://, ...).
 # ----------------------------------------------------------------------------------------------------------------------
 IMAGES_DIR = '../images'
+DATASETS_DIR = '../datasets/videos'          # public datasets built by `dtc data prepare` (local, not in git): <set>/<sequence>/<sequence>.mp4
 VIDEO_EXT = ('.mp4', '.avi', '.mkv', '.mov')
 ALIASES = {
     'campus':  'v00/PETS09-S2L1',
@@ -50,6 +51,12 @@ def list_sources(images_dir=IMAGES_DIR):
                        'label': f'{alias} ({rel})' if alias else rel,
                        'source': path.replace('\\', '/'),
                        'gt': _gt_for(path)})
+    for path in sorted(glob.glob(os.path.join(DATASETS_DIR, '*', '*', '*'))):     # one video per sequence folder
+        if not path.lower().endswith(VIDEO_EXT):
+            continue
+        rel = os.path.relpath(os.path.dirname(path), DATASETS_DIR).replace('\\', '/')     # e.g. visdrone/uav0000086_00000_v
+        result.append({'name': rel, 'label': f'{rel} (dataset)' + (' [gt]' if _gt_for(path) else ''),
+                       'source': path.replace('\\', '/'), 'gt': _gt_for(path)})
     return result
 # ----------------------------------------------------------------------------------------------------------------------
 def is_url(spec):

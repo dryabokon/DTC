@@ -15,6 +15,9 @@
   dtc clips record NAME [--maneuver yaw|yaw_fast|sweep|none] [--seconds 60]   reference clip with ground truth -> clips/NAME
   dtc clips list
 
+  dtc data prepare [mot15|visdrone|antiuav|all]   public datasets (datasets/_downloads) -> sources + reference clips
+  dtc data list | push             list the built sequences / copy them to the Pi (UI dropdown there)
+
   dtc test unit | smoke | integration [--sim] | quality     -> runs/<suite>/NNNN (report.md, metrics.json, manifest.json)
   dtc runs [suite]                 latest runs and their verdicts
   dtc report [suite] [NNNN]        print a run's report (default: the latest run)
@@ -101,6 +104,36 @@ def cmd_clips(a, extra):
         rows = [json.loads(l) for l in open(os.path.join(out, 'gt.jsonl'))]
         print(f'done: {len(rows)} frames, target visible in {sum(1 for r in rows if r["box"])}'); return 0
 # ----------------------------------------------------------------------------------------------------------------------
+def cmd_data(a, extra):
+    from harness import datasets
+    if a.action == 'prepare':
+        todo = ['mot15', 'visdrone', 'antiuav'] if a.name in (None, 'all') else [a.name]
+        for d in todo:
+            print(f'{d}:')
+            try:
+                getattr(datasets, 'prepare_' + d)()
+            except FileNotFoundError as e:
+                print(f'   skipped - not downloaded: {e.filename}')
+        return 0
+    if a.action == 'list':
+        if not os.path.isdir(datasets.VIDEOS):
+            print('nothing built yet: dtc data prepare'); return 0
+        for s in sorted(os.listdir(datasets.VIDEOS)):
+            for q in sorted(os.listdir(os.path.join(datasets.VIDEOS, s))):
+                d = os.path.join(datasets.VIDEOS, s, q)
+                mb = sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d)) / 1e6
+                print(f'{s}/{q:28s} {mb:7.1f} MB' + ('  gt' if os.path.isfile(os.path.join(d, 'gt.txt')) else ''))
+        return 0
+    if a.action == 'push':
+        from harness import pi_app
+        pi = pi_app.Pi(verbose=False)
+        pi.sh(f'mkdir -p {pi_app.REPO}/datasets/videos')
+        for s in sorted(os.listdir(datasets.VIDEOS)):
+            print(f'copying {s} ...', flush=True)
+            if not pi.push_dir(os.path.join(datasets.VIDEOS, s), f'{pi_app.REPO}/datasets/videos/'):
+                print('   failed'); return 1
+        print(pi.sh(f'du -sh {pi_app.REPO}/datasets/videos/*')[1]); return 0
+# ----------------------------------------------------------------------------------------------------------------------
 def cmd_test(a, extra):
     from harness import suites
     with runs.Run(a.suite) as R:
@@ -152,6 +185,7 @@ def main():
     s = sub.add_parser('sim'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--maneuver', default='none')
     s = sub.add_parser('clips'); s.add_argument('action', choices=['record', 'list']); s.add_argument('name', nargs='?')
     s.add_argument('--maneuver', default='yaw'); s.add_argument('--seconds', type=float, default=60)
+    s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push']); s.add_argument('name', nargs='?')
     s = sub.add_parser('test'); s.add_argument('suite', choices=['unit', 'smoke', 'integration', 'quality'])
     s.add_argument('--sim', action='store_true', help='integration: also the PC simulator stream'); s.add_argument('--no-sync', action='store_true')
     s = sub.add_parser('runs'); s.add_argument('suite', nargs='?'); s.add_argument('-n', type=int, default=5)
@@ -159,7 +193,7 @@ def main():
     a, extra = p.parse_known_args()
     if a.cmd is None:
         print(__doc__); return 0
-    return {'pi': cmd_pi, 'sim': cmd_sim, 'clips': cmd_clips, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report}[a.cmd](a, extra)
+    return {'pi': cmd_pi, 'sim': cmd_sim, 'clips': cmd_clips, 'data': cmd_data, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report}[a.cmd](a, extra)
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
     sys.exit(main())

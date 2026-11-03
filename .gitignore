@@ -8,6 +8,8 @@
 runs/
 # reference clips with ground truth (dtc clips record) - local only, not in git
 clips/
+# downloaded public datasets (MOT15, VisDrone, Anti-UAV) - local only, not in git
+datasets/
 models/runs/
 
 # python
