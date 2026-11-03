@@ -1,3 +1,4 @@
 [submodule "tools"]
 	path = tools
 	url = https://github.com/dryabokon/tools.git
+	ignore = dirty
