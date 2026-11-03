@@ -183,8 +183,8 @@ def sync(host):
 
     log('[pi] GitHub not reachable from the Pi (or commit not pushed) - shipping commits from this laptop')
     _, pi_head, _ = pi_run(host, f'cd {PI_REPO} && git rev-parse HEAD')
-    if pi_head == head:
-        log(f'[pi] already at {head[:7]}'); return sync_tools(host)
+    if pi_head == head and checkout(head) == head:      # same commit: still put the Pi on `branch` (e.g. after a fast-forward merge)
+        log(f'[pi] already at {head[:7]}, on {branch}'); return sync_tools(host)
     known = subprocess.run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', pi_head, head], capture_output=True).returncode == 0
     bundle = os.path.join(ROOT, '.pi_sync.bundle')
     r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True)
