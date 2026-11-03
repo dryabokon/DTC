@@ -110,13 +110,20 @@
     const post = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)});
 
     //------------------------------------------------------------------------------------------------------------------
-    function seenThumb() {                                   // 32x18 grey thumbnail of the frame on screen (matched on the Pi)
+    function seenThumb() {      // 64x36 grey thumbnail of the frame on screen: block means, like cv2.INTER_AREA on the Pi
         try {
-            const c = document.createElement('canvas'); c.width = 32; c.height = 18;
-            const x = c.getContext('2d'); x.drawImage($('cameraFeed'), 0, 0, 32, 18);
-            const d = x.getImageData(0, 0, 32, 18).data, out = [];
-            for (let i = 0; i < d.length; i += 4) out.push(Math.round(0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]));
-            return out.join(',');
+            const img = $('cameraFeed'), W = img.naturalWidth, H = img.naturalHeight, TW = 64, TH = 36;
+            const c = document.createElement('canvas'); c.width = W; c.height = H;
+            const x = c.getContext('2d'); x.drawImage(img, 0, 0);
+            const d = x.getImageData(0, 0, W, H).data, sum = new Float64Array(TW * TH), cnt = new Float64Array(TW * TH);
+            for (let y = 0; y < H; y++) {
+                const ty = Math.min(TH - 1, Math.floor(y * TH / H));
+                for (let xx = 0, i = y * W * 4; xx < W; xx++, i += 4) {
+                    const k = ty * TW + Math.min(TW - 1, Math.floor(xx * TW / W));
+                    sum[k] += 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2]; cnt[k]++;
+                }
+            }
+            return Array.from(sum, (v, k) => (v / cnt[k]).toFixed(1)).join(',');
         } catch (e) { return ''; }
     }
     $('restartBtn').onclick = () => { fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: 'key=Home'}); $('restartBtn').blur(); };

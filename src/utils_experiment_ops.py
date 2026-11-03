@@ -170,7 +170,7 @@ class Experimentor():
     @staticmethod
     def thumb(image):
         import cv2
-        return cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (32, 18), interpolation=cv2.INTER_AREA).astype('float32')
+        return cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (64, 36), interpolation=cv2.INTER_AREA).astype('float32')
     # ----------------------------------------------------------------------------------------------------------------------
     def pause_on_seen_frame(self, thumb_csv):
         """The key reaches the Pi 1-2 frames after the operator saw the frame: go back to the frame whose thumbnail matches
@@ -179,12 +179,13 @@ class Experimentor():
         if not thumb_csv or not self._shown:
             return
         try:
-            seen = numpy.array([float(v) for v in thumb_csv.split(',')], dtype='float32').reshape(18, 32)
+            seen = numpy.array([float(v) for v in thumb_csv.split(',')], dtype='float32').reshape(36, 64)
         except ValueError:
             return
         time.sleep(0.06)                                   # let the grabber thread reach its pause wait
         errs = [float(numpy.abs(t - seen).mean()) for _, _, t in self._shown]
         k = int(numpy.argmin(errs))
+        print('[ Video ] pause match errors (oldest..newest): ' + ' '.join(f'{e:.1f}' for e in errs), flush=True)
         if k != len(self._shown) - 1:
             pos, raw, _ = self._shown[k]
             self.Grabber.show(raw, pos)
