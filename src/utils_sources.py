@@ -26,7 +26,8 @@ def list_cameras():
     for link in sorted(glob.glob('/dev/v4l/by-id/*-video-index0')):
         device = os.path.realpath(link)
         try:
-            title = open(f'/sys/class/video4linux/{os.path.basename(device)}/name').read().strip()
+            with open(f'/sys/class/video4linux/{os.path.basename(device)}/name') as fh:
+                title = fh.read().strip()
         except OSError:
             title = os.path.basename(link)
         result.append((device, title))

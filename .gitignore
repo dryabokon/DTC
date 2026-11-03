@@ -6,6 +6,8 @@
 .pi_last_host
 .pi_sync.bundle
 runs/
+# reference clips with ground truth (dtc clips record) - local only, not in git
+clips/
 models/runs/
 
 # python
