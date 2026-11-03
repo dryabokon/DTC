@@ -4,7 +4,7 @@
     python infrastructure/pi.py run "<cmd>"     # run a command on the Pi over SSH
     python infrastructure/pi.py push <local> <remote>   /  pull <remote> <local>
     python infrastructure/pi.py url             # web UI address, e.g. http://169.254.93.37:8509/
-    python infrastructure/pi.py sync            # put the Pi's DTC checkout on this laptop's current branch/commit
+    python infrastructure/pi.py sync            # put the Pi's DTC checkout and its tools/ submodule on this laptop's branch/commit
 
 Settings come from .env in the repo root: PI_USER, PI_PASSWORD, PI_HOST (default pi.local),
 PI_HOSTKEY (SSH host key fingerprint, SHA256:...), PI_MACS (comma separated, eth0 and wlan0).
@@ -179,12 +179,12 @@ def sync(host):
 
     rc, _, _ = pi_run(host, f'cd {PI_REPO} && timeout 20 git fetch -q origin {branch}')
     if rc == 0 and checkout(f'origin/{branch}') == head:
-        log(f'[pi] synced from GitHub: {branch} @ {head[:7]}'); return 0
+        log(f'[pi] synced from GitHub: {branch} @ {head[:7]}'); return sync_tools(host)
 
     log('[pi] GitHub not reachable from the Pi (or commit not pushed) - shipping commits from this laptop')
     _, pi_head, _ = pi_run(host, f'cd {PI_REPO} && git rev-parse HEAD')
     if pi_head == head:
-        log(f'[pi] already at {head[:7]}'); return 0
+        log(f'[pi] already at {head[:7]}'); return sync_tools(host)
     known = subprocess.run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', pi_head, head], capture_output=True).returncode == 0
     bundle = os.path.join(ROOT, '.pi_sync.bundle')
     r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True)
@@ -195,8 +195,46 @@ def sync(host):
     os.remove(bundle)
     rc, _, err = pi_run(host, f'cd {PI_REPO} && git fetch -q /tmp/dtc_sync.bundle {branch}:refs/remotes/laptop/{branch} && rm -f /tmp/dtc_sync.bundle')
     if rc == 0 and checkout(f'laptop/{branch}') == head:
-        log(f'[pi] synced from laptop: {branch} @ {head[:7]}'); return 0
+        log(f'[pi] synced from laptop: {branch} @ {head[:7]}'); return sync_tools(host)
     log(f'[pi] sync failed {err}'); return 1
+# ----------------------------------------------------------------------------------------------------------------------
+def sync_tools(host):
+    """tools/ submodule on the Pi -> the commit pinned in the laptop's HEAD.
+    The Pi gets the commit from GitHub if it can, else as a git bundle from the laptop's tools/ checkout."""
+    pinned = git('rev-parse', 'HEAD:tools')
+    if not pinned:
+        return 0                                        # a commit without the submodule
+    sub = f'{PI_REPO}/tools'
+    def pi_has_commit():
+        return pi_run(host, f'cd {sub} 2>/dev/null && git cat-file -e {pinned}^{{commit}}')[0] == 0
+    if not pi_has_commit():
+        pi_run(host, f'cd {sub} 2>/dev/null && timeout 20 git fetch -q origin')
+    if not pi_has_commit():
+        tools = os.path.join(ROOT, 'tools')
+        if subprocess.run(['git', '-C', tools, 'cat-file', '-e', pinned + '^{commit}'], capture_output=True).returncode != 0:
+            log(f'[pi] tools {pinned[:7]} is not in the laptop checkout either: git submodule update --init'); return 1
+        rc, pi_tools, _ = pi_run(host, f'cd {sub} 2>/dev/null && git rev-parse HEAD')
+        known = rc == 0 and subprocess.run(['git', '-C', tools, 'merge-base', '--is-ancestor', pi_tools, pinned], capture_output=True).returncode == 0
+        bundle = os.path.join(ROOT, '.pi_sync_tools.bundle')
+        subprocess.run(['git', '-C', tools, 'branch', '-f', 'pi_sync', pinned], capture_output=True)
+        r = subprocess.run(['git', '-C', tools, 'bundle', 'create', bundle, f'{pi_tools}..pi_sync' if known else 'pi_sync'], capture_output=True, text=True)
+        subprocess.run(['git', '-C', tools, 'branch', '-D', 'pi_sync'], capture_output=True)
+        if r.returncode != 0:
+            log('[pi] tools bundle failed: ' + r.stderr); return 1
+        pscp = ['pscp', '-batch', '-q', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']]
+        subprocess.run(pscp + [bundle, f"{ENV['PI_USER']}@{host}:/tmp/dtc_tools.bundle"], check=True)
+        os.remove(bundle)
+        url = git('config', '-f', '.gitmodules', 'submodule.tools.url')
+        get = (f'cd {sub} && git fetch -q /tmp/dtc_tools.bundle pi_sync:refs/remotes/laptop/pi_sync' if rc == 0 else    # existing clone
+               f'git clone -q /tmp/dtc_tools.bundle {sub} && git -C {sub} remote set-url origin {url}')               # fresh Pi
+        rc, _, err = pi_run(host, f'{get} && rm -f /tmp/dtc_tools.bundle')
+        if rc != 0:
+            log('[pi] tools bundle fetch failed: ' + err); return 1
+        log(f'[pi] tools {pinned[:7]} shipped from laptop')
+    rc, out, err = pi_run(host, f'cd {PI_REPO} && git submodule sync -q && git submodule update --init -q tools && git -C tools rev-parse HEAD')
+    if rc == 0 and out and out.splitlines()[-1] == pinned:
+        log(f'[pi] tools @ {pinned[:7]}'); return 0
+    log(f'[pi] tools sync failed: {err or out}'); return 1
 # ----------------------------------------------------------------------------------------------------------------------
 def main():
     if len(sys.argv) < 2 or sys.argv[1] not in ('find', 'run', 'push', 'pull', 'url', 'sync'):
