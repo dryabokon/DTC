@@ -153,16 +153,12 @@ def integration(R, sync=True, with_sim=False):
 
     R.section('click-to-track')
     _sot_click_and_esc(R, pi)
-    st = pi.status()
-    if st is None:
-        R.check('SOT stops by itself at the frame edge', False, 'app not answering: ' + pi.logs(8)); return
-    W, H = st['frame_size']
-    pi.click(W // 2, H - 10, (W // 2 - 40, H - 60, W // 2 + 40, H - 1))
-    st = pi.wait_for(lambda s: not s['sot_active'] and s['sot_stop_reason'] not in (None, 'stopped by user'), 6)
-    R.check('SOT stops by itself at the frame edge', bool(st and st['sot_stop_reason'] in ('left the frame', 'target lost (empty box)', 'target lost (occluded or drifted)')),
-            f'reason {st["sot_stop_reason"] if st else None}')
+    # automatic stops (target left the frame / empty box) are checked deterministically by tests/unit (synthetic
+    # frames) and the quality suite (sim clips where the target really leaves the view): a live click has no known target
 
-    R.section('Esc with nothing tracked quits the app')
+    R.section('Esc: 1st stops tracking (if any), 2nd quits the app')
+    if (pi.status() or {}).get('sot_active'):
+        pi.key('Escape'); pi.wait_for(lambda s: not s['sot_active'], 3)
     pi.key('Escape')
     t0 = time.time()
     while time.time() - t0 < 40 and pi.app_pid():
