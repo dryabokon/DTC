@@ -196,7 +196,12 @@
         showBox(boxAt(hover), false);
     });
     img.addEventListener('mouseleave', () => { hover = null; if (!dragStart) preview.style.display = 'none'; });
-    img.addEventListener('mousedown', e => { if (e.button !== 0) return; e.preventDefault(); dragStart = cssPoint(e); dragging = false; });
+    img.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        e.preventDefault();                                  // no image drag / text selection while drawing a box ...
+        if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();   // ... but take the focus off sidebar buttons, so Esc / C reach the app
+        dragStart = cssPoint(e); dragging = false;
+    });
     document.addEventListener('mousemove', e => {          // keep drawing when the drag leaves the image
         if (!dragStart || !dragging || e.target === img) return;
         const p = cssPoint(e);
@@ -262,8 +267,13 @@
 
     //------------------------------------------------------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {
-        // typing in form fields must not reach the app (Escape closes it, 'c' cancels SOT, Space toggles sidebar)
-        if (['INPUT', 'SELECT', 'TEXTAREA', 'BUTTON'].includes(event.target.tagName) && event.target.type !== 'checkbox' && event.target.type !== 'range') return;
+        // only typing must not reach the app (Escape closes it when no SOT is active, 'c' cancels SOT, Space toggles sidebar).
+        // Buttons, checkboxes, sliders keep the focus after a click - keys pressed then are meant for the app.
+        const t = event.target;
+        const typing = t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(t.type));
+        if (typing) { if (event.key === 'Escape') t.blur(); return; }                      // Esc in a text field: leave the field
+        if (t.tagName === 'SELECT' && event.key !== 'Escape') return;                       // arrows / letters pick an option
+        if (t.tagName === 'BUTTON' && (event.code === 'Space' || event.key === 'Enter')) return;   // press the focused button
         if (event.code === 'Space') {
             event.preventDefault();
             fetch('/toggle_sidebar', {method: 'POST'}).then(res => res.json()).then(data => {
