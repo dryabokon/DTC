@@ -557,7 +557,9 @@ class Pipeliner:
         if frame is None: return frame
 
         self.TP.tic('IO:draw')
-        image_debug = tools_image.desaturate(frame, 0.3)
+        # desaturate only when detection boxes are drawn: plain video (and SOT, see draw_sot) stays in full colour,
+        # so starting click-to-track does not change the picture's colours (looked like a jump on a paused frame)
+        image_debug = tools_image.desaturate(frame, 0.3) if self.config.do_detection else frame.copy()
         if df_track_frame_filtered is None or df_track_frame_filtered.empty: return image_debug
 
         if self.config.do_tracking or self.config.do_profiling:
@@ -937,10 +939,10 @@ class Pipeliner:
         return pd.DataFrame({'track_id': [0], 'x1': [x1], 'y1': [y1], 'x2': [x2], 'y2': [y2], 'conf': [round(score, 3)]})
     # ----------------------------------------------------------------------------------------------------------------------
     def draw_sot(self, image, df_sot):
-        """Cheap overlay for SOT mode (no desaturation / alpha blending)."""
+        """Cheap overlay for SOT mode. Same colour treatment as draw_debug_image: desaturated only when detection is on."""
         if image is None:
             return image
-        image = image.copy()
+        image = tools_image.desaturate(image, 0.3) if self.config.do_detection else image.copy()
         color = (0, 255, 0) if df_sot is not None and df_sot.shape[0] > 0 else (0, 0, 255)
         box = self.SOT.box
         if box is not None:
