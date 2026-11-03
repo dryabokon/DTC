@@ -19,7 +19,10 @@ PI_REPO = pi_app.REPO
 PI_VENV = 'source ~/venv/p311_dtc/bin/activate'
 LIMITS = {                     # one place for every threshold
     'video_fps': 20.0, 'detect_fps': 3.0, 'mot_fps': 4.5, 'drone_mot_fps': 4.0,
-    'pets_caught_pct': 50.0, 'pets_false_cancel': 3, 'clip_on_target_pct': 80.0, 'clip_drift_gone': 60,
+    'pets_caught_pct': 50.0, 'pets_false_cancel': 3,
+    # clips: set from the 2026-11-03 baseline (worst clip: 92.9 %, 20, 13) so that the old behaviour without the
+    # 'empty box' rule (82.2 %, 52, 65 on sim_yaw_fast) fails all three - checked, see quality 0001/0002
+    'clip_on_target_pct': 88.0, 'clip_drift_gone': 35, 'clip_drift_visible': 30,
 }
 # ----------------------------------------------------------------------------------------------------------------------
 def _prepare(R, pi, sync=True):
@@ -248,7 +251,7 @@ def quality(R, sync=True):
             for name, v in q.items():
                 R.metric(f'clip_{name}_on_target_pct', v['on_target_pct'], '%', min=LIMITS['clip_on_target_pct'])
                 R.metric(f'clip_{name}_drift_gone', v['drift_gone'], 'frames', max=LIMITS['clip_drift_gone'], better='lower')
-                R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', better='lower')
+                R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', max=LIMITS['clip_drift_visible'], better='lower')
         except Exception as e:
             R.check('sot_clips', False, f'{e}: {pi.sh("tail -5 /tmp/q_clips.log")[1]}')
 
