@@ -165,6 +165,15 @@ class Experimentor():
             self.UI.set_image(image)
         return
     # ----------------------------------------------------------------------------------------------------------------------
+    def is_paused(self):
+        return bool(getattr(self.Grabber, 'paused', False))
+    # ----------------------------------------------------------------------------------------------------------------------
+    def _paused_needs_frame(self):
+        """While paused, a click (or a cancel) is applied to the frame on screen: the same frame is processed once more."""
+        P = self.Perceptioner
+        with P._sot_lock:
+            return P._sot_request is not None
+    # ----------------------------------------------------------------------------------------------------------------------
     def status(self):
         """Machine-readable state for the test harness (/status)."""
         P = getattr(self, 'Perceptioner', None)
@@ -175,6 +184,7 @@ class Experimentor():
                 'frames': getattr(self, 'frames_processed', 0), 'uptime_s': round(time.time() - t0, 1) if t0 else 0.0,
                 'fps': round(float(self.HB.get_fps()), 2) if getattr(self, 'frames_processed', 0) else 0.0,
                 'no_signal': bool(self._no_signal_shown),
+                'paused': self.is_paused(), 'can_pause': bool(getattr(self.Grabber, 'can_pause', False)),
                 'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
                 'sot_stop_reason': P.SOT.stop_reason if P is not None else None}
@@ -260,6 +270,14 @@ class Experimentor():
         if key in ['c','C','Delete']:
             self.Perceptioner.cancel_sot()
 
+        # pre-recorded video only (cameras / RTSP / simulator keep running): pause to aim at a small target, then resume
+        if key in ['Space', ' '] and getattr(self.Grabber, 'can_pause', False):
+            self.Grabber.set_paused(not self.Grabber.paused)
+            print('[ Video ] ' + ('paused' if self.Grabber.paused else 'playing'), flush=True)
+
+        if key == 'ArrowRight' and self.is_paused():
+            self.Grabber.step()
+
         return
     # ----------------------------------------------------------------------------------------------------------------------
 
@@ -287,11 +305,13 @@ class Experimentor():
             # process each grabbed frame once: skip until the grabber delivers a new one
             frame_ts = getattr(self.Grabber, 'frame_ts', 'n/a')
             if frame_ts != 'n/a' and (frame_ts is None or frame_ts == self._last_frame_ts):
-                if not self._no_signal_shown and time.time() - self._last_frame_time > 2.0:
-                    self.show_no_signal()
-                    self._no_signal_shown = True
-                time.sleep(0.002)
-                continue
+                paused = self.is_paused()
+                if not (paused and frame_ts is not None and self._paused_needs_frame()):
+                    if not paused and not self._no_signal_shown and time.time() - self._last_frame_time > 2.0:
+                        self.show_no_signal()
+                        self._no_signal_shown = True
+                    time.sleep(0.002)
+                    continue
             self._last_frame_ts = frame_ts
             self._last_frame_time = time.time()
             self._no_signal_shown = False

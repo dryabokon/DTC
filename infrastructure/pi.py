@@ -15,12 +15,16 @@ Search order, first hit wins:
   3. ARP table lookup by PI_MACS
   4. scan of every local /24 for an open port 22
 Every candidate must present PI_HOSTKEY, so a different device on a foreign network is never used.
-Needs PuTTY's plink/pscp on PATH (Windows); on Linux/macOS the same flow works with ssh/sshpass replaced.
+Transport: PuTTY's plink/pscp from Windows; when Windows cannot reach the Pi but WSL can (a full-tunnel VPN such as
+WireGuard blocks all non-tunnel traffic of Windows, not of WSL), ssh/scp/sshpass inside WSL - same host key check.
 """
 import concurrent.futures
 import ipaddress
 import os
 import re
+import base64
+import hashlib
+import shutil
 import socket
 import subprocess
 import sys
@@ -56,18 +60,72 @@ def port_open(host, port=22, timeout=0.6):
     except OSError:
         return False
 # ----------------------------------------------------------------------------------------------------------------------
+WSL = {'on': False}                 # True once find() reached the Pi only through WSL
+WSL_KNOWN_HOSTS = '/tmp/dtc_pi_known_hosts'
+# ----------------------------------------------------------------------------------------------------------------------
+def wsl_available():
+    if not shutil.which('wsl'):
+        return False
+    r = subprocess.run(['wsl', '-e', 'sh', '-c', 'command -v ssh scp sshpass nc >/dev/null && echo ok'], capture_output=True, text=True)
+    return 'ok' in r.stdout
+# ----------------------------------------------------------------------------------------------------------------------
+def wsl_port_open(host, port=22):
+    return subprocess.run(['wsl', '-e', 'nc', '-z', '-w', '2', host, str(port)], capture_output=True).returncode == 0
+# ----------------------------------------------------------------------------------------------------------------------
+def wsl_trust(host):
+    """Scan the host key from WSL, accept it only if its fingerprint is PI_HOSTKEY, store it for ssh/scp in WSL."""
+    r = subprocess.run(['wsl', '-e', 'sh', '-c', f'ssh-keyscan -T 5 -t ed25519 {host} 2>/dev/null'], capture_output=True, text=True)
+    for line in r.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 3 and parts[1] == 'ssh-ed25519':
+            fp = 'SHA256:' + base64.b64encode(hashlib.sha256(base64.b64decode(parts[2])).digest()).decode().rstrip('=')
+            if fp == ENV.get('PI_HOSTKEY'):
+                subprocess.run(['wsl', '-e', 'sh', '-c', f'cat > {WSL_KNOWN_HOSTS}'], input=line + chr(10), text=True)
+                return True
+            log(f'[pi] {host}: host key {fp} is not PI_HOSTKEY - refusing')
+    return False
+# ----------------------------------------------------------------------------------------------------------------------
+def ssh_env():
+    """Environment for subprocesses: the WSL transport gets the password through SSHPASS (not the command line)."""
+    if not WSL['on']:
+        return None
+    wslenv = os.environ.get('WSLENV', '')
+    return dict(os.environ, SSHPASS=ENV.get('PI_PASSWORD', ''), WSLENV=(wslenv + ':' if wslenv else '') + 'SSHPASS/u')
+# ----------------------------------------------------------------------------------------------------------------------
+WSL_SSH_OPTS = ['-o', 'StrictHostKeyChecking=yes', '-o', f'UserKnownHostsFile={WSL_KNOWN_HOSTS}', '-o', 'ConnectTimeout=10', '-o', 'LogLevel=ERROR']
 def plink_args(host):
+    """argv prefix for a command on the Pi (plink on Windows, ssh in WSL behind a VPN)."""
+    if WSL['on']:
+        return ['wsl', '-e', 'sshpass', '-e', 'ssh'] + WSL_SSH_OPTS + [f"{ENV['PI_USER']}@{host}"]
     args = ['plink', '-batch', '-pw', ENV.get('PI_PASSWORD', '')]
     if ENV.get('PI_HOSTKEY'):
         args += ['-hostkey', ENV['PI_HOSTKEY']]
     return args + [f"{ENV['PI_USER']}@{host}"]
 # ----------------------------------------------------------------------------------------------------------------------
+def _wsl_path(p):
+    return subprocess.run(['wsl', '-e', 'wslpath', '-a', os.path.abspath(p).replace('\\', '/')], capture_output=True, text=True).stdout.strip()
+# ----------------------------------------------------------------------------------------------------------------------
+def copy(host, src, dst, to_pi=True, recursive=False, quiet=True):
+    """Copy a local path to the Pi (to_pi) or from it. Remote paths are plain paths on the Pi."""
+    remote = lambda p: f"{ENV['PI_USER']}@{host}:{p}"
+    if WSL['on']:
+        argv = ['wsl', '-e', 'sshpass', '-e', 'scp'] + WSL_SSH_OPTS + (['-q'] if quiet else []) + (['-r'] if recursive else [])
+        argv += [_wsl_path(src), remote(dst)] if to_pi else [remote(src), _wsl_path(dst)]
+    else:
+        argv = ['pscp', '-batch', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']] + (['-q'] if quiet else []) + (['-r'] if recursive else [])
+        argv += [src, remote(dst)] if to_pi else [remote(src), dst]
+    return subprocess.run(argv, capture_output=quiet, env=ssh_env()).returncode == 0
+# ----------------------------------------------------------------------------------------------------------------------
 def is_our_pi(host, timeout=15):
-    """True only if SSH works and the host presents PI_HOSTKEY."""
-    if not port_open(host):
+    """True only if SSH works and the host presents PI_HOSTKEY (directly, or through WSL when Windows is blocked)."""
+    if port_open(host):
+        WSL['on'] = False
+    elif wsl_available() and wsl_port_open(host) and wsl_trust(host):
+        WSL['on'] = True
+    else:
         return False
     try:
-        r = subprocess.run(plink_args(host) + ['echo PI_OK'], capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(plink_args(host) + ['echo PI_OK'], capture_output=True, text=True, timeout=timeout, env=ssh_env())
         return 'PI_OK' in r.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
@@ -144,7 +202,7 @@ def find(verbose=True):
             tried.add(host)
             if is_our_pi(host):
                 open(CACHE, 'w').write(host)
-                if verbose: log(f'[pi] {host}  (found by {how})')
+                if verbose: log(f'[pi] {host}  (found by {how}' + (', through WSL: Windows is blocked, e.g. by a VPN)' if WSL['on'] else ')'))
                 return host
     if os.path.isfile(CACHE):
         os.remove(CACHE)
@@ -161,7 +219,7 @@ def redact(text):
 # ----------------------------------------------------------------------------------------------------------------------
 def pi_run(host, cmd, timeout=120):
     try:
-        r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout, env=ssh_env())
     except subprocess.TimeoutExpired:
         raise TimeoutError(f'command on the Pi did not finish in {timeout} s: {redact(cmd)[:200]}') from None
     return r.returncode, r.stdout.strip(), r.stderr.strip()
@@ -198,8 +256,8 @@ def sync(host):
     r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True)
     if r.returncode != 0:
         log('[pi] git bundle failed: ' + r.stderr); return 1
-    pscp = ['pscp', '-batch', '-q', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']]
-    subprocess.run(pscp + [bundle, f"{ENV['PI_USER']}@{host}:/tmp/dtc_sync.bundle"], check=True)
+    if not copy(host, bundle, '/tmp/dtc_sync.bundle'):
+        log('[pi] copying the bundle failed'); return 1
     os.remove(bundle)
     rc, _, err = pi_run(host, f'cd {PI_REPO} && git fetch -q /tmp/dtc_sync.bundle {branch}:refs/remotes/laptop/{branch} && rm -f /tmp/dtc_sync.bundle')
     if rc == 0 and checkout(f'laptop/{branch}') == head:
@@ -229,8 +287,8 @@ def sync_tools(host):
         subprocess.run(['git', '-C', tools, 'branch', '-D', 'pi_sync'], capture_output=True)
         if r.returncode != 0:
             log('[pi] tools bundle failed: ' + r.stderr); return 1
-        pscp = ['pscp', '-batch', '-q', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']]
-        subprocess.run(pscp + [bundle, f"{ENV['PI_USER']}@{host}:/tmp/dtc_tools.bundle"], check=True)
+        if not copy(host, bundle, '/tmp/dtc_tools.bundle'):
+            log('[pi] copying the tools bundle failed'); return 1
         os.remove(bundle)
         url = git('config', '-f', '.gitmodules', 'submodule.tools.url')
         get = (f'cd {sub} && git fetch -q /tmp/dtc_tools.bundle pi_sync:refs/remotes/laptop/pi_sync' if rc == 0 else    # existing clone
@@ -256,14 +314,12 @@ def main():
     if cmd == 'url':
         print(f'http://{host}:{UI_PORT}/'); return 0
     if cmd == 'run':
-        return subprocess.run(plink_args(host) + [' '.join(sys.argv[2:])]).returncode
+        return subprocess.run(plink_args(host) + [' '.join(sys.argv[2:])], env=ssh_env()).returncode
     if cmd == 'sync':
         return sync(host)
-    pscp = ['pscp', '-batch', '-pw', ENV.get('PI_PASSWORD', '')] + (['-hostkey', ENV['PI_HOSTKEY']] if ENV.get('PI_HOSTKEY') else [])
-    remote = lambda p: f"{ENV['PI_USER']}@{host}:{p}"
     if cmd == 'push':
-        return subprocess.run(pscp + [sys.argv[2], remote(sys.argv[3])]).returncode
-    return subprocess.run(pscp + [remote(sys.argv[2]), sys.argv[3]]).returncode
+        return 0 if copy(host, sys.argv[2], sys.argv[3], quiet=False) else 1
+    return 0 if copy(host, sys.argv[2], sys.argv[3], to_pi=False, quiet=False) else 1
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
     sys.exit(main())

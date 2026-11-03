@@ -1,5 +1,6 @@
 """Control the DTC app on the Raspberry Pi: start / stop / status / logs / HTTP calls / pull artifacts.
 Built on infrastructure/pi.py (finding the Pi, SSH, sync)."""
+import atexit
 import json
 import os
 import socket
@@ -15,6 +16,7 @@ sys.path.insert(0, os.path.join(ROOT, 'infrastructure'))
 import pi as pi_ssh                                          # infrastructure/pi.py
 # ----------------------------------------------------------------------------------------------------------------------
 PORT = 8509
+HARNESS_PORT = 18509                      # local end of the harness tunnel when the Pi is only reachable through WSL
 APP_LOG = '/tmp/dtc_app.log'
 REPO = '/home/pi/sources/DTC'
 # ----------------------------------------------------------------------------------------------------------------------
@@ -23,6 +25,32 @@ class Pi:
         self.host = pi_ssh.find(verbose=verbose)
         if self.host is None:
             raise RuntimeError('Raspberry Pi not found (see infrastructure/pi.py find)')
+        self.base = f'http://{self.host}:{PORT}'
+        self._tunnel = None
+        if pi_ssh.WSL['on']:                 # Windows is blocked (VPN): HTTP to the app goes through an SSH tunnel in WSL
+            self._tunnel = subprocess.Popen(['wsl', '-e', 'sshpass', '-e', 'ssh'] + pi_ssh.WSL_SSH_OPTS +
+                                            ['-o', 'ExitOnForwardFailure=yes', '-N', '-L', f'{HARNESS_PORT}:127.0.0.1:{PORT}', f"{pi_ssh.ENV['PI_USER']}@{self.host}"],
+                                            env=pi_ssh.ssh_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            atexit.register(self._tunnel.terminate)
+            self.base = f'http://127.0.0.1:{HARNESS_PORT}'
+            for _ in range(40):
+                try:
+                    socket.create_connection(('127.0.0.1', HARNESS_PORT), timeout=0.5).close(); break
+                except OSError:
+                    time.sleep(0.25)
+
+    def browser_tunnel(self):
+        """Behind a VPN: a lasting tunnel for the browser, http://localhost:8509 -> the Pi's web UI. Returns the URL."""
+        if not pi_ssh.WSL['on']:
+            return self.url()
+        try:
+            socket.create_connection(('127.0.0.1', PORT), timeout=0.5).close()
+            return f'http://localhost:{PORT}/'                # already there
+        except OSError:
+            pass
+        subprocess.run(['wsl', '-e', 'sshpass', '-e', 'ssh'] + pi_ssh.WSL_SSH_OPTS + ['-f', '-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15',
+                        '-L', f'{PORT}:127.0.0.1:{PORT}', f"{pi_ssh.ENV['PI_USER']}@{self.host}"], env=pi_ssh.ssh_env(), timeout=30)
+        return f'http://localhost:{PORT}/'
 
     # ---------------------------------------------------------------------------------------------------------- ssh
     def sh(self, cmd, timeout=120):
@@ -37,18 +65,22 @@ class Pi:
 
     def pull(self, remote, local, recursive=False):
         os.makedirs(local if recursive else os.path.dirname(local) or '.', exist_ok=True)
-        cmd = ['pscp', '-batch', '-q', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY']] + (['-r'] if recursive else [])
-        return subprocess.run(cmd + [f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}", local], capture_output=True).returncode == 0
+        if recursive and remote.endswith('/*'):            # scp in WSL does not expand a remote glob into a local dir: copy the dir itself
+            ok = pi_ssh.copy(self.host, remote[:-2], local, to_pi=False, recursive=True) if pi_ssh.WSL['on'] else None
+            if ok is not None:
+                inner = os.path.join(local, os.path.basename(remote[:-2].rstrip('/')))
+                if os.path.isdir(inner):
+                    for f in os.listdir(inner):
+                        os.replace(os.path.join(inner, f), os.path.join(local, f))
+                    os.rmdir(inner)
+                return ok
+        return pi_ssh.copy(self.host, remote, local, to_pi=False, recursive=recursive)
 
     def push_dir(self, local, remote):
-        cmd = ['pscp', '-batch', '-q', '-r', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY'], local,
-               f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}"]
-        return subprocess.run(cmd, capture_output=True).returncode == 0
+        return pi_ssh.copy(self.host, local, remote, recursive=True)
 
     def push(self, local, remote):
-        cmd = ['pscp', '-batch', '-q', '-pw', pi_ssh.ENV.get('PI_PASSWORD', ''), '-hostkey', pi_ssh.ENV['PI_HOSTKEY'], local,
-               f"{pi_ssh.ENV['PI_USER']}@{self.host}:{remote}"]
-        return subprocess.run(cmd, capture_output=True).returncode == 0
+        return pi_ssh.copy(self.host, local, remote)
 
     def laptop_ip(self):
         """This laptop's address as the Pi sees it (the interface that routes to the Pi)."""
@@ -58,7 +90,7 @@ class Pi:
 
     # --------------------------------------------------------------------------------------------------------- http
     def url(self, path=''):
-        return f'http://{self.host}:{PORT}/{path.lstrip("/")}'
+        return f'{self.base}/{path.lstrip("/")}'
 
     def get(self, path, timeout=5):
         try:

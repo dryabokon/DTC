@@ -110,14 +110,16 @@ def prepare_visdrone(fps=25, log=print):
         scenes.setdefault(s['scene_id'], []).append(s)
     for scene, ss in sorted(scenes.items()):
         ss.sort(key=lambda s: s['frame_number'])
-        W, H = ss[0]['metadata']['width'], ss[0]['metadata']['height']
+        W0, H0 = ss[0]['metadata']['width'], ss[0]['metadata']['height']
+        k = min(1.0, 1920.0 / W0)                     # encode() caps the width at 1920: boxes must follow
+        W, H = int(round(W0 * k)), int(round(H0 * k / 2) * 2)
         out = os.path.join(VIDEOS, 'visdrone', scene)
         mp4 = os.path.join(out, scene + '.mp4')
         n = encode((open(os.path.join(root, s['filepath']), 'rb').read() for s in ss), mp4, fps)
         rows, tr = [], {}
         for i, s in enumerate(ss, start=1):
             for d in s.get('detections') or []:
-                x, y, w, h = d['bounding_box']; x, y, w, h = x * W, y * H, w * W, h * H
+                x, y, w, h = d['bounding_box']; x, y, w, h = x * W, y * H, w * W, h * H     # relative -> pixels of the encoded video
                 tid = int(d.get('index') or 0)
                 rows.append(f'{i},{tid},{x:.1f},{y:.1f},{w:.1f},{h:.1f},1,{cls_id.get(d["label"], -1)},{d.get("visibility", 1)}')
                 if d['label'] in ('pedestrian', 'people', 'car'):

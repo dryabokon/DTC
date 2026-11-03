@@ -28,6 +28,7 @@
   .icon-btn:hover { border-color: var(--faint); }
   .pill { display: inline-block; font-size: 11px; font-weight: 600; padding: 0 8px; border-radius: 10px; border: 1px solid var(--line); color: var(--muted); }
   .pill.good { border-color: var(--good); color: var(--good); background: var(--good-soft); cursor: pointer; }
+  .pill.warn { border-color: var(--warn); color: var(--warn); }
   .pill.bad { border-color: var(--bad); color: var(--bad); background: var(--bad-soft); }
   .btn.stop { background: var(--bad-soft); color: var(--bad); border: 1px solid var(--bad); margin-top: 8px; }
 
@@ -66,6 +67,7 @@
   <h1>DTC</h1>
   <span class="meta" id="topMeta">detection · tracking · classification</span>
   <span class="spacer"></span>
+  <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
   <span class="pill" id="modePill">idle</span>
   <button class="icon-btn" id="themeBtn" type="button" title="Light / dark theme" aria-label="Light / dark theme">◐</button>
 </header>
@@ -116,6 +118,7 @@
     //------------------------------------------------------------------------------------------------------------------
     function updateFromFlask() {
         fetch('/get_config').then(r => r.json()).then(data => {
+            $('pausePill').hidden = !data.paused;
             $('do_detection').checked = Boolean(data.do_detection);
             $('do_classification').checked = Boolean(data.do_classification);
             $('do_tracking').checked = Boolean(data.do_tracking);
@@ -275,15 +278,18 @@
         const typing = t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(t.type));
         if (typing) { if (event.key === 'Escape') t.blur(); return; }                      // Esc in a text field: leave the field
         if (t.tagName === 'SELECT' && event.key !== 'Escape') return;                       // arrows / letters pick an option
-        if (t.tagName === 'BUTTON' && (event.code === 'Space' || event.key === 'Enter')) return;   // press the focused button
-        if (event.code === 'Space') {
-            event.preventDefault();
+        if (t.tagName === 'BUTTON' && event.key === 'Enter') return;                          // press the focused button
+        if (event.key === 'h' || event.key === 'H') {                                           // H: hide / show the side panel
             fetch('/toggle_sidebar', {method: 'POST'}).then(res => res.json()).then(data => {
                 $('sidebar').classList.toggle('collapsed', !data.visible);
             });
-        } else {
-            fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: `key=${event.key}`});
+            return;
         }
+        let key = event.key;
+        if (event.code === 'Space') { event.preventDefault(); key = 'Space'; }                 // Space: pause / resume a video file
+        if (key === 'ArrowRight') event.preventDefault();                                       // -> while paused: next frame
+        fetch('/key_press', {method: 'POST', headers: {'Content-Type': 'application/x-www-form-urlencoded'}, body: `key=${encodeURIComponent(key)}`})
+            .then(() => { if (key === 'Space') setTimeout(updateFromFlask, 150); });
     });
 
     //------------------------------------------------------------------------------------------------------------------

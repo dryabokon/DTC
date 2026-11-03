@@ -20,6 +20,8 @@ class Grabber_AV:
         self._frame = None
         self._frame_ts = 0.0
         self._finished = threading.Event()
+        self._paused = False                    # files only: playback holds the current frame
+        self._step = False                      # while paused: release exactly one more frame
         self.stop_event = threading.Event()
         threading.Thread(target=self._run_file if self.is_file else self._run_stream, daemon=True).start()
         return
@@ -125,6 +127,11 @@ class Grabber_AV:
                             break
 
                         img = self._to_bgr(frame)
+                        if self._paused and not self._step:          # hold the frame on screen until resumed / stepped
+                            while self._paused and not self._step and not self.stop_event.is_set():
+                                time.sleep(0.02)
+                            t0 = time.time() - frame_idx * interval  # keep pacing from here, no catch-up burst
+                        self._step = False
                         now = time.time()
                         with self._lock:
                             self._frame = img
@@ -163,6 +170,25 @@ class Grabber_AV:
         # timestamp of the latest decoded frame (changes once per new frame)
         with self._lock:
             return self._frame_ts if self._frame is not None else None
+
+    # ------------------------------------------------------------------------------------------------------------------
+    @property
+    def can_pause(self):
+        return self.is_file
+
+    @property
+    def paused(self):
+        return self._paused
+
+    def set_paused(self, paused):
+        if self.can_pause:
+            self._paused = bool(paused)
+        return self._paused
+
+    def step(self):
+        """While paused: show the next frame and stay paused."""
+        if self._paused:
+            self._step = True
 
     # ------------------------------------------------------------------------------------------------------------------
     def is_finished(self):

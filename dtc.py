@@ -64,9 +64,9 @@ def cmd_pi(a, extra):
     if a.action == 'logs':
         print(pi.logs(a.n)); return 0
     if a.action == 'open':
-        webbrowser.open(pi.url()); print(pi.url()); return 0
+        u = pi.browser_tunnel(); webbrowser.open(u); print(u); return 0
     if a.action == 'run':
-        return subprocess.run(pi_app.pi_ssh.plink_args(pi.host) + [' '.join(extra)]).returncode
+        return subprocess.run(pi_app.pi_ssh.plink_args(pi.host) + [' '.join(extra)], env=pi_app.pi_ssh.ssh_env()).returncode
 # ----------------------------------------------------------------------------------------------------------------------
 def cmd_sim(a, extra):
     from harness import sim, pi_app

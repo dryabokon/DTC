@@ -171,6 +171,7 @@ class WebApp:
             return {'do_detection':self.config.do_detection,'do_classification':self.config.do_classification,'do_tracking':self.config.do_tracking,'do_profiling':self.config.do_profiling,
                     'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
                     'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
+                    'paused': bool(self.E is not None and self.E.is_paused()),
                     'sot_stop_age': (time.time() - self.P.SOT.stop_time) if self.P is not None and self.P.SOT.stop_reason else None}
         # ----------------------------------------------------------------------------------------------------------------------
     def get_key(self):
