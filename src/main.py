@@ -20,7 +20,7 @@ if '--list-sources' in sys.argv:
 from configs import config_pipe00
 import utils_experiment_ops
 # ----------------------------------------------------------------------------------------------------------------------
-folder_runs = '../runs/'
+folder_runs = '../runs/sessions/'               # default; --folder_runs overrides (see config_common)
 # ----------------------------------------------------------------------------------------------------------------------
 #config = config_pipe00.get_config_Oxford()
 #config = config_pipe00.get_config_campus()
@@ -54,9 +54,12 @@ if __name__ == '__main__':
     if getattr(config, 'imgsz_hw', ''):            # rectangular input (e.g. NCNN exported at 256x416); the CLI cannot pass a tuple to imgsz
         config.imgsz = tuple(int(v) for v in str(config.imgsz_hw).split(','))
 
-    E = utils_experiment_ops.Experimentor(folder_runs, config)
-    E.run_experiment()
-    E.close_experiment()
-    E.construct_report()
+    E = utils_experiment_ops.Experimentor(getattr(config, 'folder_runs', folder_runs), config)
+    print('[  RUN  ]', os.path.abspath(E.folder_output_current_experiment), flush=True)
+    try:
+        E.run_experiment()
+    finally:                                     # a crash still closes the UI, saves the video and writes the report
+        E.close_experiment()
+        E.construct_report()
 
     #construct_heavy_report(folder_runs + tools_IO.get_sub_folder_from_folder(folder_runs)[-1] + '/')

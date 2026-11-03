@@ -7,6 +7,9 @@ class cnfg_common(config_base.cnfg_base):
     camera_size = '1280x720'                    # V4L2 cameras (/dev/videoN, MJPEG): capture size and fps
     camera_fps = 30
     camera_mirror = True                        # cameras (/dev/videoN, webcam index) flipped left-right, like a mirror; --camera_mirror false: as captured
+    folder_runs = '../runs/sessions/'           # every start writes runs/sessions/NNNN/; the test harness points it elsewhere
+    max_seconds = 0                             # stop by itself after this many seconds / processed frames (0 = run until Esc / UI shutdown)
+    max_frames = 0
     max_frame_width = 1280                      # frames wider than this are downscaled by the grabber (e.g. 1080p -> 1280x720)
 
     resize_ratio = None

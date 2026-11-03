@@ -154,6 +154,18 @@ class WebApp:
             self.is_config_updated = True
             return 'Success', 200
         # ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/status', methods=['GET'])
+        def status():
+            return self.E.status() if self.E is not None else ({'error': 'pipeline not ready'}, 503)
+        # ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/shutdown', methods=['POST'])
+        def shutdown():
+            # graceful stop: the main loop ends, the video and the report are written (Esc stops click-to-track first)
+            if self.E is None:
+                return {'ok': False}, 503
+            self.E.should_be_closed = True
+            return {'ok': True}, 200
+        # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/get_config', methods=['GET'])
         def get_config():
             return {'do_detection':self.config.do_detection,'do_classification':self.config.do_classification,'do_tracking':self.config.do_tracking,'do_profiling':self.config.do_profiling,

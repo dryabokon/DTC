@@ -72,7 +72,7 @@ class Experimentor():
         print('[  UI   ] webapp:', self.UI.get_connection_string())
 
         self.UI.E = self
-        threading.Thread(target=self.UI.run_web_server).start()
+        threading.Thread(target=self.UI.run_web_server, daemon=True).start()     # daemon: a crash must not leave the web server holding the port
 
 
         return
@@ -165,6 +165,20 @@ class Experimentor():
             self.UI.set_image(image)
         return
     # ----------------------------------------------------------------------------------------------------------------------
+    def status(self):
+        """Machine-readable state for the test harness (/status)."""
+        P = getattr(self, 'Perceptioner', None)
+        t0 = getattr(self, 't_start', None)
+        return {'run_folder': os.path.abspath(self.folder_output_current_experiment) if self.folder_output_current_experiment else None,
+                'source': str(self.config.source), 'source_name': self.current_source_name(),
+                'frame_size': [self.W, self.H] if self.W else None,
+                'frames': getattr(self, 'frames_processed', 0), 'uptime_s': round(time.time() - t0, 1) if t0 else 0.0,
+                'fps': round(float(self.HB.get_fps()), 2) if getattr(self, 'frames_processed', 0) else 0.0,
+                'no_signal': bool(self._no_signal_shown),
+                'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
+                'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
+                'sot_stop_reason': P.SOT.stop_reason if P is not None else None}
+    # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
 
         if self.UI is not None:
@@ -196,14 +210,14 @@ class Experimentor():
         return image
     # ----------------------------------------------------------------------------------------------------------------------
     def prepare_output_folder(self,recover_last_experiment=False):
-        if not os.path.exists(self.folder_runs):
-            os.mkdir(self.folder_runs)
+        os.makedirs(self.folder_runs, exist_ok=True)
+        numbered = sorted(int(d) for d in os.listdir(self.folder_runs) if d.isdigit() and os.path.isdir(os.path.join(self.folder_runs, d)))
 
-        if recover_last_experiment:
-            self.folder_output_current_experiment = tools_IO.get_sub_folder_from_folder(self.folder_runs)[-1]
+        if recover_last_experiment and numbered:
+            self.folder_output_current_experiment = os.path.join(self.folder_runs, '%04d' % numbered[-1]) + '/'
         else:
-            self.folder_output_current_experiment = tools_IO.get_next_folder_out(self.folder_runs)
-            os.mkdir(self.folder_output_current_experiment)
+            self.folder_output_current_experiment = os.path.join(self.folder_runs, '%04d' % ((numbered[-1] + 1) if numbered else 1)) + '/'
+            os.makedirs(self.folder_output_current_experiment)
 
         return
     # ----------------------------------------------------------------------------------------------------------------------
@@ -253,7 +267,12 @@ class Experimentor():
         self.HB = tools_heartbeat.tools_HB()
 
         progress_bar = tqdm(total=self.Grabber.max_frame_id,bar_format="{l_bar}{bar}|{n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]")
+        self.t_start, self.frames_processed = time.time(), 0
+        max_s, max_f = float(getattr(self.config, 'max_seconds', 0) or 0), int(getattr(self.config, 'max_frames', 0) or 0)
         while not self.should_be_closed and not self.Grabber.is_finished():
+            if (max_s and time.time() - self.t_start >= max_s) or (max_f and self.frames_processed >= max_f):
+                print(f'[  RUN  ] limit reached: {time.time() - self.t_start:.1f} s, {self.frames_processed} frames', flush=True)
+                break
             if self.UI is not None:
                 self.process_key(self.UI.get_key())
 
@@ -280,6 +299,7 @@ class Experimentor():
             progress_bar.update(1)
             self.HB.do_heartbeat()
             self.grab_and_process()
+            self.frames_processed += 1
 
             if self.UI is not None and self.UI.config_updated():
                 self.config = self.UI.get_config()
