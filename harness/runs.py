@@ -48,7 +48,7 @@ class Run:
         self.number = (n[-1] + 1) if n else 1
         self.folder = os.path.join(base, '%04d' % self.number)
         os.makedirs(self.folder)
-        prev = [k for k in n if os.path.isfile(os.path.join(base, '%04d' % k, 'metrics.json'))]
+        prev = [k for k in n if os.path.isfile(os.path.join(base, '%04d' % k, 'metrics.json')) and os.path.getsize(os.path.join(base, '%04d' % k, 'metrics.json')) > 2]
         self.previous = os.path.join(base, '%04d' % prev[-1]) if prev else None
         self.checks = []                       # (name, status, detail, seconds)  status: PASS | FAIL | SKIP
         self.metrics = {}                      # name -> {'value': v, 'unit': u, 'min': lo, 'max': hi, 'better': 'higher'|'lower'}

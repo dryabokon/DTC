@@ -64,12 +64,19 @@ def _stop_and_collect(R, pi, name='app', expect_exit=0, files=('df_time.csv', 'd
     pi.pull(folder + '/*', dst, recursive=True)
     return folder
 # ----------------------------------------------------------------------------------------------------------------------
+CAMPUS_STATIC_TARGET = (650, 42, 725, 100)       # the parked white van in PETS09 (768x576): static, contrasty, nobody walks over it
 def _sot_click_and_esc(R, pi):
-    st = pi.status(); W, H = st['frame_size']
-    x, y = W // 2, H // 2
-    pi.click(x, y, (x - 30, y - 40, x + 30, y + 40))
+    st = pi.status()
+    if st is None or st['frame_size'] != [768, 576]:
+        R.check('SOT: click starts tracking', False, f'expected the campus video, got {st and st["source_name"]}'); return
+    b = CAMPUS_STATIC_TARGET
+    pi.click((b[0] + b[2]) // 2, (b[1] + b[3]) // 2, b)
     st = pi.wait_for(lambda s: s['sot_active'], 3)
     R.check('SOT: click starts tracking', bool(st and st['sot_active']), f'box {st["sot_box"] if st else None}')
+    time.sleep(2)
+    st = pi.status()
+    if not R.check('SOT: keeps a static target', bool(st and st['sot_active']), f'reason {st and st["sot_stop_reason"]}'):
+        return                                   # Esc now would quit the app (nothing tracked) - don't
     pi.key('Escape')
     st = pi.wait_for(lambda s: not s['sot_active'], 3)
     R.check('SOT: Esc stops tracking (and only that)', bool(st and not st['sot_active'] and st['sot_stop_reason'] == 'stopped by user' and pi.app_pid()),
@@ -146,7 +153,10 @@ def integration(R, sync=True, with_sim=False):
 
     R.section('click-to-track')
     _sot_click_and_esc(R, pi)
-    st = pi.status(); W, H = st['frame_size']
+    st = pi.status()
+    if st is None:
+        R.check('SOT stops by itself at the frame edge', False, 'app not answering: ' + pi.logs(8)); return
+    W, H = st['frame_size']
     pi.click(W // 2, H - 10, (W // 2 - 40, H - 60, W // 2 + 40, H - 1))
     st = pi.wait_for(lambda s: not s['sot_active'] and s['sot_stop_reason'] not in (None, 'stopped by user'), 6)
     R.check('SOT stops by itself at the frame edge', bool(st and st['sot_stop_reason'] in ('left the frame', 'target lost (empty box)', 'target lost (occluded or drifted)')),

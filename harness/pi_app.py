@@ -138,7 +138,9 @@ class Pi:
 
     def logs(self, n=40, log=APP_LOG, raw=False):
         """Last n lines of the app log without tqdm progress noise."""
-        flt = '' if raw else " | tr '\\r' '\\n' | grep -av '^|' | grep -av 'it/s\\]' | grep -av '^\\s*$'"
+        # tqdm redraws with \r and app prints land on the same line: split before every '[ TAG ]' first
+        flt = '' if raw else (" | tr '\\r' '\\n' | sed -E 's/(\\[ *[A-Za-z]{2,7} *[A-Za-z]* *\\])/\\n\\1/g'"
+                              " | grep -av '^|' | grep -av 'it/s\\]' | grep -av '^\\s*$'")
         return self.sh(f'cat {log} 2>/dev/null{flt} | tail -{n}')[1]
 
     def wait_for(self, cond, timeout=10, every=0.3):
