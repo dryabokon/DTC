@@ -33,7 +33,7 @@ def ensure_mediamtx():
     """RTSP server on :8554 (the mediamtx docker container on this PC)."""
     if port_open(8554):
         return True
-    subprocess.run(['docker', 'start', 'mediamtx'], capture_output=True)
+    subprocess.run(['docker', 'start', 'mediamtx'], capture_output=True, stdin=subprocess.DEVNULL)
     for _ in range(20):
         if port_open(8554):
             return True
@@ -56,7 +56,7 @@ def start(stream=True, record=None, maneuver='none', seconds=0, circle='20,0,8,6
     os.makedirs(os.path.dirname(log), exist_ok=True)
     env = dict(os.environ, FLY2_ROOT=FLY2_ROOT, PYTHONUNBUFFERED='1')
     proc = subprocess.Popen(args, stdout=open(log, 'w'), stderr=subprocess.STDOUT, env=env, cwd=os.path.join(FLY2_ROOT, 'src'),
-                            creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0))
+                            creationflags=getattr(subprocess, 'CREATE_NEW_PROCESS_GROUP', 0), stdin=subprocess.DEVNULL)
     t0 = time.time()
     while time.time() - t0 < 120:                  # wait until frames flow (Fly2 takes ~30 s to load and take off)
         txt = open(log, encoding='utf-8', errors='replace').read()

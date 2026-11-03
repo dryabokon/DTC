@@ -20,7 +20,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RUNS = os.path.join(ROOT, 'runs')
 # ----------------------------------------------------------------------------------------------------------------------
 def git(*args, cwd=ROOT):
-    r = subprocess.run(['git', '-C', cwd] + list(args), capture_output=True, text=True)
+    r = subprocess.run(['git', '-C', cwd] + list(args), capture_output=True, text=True, stdin=subprocess.DEVNULL)
     return r.stdout.strip()
 # ----------------------------------------------------------------------------------------------------------------------
 def numbered(folder):

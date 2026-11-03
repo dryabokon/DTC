@@ -67,20 +67,20 @@ def wsl_available():
     if not shutil.which('wsl'):
         return False
     try:
-        r = subprocess.run(['wsl', '-e', 'sh', '-c', 'command -v ssh scp sshpass nc >/dev/null && echo ok'], capture_output=True, text=True, timeout=90)
+        r = subprocess.run(['wsl', '-e', 'sh', '-c', 'command -v ssh scp sshpass nc >/dev/null && echo ok'], capture_output=True, text=True, timeout=90, stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         log('[pi] WSL did not answer in 90 s'); return False
     return 'ok' in r.stdout
 # ----------------------------------------------------------------------------------------------------------------------
 def wsl_port_open(host, port=22):
     try:
-        return subprocess.run(['wsl', '-e', 'nc', '-z', '-w', '2', host, str(port)], capture_output=True, timeout=30).returncode == 0
+        return subprocess.run(['wsl', '-e', 'nc', '-z', '-w', '2', host, str(port)], capture_output=True, timeout=30, stdin=subprocess.DEVNULL).returncode == 0
     except subprocess.TimeoutExpired:
         return False
 # ----------------------------------------------------------------------------------------------------------------------
 def wsl_trust(host):
     """Scan the host key from WSL, accept it only if its fingerprint is PI_HOSTKEY, store it for ssh/scp in WSL."""
-    r = subprocess.run(['wsl', '-e', 'sh', '-c', f'ssh-keyscan -T 5 -t ed25519 {host} 2>/dev/null'], capture_output=True, text=True)
+    r = subprocess.run(['wsl', '-e', 'sh', '-c', f'ssh-keyscan -T 5 -t ed25519 {host} 2>/dev/null'], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     for line in r.stdout.splitlines():
         parts = line.split()
         if len(parts) >= 3 and parts[1] == 'ssh-ed25519':
@@ -109,7 +109,7 @@ def plink_args(host):
     return args + [f"{ENV['PI_USER']}@{host}"]
 # ----------------------------------------------------------------------------------------------------------------------
 def _wsl_path(p):
-    return subprocess.run(['wsl', '-e', 'wslpath', '-a', os.path.abspath(p).replace('\\', '/')], capture_output=True, text=True).stdout.strip()
+    return subprocess.run(['wsl', '-e', 'wslpath', '-a', os.path.abspath(p).replace('\\', '/')], capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
 # ----------------------------------------------------------------------------------------------------------------------
 def copy(host, src, dst, to_pi=True, recursive=False, quiet=True):
     """Copy a local path to the Pi (to_pi) or from it. Remote paths are plain paths on the Pi."""
@@ -121,7 +121,7 @@ def copy(host, src, dst, to_pi=True, recursive=False, quiet=True):
         argv = ['pscp', '-batch', '-pw', ENV.get('PI_PASSWORD', ''), '-hostkey', ENV['PI_HOSTKEY']] + (['-q'] if quiet else []) + (['-r'] if recursive else [])
         argv += [src, remote(dst)] if to_pi else [remote(src), dst]
     try:
-        return subprocess.run(argv, capture_output=quiet, env=ssh_env(), timeout=600).returncode == 0
+        return subprocess.run(argv, capture_output=quiet, env=ssh_env(), timeout=600, stdin=subprocess.DEVNULL).returncode == 0
     except subprocess.TimeoutExpired:
         log(f'[pi] copy did not finish in 600 s: {src} -> {dst}'); return False
 # ----------------------------------------------------------------------------------------------------------------------
@@ -134,7 +134,7 @@ def is_our_pi(host, timeout=15):
     else:
         return False
     try:
-        r = subprocess.run(plink_args(host) + ['echo PI_OK'], capture_output=True, text=True, timeout=timeout, env=ssh_env())
+        r = subprocess.run(plink_args(host) + ['echo PI_OK'], capture_output=True, text=True, timeout=timeout, env=ssh_env(), stdin=subprocess.DEVNULL)
         return 'PI_OK' in r.stdout
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
@@ -158,7 +158,7 @@ def from_arp():
     if not macs:
         return []
     try:
-        out = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=10).stdout.lower()
+        out = subprocess.run(['arp', '-a'], capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL).stdout.lower()
     except Exception:
         return []
     hits = []
@@ -228,13 +228,13 @@ def redact(text):
 # ----------------------------------------------------------------------------------------------------------------------
 def pi_run(host, cmd, timeout=120):
     try:
-        r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout, env=ssh_env())
+        r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout, env=ssh_env(), stdin=subprocess.DEVNULL)
     except subprocess.TimeoutExpired:
         raise TimeoutError(f'command on the Pi did not finish in {timeout} s: {redact(cmd)[:200]}') from None
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 # ----------------------------------------------------------------------------------------------------------------------
 def git(*args):
-    return subprocess.run(['git', '-C', ROOT] + list(args), capture_output=True, text=True).stdout.strip()
+    return subprocess.run(['git', '-C', ROOT] + list(args), capture_output=True, text=True, stdin=subprocess.DEVNULL).stdout.strip()
 # ----------------------------------------------------------------------------------------------------------------------
 def sync(host):
     """Pi checkout -> laptop's current branch and commit (committed; pushing is not required).
@@ -260,9 +260,9 @@ def sync(host):
     _, pi_head, _ = pi_run(host, f'cd {PI_REPO} && git rev-parse HEAD')
     if pi_head == head and checkout(head) == head:      # same commit: still put the Pi on `branch` (e.g. after a fast-forward merge)
         log(f'[pi] already at {head[:7]}, on {branch}'); return sync_tools(host)
-    known = subprocess.run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', pi_head, head], capture_output=True).returncode == 0
+    known = subprocess.run(['git', '-C', ROOT, 'merge-base', '--is-ancestor', pi_head, head], capture_output=True, stdin=subprocess.DEVNULL).returncode == 0
     bundle = os.path.join(ROOT, '.pi_sync.bundle')
-    r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True)
+    r = subprocess.run(['git', '-C', ROOT, 'bundle', 'create', bundle, f'{pi_head}..{branch}' if known else branch], capture_output=True, text=True, stdin=subprocess.DEVNULL)
     if r.returncode != 0:
         log('[pi] git bundle failed: ' + r.stderr); return 1
     if not copy(host, bundle, '/tmp/dtc_sync.bundle'):
@@ -286,14 +286,14 @@ def sync_tools(host):
         pi_run(host, f'cd {sub} 2>/dev/null && timeout 20 git fetch -q origin')
     if not pi_has_commit():
         tools = os.path.join(ROOT, 'tools')
-        if subprocess.run(['git', '-C', tools, 'cat-file', '-e', pinned + '^{commit}'], capture_output=True).returncode != 0:
+        if subprocess.run(['git', '-C', tools, 'cat-file', '-e', pinned + '^{commit}'], capture_output=True, stdin=subprocess.DEVNULL).returncode != 0:
             log(f'[pi] tools {pinned[:7]} is not in the laptop checkout either: git submodule update --init'); return 1
         rc, pi_tools, _ = pi_run(host, f'cd {sub} 2>/dev/null && git rev-parse HEAD')
-        known = rc == 0 and subprocess.run(['git', '-C', tools, 'merge-base', '--is-ancestor', pi_tools, pinned], capture_output=True).returncode == 0
+        known = rc == 0 and subprocess.run(['git', '-C', tools, 'merge-base', '--is-ancestor', pi_tools, pinned], capture_output=True, stdin=subprocess.DEVNULL).returncode == 0
         bundle = os.path.join(ROOT, '.pi_sync_tools.bundle')
-        subprocess.run(['git', '-C', tools, 'branch', '-f', 'pi_sync', pinned], capture_output=True)
-        r = subprocess.run(['git', '-C', tools, 'bundle', 'create', bundle, f'{pi_tools}..pi_sync' if known else 'pi_sync'], capture_output=True, text=True)
-        subprocess.run(['git', '-C', tools, 'branch', '-D', 'pi_sync'], capture_output=True)
+        subprocess.run(['git', '-C', tools, 'branch', '-f', 'pi_sync', pinned], capture_output=True, stdin=subprocess.DEVNULL)
+        r = subprocess.run(['git', '-C', tools, 'bundle', 'create', bundle, f'{pi_tools}..pi_sync' if known else 'pi_sync'], capture_output=True, text=True, stdin=subprocess.DEVNULL)
+        subprocess.run(['git', '-C', tools, 'branch', '-D', 'pi_sync'], capture_output=True, stdin=subprocess.DEVNULL)
         if r.returncode != 0:
             log('[pi] tools bundle failed: ' + r.stderr); return 1
         if not copy(host, bundle, '/tmp/dtc_tools.bundle'):
@@ -323,7 +323,7 @@ def main():
     if cmd == 'url':
         print(f'http://{host}:{UI_PORT}/'); return 0
     if cmd == 'run':
-        return subprocess.run(plink_args(host) + [' '.join(sys.argv[2:])], env=ssh_env()).returncode
+        return subprocess.run(plink_args(host) + [' '.join(sys.argv[2:])], env=ssh_env(), stdin=subprocess.DEVNULL).returncode
     if cmd == 'sync':
         return sync(host)
     if cmd == 'push':

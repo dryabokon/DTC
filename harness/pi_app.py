@@ -30,7 +30,7 @@ class Pi:
         if pi_ssh.WSL['on']:                 # Windows is blocked (VPN): HTTP to the app goes through an SSH tunnel in WSL
             self._tunnel = subprocess.Popen(['wsl', '-e', 'sshpass', '-e', 'ssh'] + pi_ssh.WSL_SSH_OPTS +
                                             ['-o', 'ExitOnForwardFailure=yes', '-N', '-L', f'{HARNESS_PORT}:127.0.0.1:{PORT}', f"{pi_ssh.ENV['PI_USER']}@{self.host}"],
-                                            env=pi_ssh.ssh_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                            env=pi_ssh.ssh_env(), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
             atexit.register(self._tunnel.terminate)
             self.base = f'http://127.0.0.1:{HARNESS_PORT}'
             for _ in range(40):
@@ -49,7 +49,7 @@ class Pi:
         except OSError:
             pass
         subprocess.run(['wsl', '-e', 'sshpass', '-e', 'ssh'] + pi_ssh.WSL_SSH_OPTS + ['-f', '-N', '-o', 'ExitOnForwardFailure=yes', '-o', 'ServerAliveInterval=15',
-                        '-L', f'{PORT}:127.0.0.1:{PORT}', f"{pi_ssh.ENV['PI_USER']}@{self.host}"], env=pi_ssh.ssh_env(), timeout=30)
+                        '-L', f'{PORT}:127.0.0.1:{PORT}', f"{pi_ssh.ENV['PI_USER']}@{self.host}"], env=pi_ssh.ssh_env(), timeout=30, stdin=subprocess.DEVNULL)
         return f'http://localhost:{PORT}/'
 
     # ---------------------------------------------------------------------------------------------------------- ssh
