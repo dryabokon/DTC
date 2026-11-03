@@ -85,6 +85,26 @@ def _sot_click_and_esc(R, pi):
     R.check('SOT: Esc stops tracking (and only that)', bool(st and not st['sot_active'] and st['sot_stop_reason'] == 'stopped by user' and pi.app_pid()),
             f'reason {st["sot_stop_reason"] if st else None}, app running {bool(pi.app_pid())}')
 # ----------------------------------------------------------------------------------------------------------------------
+def _pause_check(R, pi):
+    """Space pauses a video file, a click while paused starts SOT on the frame on screen, -> steps one frame, Space resumes."""
+    pi.key('Space')
+    st = pi.wait_for(lambda s: s['paused'], 3)
+    a = pi.status(); time.sleep(1.5); b = pi.status()
+    R.check('pause: Space holds the video', bool(st and a and b and b['paused'] and b['frames'] - a['frames'] <= 1),
+            f'{b["frames"] - a["frames"] if a and b else "?"} frames in 1.5 s while paused')
+    bx = CAMPUS_STATIC_TARGET
+    pi.click((bx[0] + bx[2]) // 2, (bx[1] + bx[3]) // 2, bx)
+    st = pi.wait_for(lambda s: s['sot_active'], 3)
+    R.check('pause: a click starts SOT on the paused frame', bool(st and st['sot_active'] and st['paused']), f'box {st and st["sot_box"]}')
+    a = pi.status(); pi.key('ArrowRight'); time.sleep(1.0); b = pi.status()
+    R.check('pause: -> shows exactly the next frame', bool(a and b and b['frames'] - a['frames'] == 1 and b['paused']), f'{b["frames"] - a["frames"] if a and b else "?"} frame(s)')
+    pi.key('Space')
+    st = pi.wait_for(lambda s: not s['paused'], 3)
+    a = pi.status(); time.sleep(2); b = pi.status()
+    R.check('pause: Space resumes at source speed, SOT keeps tracking', bool(st and b and not b['paused'] and b['frames'] - a['frames'] >= 30 and b['sot_active']),
+            f'{(b["frames"] - a["frames"]) / 2 if a and b else 0:.0f} fps, SOT {"on" if b and b["sot_active"] else "off"}')
+    pi.key('Escape'); pi.wait_for(lambda s: not s['sot_active'], 3)
+# ----------------------------------------------------------------------------------------------------------------------
 def unit(R, pi=None, sync=True):
     pi = pi or pi_app.Pi()
     if R.suite == 'unit':
@@ -111,6 +131,8 @@ def smoke(R, sync=True):
         return
     _frames_flow(R, pi, 'video', min_fps=LIMITS['video_fps'])
     _sot_click_and_esc(R, pi)
+    R.section('pause (video file)')
+    _pause_check(R, pi)
     R.section('detection + tracking on (YOLO NCNN + DeepSORT)')
     pi.post('update_do_detection', js={'enabled': True}); pi.post('update_do_tracking', js={'enabled': True})
     time.sleep(6)
