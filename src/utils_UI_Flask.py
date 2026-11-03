@@ -195,14 +195,18 @@ class WebApp:
         self.fps = 0
         self.frame_id = 0
         self.start_frame, self.start_time = 0, time.time()
-        last_id = -1
+        last_id, last_sent = -1, 0.0
         while not self.stop_event.is_set():
             time.sleep(0.005)
-            if self.image_id == last_id:       # encode only new frames (was: re-encode every 10 ms)
+            # encode only new frames; when nothing new comes (paused video) repeat the last one every 0.5 s
+            if self.image_id == last_id and time.time() - last_sent < 0.5:
                 continue
-            last_id = self.image_id
+            last_id, last_sent = self.image_id, time.time()
             image = self.image if self.image is not None else tools_draw_numpy.random_noise(480, 640, (128, 128, 128))
-            yield (b'--frame\r\n'b'Content-Type: image/jpeg\r\n\r\n' + cv2.imencode('.jpg', image)[1].tobytes() + b'\r\n')
+            jpg = cv2.imencode('.jpg', image)[1].tobytes()
+            # Content-Length: the browser shows a part as soon as it is complete. Without it a part is shown only when the
+            # next boundary arrives, i.e. the screen lags one frame - visible on pause (the frame jumped after a click)
+            yield b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(jpg)).encode() + b'\r\n\r\n' + jpg + b'\r\n'
     # ----------------------------------------------------------------------------------------------------------------------
     def run_web_server(self):
         self._server = make_server('0.0.0.0', 8509, self.app,threaded=True)
