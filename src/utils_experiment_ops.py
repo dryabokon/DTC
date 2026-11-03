@@ -4,6 +4,7 @@ import time
 import os
 import datetime
 import threading
+import collections
 from tqdm import tqdm
 #----------------------------------------------------------------------------------------------------------------------
 import tools_IO
@@ -33,6 +34,7 @@ class Experimentor():
         self._source_lock = threading.Lock()
         self._source_request = None
         self.source_segment = 0
+        self._shown = collections.deque(maxlen=12)  # video files: (position, raw frame, thumbnail of what was displayed)
 
         self.HB = tools_heartbeat.tools_HB()
         self.TP = tools_time_profiler.Time_Profiler(verbose=False)
@@ -165,6 +167,29 @@ class Experimentor():
             self.UI.set_image(image)
         return
     # ----------------------------------------------------------------------------------------------------------------------
+    @staticmethod
+    def thumb(image):
+        import cv2
+        return cv2.resize(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), (32, 18), interpolation=cv2.INTER_AREA).astype('float32')
+    # ----------------------------------------------------------------------------------------------------------------------
+    def pause_on_seen_frame(self, thumb_csv):
+        """The key reaches the Pi 1-2 frames after the operator saw the frame: go back to the frame whose thumbnail matches
+        what the browser displayed (sent with the key), so the paused picture does not move and a click lands on it."""
+        import numpy
+        if not thumb_csv or not self._shown:
+            return
+        try:
+            seen = numpy.array([float(v) for v in thumb_csv.split(',')], dtype='float32').reshape(18, 32)
+        except ValueError:
+            return
+        time.sleep(0.06)                                   # let the grabber thread reach its pause wait
+        errs = [float(numpy.abs(t - seen).mean()) for _, _, t in self._shown]
+        k = int(numpy.argmin(errs))
+        if k != len(self._shown) - 1:
+            pos, raw, _ = self._shown[k]
+            self.Grabber.show(raw, pos)
+            print(f'[ Video ] paused on the frame on screen: {len(self._shown) - 1 - k} frame(s) back', flush=True)
+    # ----------------------------------------------------------------------------------------------------------------------
     def is_paused(self):
         return bool(getattr(self.Grabber, 'paused', False))
     # ----------------------------------------------------------------------------------------------------------------------
@@ -273,7 +298,10 @@ class Experimentor():
 
         # pre-recorded video only (cameras / RTSP / simulator keep running): pause to aim at a small target, then resume
         if key in ['Space', ' '] and getattr(self.Grabber, 'can_pause', False):
-            self.Grabber.set_paused(not self.Grabber.paused)
+            pausing = not self.Grabber.paused
+            self.Grabber.set_paused(pausing)
+            if pausing:
+                self.pause_on_seen_frame(getattr(self.UI, 'key_thumb', None))
             print('[ Video ] ' + ('paused' if self.Grabber.paused else 'playing'), flush=True)
 
         if key == 'ArrowRight' and self.is_paused():
@@ -348,6 +376,7 @@ class Experimentor():
         self.TP.tic('grab')
 
         image = self.Grabber.get_frame()
+        raw, pos = image, getattr(self.Grabber, 'position', None)
 
         if image is not None:
             self.H, self.W = image.shape[:2]
@@ -381,6 +410,8 @@ class Experimentor():
 
         self.TP.tic('UI')
         if self.config.do_display:
+            if raw is not None and getattr(self.Grabber, 'can_pause', False):
+                self._shown.append((pos, raw, self.thumb(image)))   # raw is not drawn on (draw_* return copies)
             self.UI.set_image(image)
         self.TP.tic('UI')
 

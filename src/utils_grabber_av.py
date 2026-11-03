@@ -193,6 +193,13 @@ class Grabber_AV:
             self._paused = bool(paused)
         return self._paused
 
+    def show(self, img, position):
+        """While paused: put an earlier frame back on screen (pause lands on the frame the operator saw)."""
+        with self._lock:
+            self._frame = img
+            self._frame_ts = time.time()
+            self.position = position
+
     def restart(self):
         """Files: jump back to the first frame."""
         if self.is_file:

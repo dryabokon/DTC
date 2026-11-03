@@ -120,6 +120,7 @@ class WebApp:
         def key_press():
             with self._key_lock:
                 self.key = request.form.get('key')
+                self.key_thumb = request.form.get('thumb')       # Space: 32x18 grey thumbnail of the frame the browser showed
             if self.key == 'Escape' or self.key == 'esc':
                 print(f'[  UI   ] Escape from {request.remote_addr} ({request.headers.get("User-Agent", "?")[:60]})')
 
