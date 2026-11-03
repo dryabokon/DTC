@@ -105,7 +105,9 @@ class Pi:
             if not replace:
                 raise RuntimeError('DTC is already running on the Pi')
             self.stop()
-        self.sh(f"cd {REPO} && (PYTHONUNBUFFERED=1 setsid nohup ./run_me_arm.sh {args} > {log} 2>&1; echo \"[ EXIT  ] $?\" >> {log}) > /dev/null 2>&1 &")
+        # fully detached (own session, no stdin/stdout of the SSH channel), else the SSH call waits for the app to end
+        inner = f'cd {REPO} && PYTHONUNBUFFERED=1 ./run_me_arm.sh {args} > {log} 2>&1; echo "[ EXIT  ] $?" >> {log}'
+        self.sh("setsid nohup bash -c '" + inner.replace("'", "'\''") + "' < /dev/null > /dev/null 2>&1 &", timeout=30)
         t0 = time.time()
         while time.time() - t0 < wait:
             st = self.status()

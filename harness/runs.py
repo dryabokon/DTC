@@ -28,6 +28,16 @@ def numbered(folder):
         return []
     return sorted(int(d) for d in os.listdir(folder) if d.isdigit() and os.path.isdir(os.path.join(folder, d)))
 # ----------------------------------------------------------------------------------------------------------------------
+def redact(text):
+    """Never write the Pi password into logs or reports (plink gets it on its command line)."""
+    try:
+        sys.path.insert(0, os.path.join(ROOT, 'infrastructure'))
+        import pi
+        pw = pi.ENV.get('PI_PASSWORD')
+    except Exception:
+        pw = None
+    return text.replace(pw, '***') if pw else text
+# ----------------------------------------------------------------------------------------------------------------------
 class Run:
     """One harness run. Use as a context manager; checks are recorded with check()."""
     def __init__(self, suite, argv=None):
@@ -60,7 +70,7 @@ class Run:
 
     # ------------------------------------------------------------------------------------------------------------------
     def log(self, *a):
-        line = ' '.join(str(x) for x in a)
+        line = redact(' '.join(str(x) for x in a))
         print(line, flush=True)
         self._log.write(line + '\n'); self._log.flush()
 
@@ -145,7 +155,8 @@ class Run:
         arts = sorted(os.path.relpath(os.path.join(d, f), self.folder).replace('\\', '/')
                       for d, _, fs in os.walk(self.folder) for f in fs if f not in ('report.md',))
         L += ['', '## Artifacts', ''] + [f'- `{a}`' for a in arts[:60]] + ([f'- ... {len(arts) - 60} more'] if len(arts) > 60 else [])
-        open(os.path.join(self.folder, 'report.md'), 'w', encoding='utf-8').write('\n'.join(L) + '\n')
+        text = redact('\n'.join(L) + '\n')
+        open(os.path.join(self.folder, 'report.md'), 'w', encoding='utf-8').write(text)
 
     # ------------------------------------------------------------------------------------------------------------------
     def __enter__(self):

@@ -154,8 +154,16 @@ def find(verbose=True):
 # ----------------------------------------------------------------------------------------------------------------------
 PI_REPO = '~/sources/DTC'
 # ----------------------------------------------------------------------------------------------------------------------
+def redact(text):
+    """Never let the Pi password reach logs or reports (plink gets it on its command line)."""
+    pw = ENV.get('PI_PASSWORD')
+    return str(text).replace(pw, '***') if pw else str(text)
+# ----------------------------------------------------------------------------------------------------------------------
 def pi_run(host, cmd, timeout=120):
-    r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout)
+    try:
+        r = subprocess.run(plink_args(host) + [cmd], capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        raise TimeoutError(f'command on the Pi did not finish in {timeout} s: {redact(cmd)[:200]}') from None
     return r.returncode, r.stdout.strip(), r.stderr.strip()
 # ----------------------------------------------------------------------------------------------------------------------
 def git(*args):
