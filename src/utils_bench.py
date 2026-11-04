@@ -2,7 +2,7 @@
 
 Method (written into every report):
   one-pass evaluation (OPE) - every model is initialised ONCE with the ground-truth box of the chosen target on the start
-  frame and then runs on its own (no re-initialisation) until the target's track ends or max_frames.
+  frame (the first one where it is fully visible) and then runs on its own (no re-initialisation) to the end of its track.
   Multi-object ground truth (MOT: PETS09, VisDrone, ...) is used as a set of single-object tasks: each chosen track ID is
   one task; the tracker is compared only with THAT track ID's box (jumping to a neighbour = lost).
   Frames where the chosen target has no annotation are not scored.
@@ -32,18 +32,17 @@ CLIPS_DIR = os.path.join(REPO, 'clips')
 DECODE_MS = 3.0                                 # per frame, for the estimate (decode + resize on the Pi)
 LOSS_RULES_MS = 3.0                             # extra per update of the full Tracker_SOT (embedding, contrast)
 # ----------------------------------------------------------------------------------------------------------------------
-DEFAULTS = {'models': ['NANO', 'VIT'], 'sequences': ['campus', 'drone_ir'], 'tracks': 3, 'order': 'smallest',
-            'starts': 'first', 'max_frames': 150, 'min_frames': 50, 'min_size': 8, 'loss_rules': False, 'max_width': 1280}
+# tracks = objects per video, the smallest first (0 = all of them); max_frames = 0: to the end of the track (tests only cap it)
+DEFAULTS = {'models': ['NANO', 'VIT'], 'sequences': ['campus', 'drone_ir'], 'tracks': 3, 'max_frames': 0,
+            'min_frames': 50, 'min_size': 8, 'loss_rules': False, 'max_width': 1280}
 PRESETS = {
-    'quick':    {'label': 'Quick - NANO, VIT on campus + drone_ir, 3 tracks, 150 frames', **DEFAULTS},
-    'standard': {'label': 'Standard - NANO, VIT, SIAMBAN on every sequence, 5 tracks, 300 frames, loss rules',
-                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN'], 'sequences': '*', 'tracks': 5, 'max_frames': 300, 'loss_rules': True},
-    'full':     {'label': 'Full - every model (SIAMFC is slow), every sequence, 10 tracks x 2 starts, 300 frames, loss rules',
-                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN', 'SIAMFC'], 'sequences': '*', 'tracks': 10, 'starts': 'first+middle',
-                 'max_frames': 300, 'loss_rules': True},
+    'quick':    {'label': 'Quick - NANO, VIT on campus + drone_ir, 3 objects per video', **DEFAULTS},
+    'standard': {'label': 'Standard - NANO, VIT, SIAMBAN on every video, 5 objects per video, loss rules',
+                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN'], 'sequences': '*', 'tracks': 5, 'loss_rules': True},
+    'full':     {'label': 'Full - every model (SIAMFC is slow), every video, 10 objects per video, loss rules',
+                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN', 'SIAMFC'], 'sequences': '*', 'tracks': 10, 'loss_rules': True},
 }
-ORDERS = ('smallest', 'largest', 'longest', 'all')
-STARTS = ('first', 'first+middle')
+OBJECTS = (3, 5, 10, 20, 0)                     # the choices offered in the UI (0 = all)
 # ----------------------------------------------------------------------------------------------------------------------
 def sequences():
     """[{id, label, kind, video, gt}]: every listed source with MOT ground truth, plus reference clips (one target)."""
@@ -85,7 +84,9 @@ def load_tracks(seq):
     return tracks
 # ----------------------------------------------------------------------------------------------------------------------
 def select_runs(seq, cfg, size=None):
-    """The single-object tasks of one sequence: [{seq, track, start, end, frames, median_side}] (frame indices 0-based, end exclusive)."""
+    """The single-object tasks of one sequence, the smallest objects first: [{seq, track, start, end, frames, median_side}]
+    (frame indices 0-based, end exclusive). An object qualifies when it is fully inside the frame, at least min_size px, for
+    min_frames frames; its task starts on the first such frame and runs to the end of its track."""
     W, H, n = size or video_info(seq['video'])
     tracks = load_tracks(seq)
     cand = []
@@ -96,19 +97,16 @@ def select_runs(seq, cfg, size=None):
             continue
         last = max(fb)
         side = float(np.median([np.sqrt((b[2] - b[0]) * (b[3] - b[1])) for b in fb.values()]))
-        starts = [ok[0]] if cfg['starts'] == 'first' else sorted({ok[0], ok[len(ok) // 2]})
-        cand.append((tid, side, last - ok[0], starts, last))
-    key = {'smallest': lambda c: c[1], 'largest': lambda c: -c[1], 'longest': lambda c: -c[2], 'all': lambda c: c[0]}[cfg['order']]
-    cand.sort(key=key)
-    if cfg['tracks'] and cfg['order'] != 'all':
+        cand.append((side, tid, ok[0], last))
+    cand.sort()
+    if cfg['tracks']:
         cand = cand[:cfg['tracks']]
     runs = []
-    for tid, side, _, starts, last in cand:
-        for s in starts:
-            end = min(last + 1, s + 1 + cfg['max_frames'], n if n > 0 else 10 ** 9)
-            if end - s - 1 >= 10:
-                runs.append({'seq': seq['id'], 'track': int(tid), 'start': int(s), 'end': int(end), 'frames': int(end - s - 1),
-                             'median_side': round(side, 1)})
+    for side, tid, s, last in cand:
+        end = min(last + 1, n if n > 0 else 10 ** 9, s + 1 + cfg['max_frames'] if cfg['max_frames'] else 10 ** 9)
+        if end - s - 1 >= 10:
+            runs.append({'seq': seq['id'], 'track': int(tid), 'start': int(s), 'end': int(end), 'frames': int(end - s - 1),
+                         'median_side': round(side, 1)})
     return runs
 # ----------------------------------------------------------------------------------------------------------------------
 def normalize(cfg):
@@ -127,9 +125,9 @@ def normalize(cfg):
     bad = [s for s in seqs if s not in known]
     if not seqs or bad:
         raise ValueError(f'sequences: unknown {bad}' if bad else 'pick at least one sequence')
-    if c['order'] not in ORDERS or c['starts'] not in STARTS:
-        raise ValueError(f'order: {ORDERS}, starts: {STARTS}')
-    for k, lo, hi in (('tracks', 0, 1000), ('max_frames', 20, 10000), ('min_frames', 10, 10000), ('min_size', 2, 1000), ('max_width', 320, 4000)):
+    for k in ('order', 'starts'):                    # settings of older versions
+        c.pop(k, None)
+    for k, lo, hi in (('tracks', 0, 1000), ('max_frames', 0, 100000), ('min_frames', 10, 10000), ('min_size', 2, 1000), ('max_width', 320, 4000)):
         c[k] = int(c[k])
         if not lo <= c[k] <= hi:
             raise ValueError(f'{k} must be in [{lo}, {hi}]')
@@ -362,5 +360,5 @@ def options():
     return {'presets': {k: {kk: vv for kk, vv in v.items()} for k, v in PRESETS.items()},
             'models': [{**m, 'pi_ms': utils_tracker_sot.SOT_MODELS[m['name']]['pi_ms']} for m in T.available()],
             'sequences': [{'id': s['id'], 'label': s['label'], 'kind': s['kind']} for s in sequences()],
-            'orders': ORDERS, 'starts': STARTS, 'defaults': DEFAULTS}
+            'objects': OBJECTS, 'defaults': DEFAULTS}
 # ----------------------------------------------------------------------------------------------------------------------

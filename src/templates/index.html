@@ -155,14 +155,11 @@
       <div id="b_models"></div>
       <div class="group">Sequences with ground truth <button class="linkbtn" id="b_all" type="button">all</button><button class="linkbtn" id="b_none" type="button">none</button></div>
       <div id="b_seqs"></div>
-      <div class="group">Targets</div>
-      <div class="row"><label for="b_order">which tracks</label><select id="b_order" style="width:130px"></select></div>
-      <div class="row"><label for="b_tracks">tracks per sequence (0 = all)</label><input type="number" id="b_tracks" min="0" max="1000"></div>
-      <div class="row"><label for="b_starts">start(s) on a track</label><select id="b_starts" style="width:130px"></select></div>
-      <div class="row"><label for="b_frames">max frames per task</label><input type="number" id="b_frames" min="20" max="10000"></div>
-      <div class="row"><label for="b_minsize">min target size, px</label><input type="number" id="b_minsize" min="2" max="1000"></div>
+      <div class="group">Objects</div>
+      <div class="row"><label for="b_tracks">objects per video, smallest first</label><select id="b_tracks" style="width:90px"></select></div>
+      <div class="row"><label for="b_minsize">min object size, px</label><input type="number" id="b_minsize" min="2" max="1000"></div>
       <label class="check"><input type="checkbox" id="b_loss"> also with the app loss rules (when SOT stops itself)</label>
-      <p class="hint">One task = one target (track ID) and one start: each model starts from its ground-truth box and tracks on its own.</p>
+      <p class="hint">Each object is tracked from the frame where it is first fully visible to the end of its track; every model starts from its ground-truth box.</p>
     </div>
     <div>
       <div class="card">

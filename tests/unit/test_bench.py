@@ -12,8 +12,8 @@ class TestSettings(unittest.TestCase):
             self.assertTrue(c['models'] and c['sequences'], k)
 
     def test_bad_settings_are_readable_errors(self):
-        for cfg, word in (({'models': ['NOPE']}, 'models'), ({'sequences': ['nope']}, 'sequences'), ({'max_frames': 5}, 'max_frames'),
-                          ({'order': 'random'}, 'order')):
+        for cfg, word in (({'models': ['NOPE']}, 'models'), ({'sequences': ['nope']}, 'sequences'), ({'tracks': -1}, 'tracks'),
+                          ({'min_size': 0}, 'min_size')):
             with self.assertRaises(ValueError) as e:
                 B.normalize(cfg)
             self.assertIn(word, str(e.exception))
@@ -43,13 +43,12 @@ class TestTargets(unittest.TestCase):
         return {**B.DEFAULTS, **kw}
 
     def test_smallest_first_and_ineligible_tracks_skipped(self):
-        runs = B.select_runs(self.seq, self.cfg(tracks=5, order='smallest'), (640, 480, 200))
+        runs = B.select_runs(self.seq, self.cfg(tracks=5), (640, 480, 200))
         self.assertEqual([r['track'] for r in runs], [2, 1])
 
-    def test_largest_one_track_two_starts(self):
-        runs = B.select_runs(self.seq, self.cfg(tracks=1, order='largest', starts='first+middle', max_frames=50), (640, 480, 200))
-        self.assertEqual([(r['track'], r['start']) for r in runs], [(1, 0), (1, 100)])
-        self.assertTrue(all(r['frames'] == 50 for r in runs))
+    def test_one_object_tracked_to_the_end_of_its_track(self):
+        runs = B.select_runs(self.seq, self.cfg(tracks=1), (640, 480, 200))
+        self.assertEqual([(r['track'], r['start'], r['frames']) for r in runs], [(2, 0, 199)])
 
 
 class TestMetrics(unittest.TestCase):

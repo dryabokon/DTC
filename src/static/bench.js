@@ -55,7 +55,7 @@
                 l.append(i, document.createTextNode(' ' + s.label)); ss.appendChild(l);
             });
             const fill = (sel, values) => { sel.innerHTML = ''; values.forEach(v => { const x = E('option', v); x.value = v; sel.appendChild(x); }); };
-            fill($('b_order'), o.orders); fill($('b_starts'), o.starts);
+            const tr = $('b_tracks'); tr.innerHTML = ''; o.objects.forEach(v => { const x = E('option', v ? String(v) : 'all'); x.value = v; tr.appendChild(x); });
             applyPreset('quick');
             $('b_preset').onchange = e => { if (e.target.value) applyPreset(e.target.value); };
             $('benchForm').addEventListener('change', e => { if (e.target.id !== 'b_preset') { $('b_preset').value = ''; } scheduleCheck(); });
@@ -71,14 +71,13 @@
         const p = opts.presets[k]; $('b_preset').value = k;
         $('b_models').querySelectorAll('input').forEach(i => i.checked = p.models.includes(i.value) && !i.disabled);
         $('b_seqs').querySelectorAll('input').forEach(i => i.checked = p.sequences === '*' || p.sequences.includes(i.value));
-        $('b_order').value = p.order; $('b_tracks').value = p.tracks; $('b_starts').value = p.starts;
-        $('b_frames').value = p.max_frames; $('b_minsize').value = p.min_size; $('b_loss').checked = p.loss_rules;
+        $('b_tracks').value = p.tracks; $('b_minsize').value = p.min_size; $('b_loss').checked = p.loss_rules;
         scheduleCheck();
     }
     function benchConfig() {
         const picked = id => Array.from($(id).querySelectorAll('input:checked')).map(i => i.value);
-        return {models: picked('b_models'), sequences: picked('b_seqs'), order: $('b_order').value, tracks: parseInt($('b_tracks').value || '0'),
-                starts: $('b_starts').value, max_frames: parseInt($('b_frames').value || '0'), min_size: parseInt($('b_minsize').value || '8'), loss_rules: $('b_loss').checked};
+        return {models: picked('b_models'), sequences: picked('b_seqs'), tracks: parseInt($('b_tracks').value || '0'),
+                min_size: parseInt($('b_minsize').value || '8'), loss_rules: $('b_loss').checked};
     }
     function scheduleCheck() { clearTimeout(checkTimer); $('b_estimate').textContent = 'checking ...'; checkTimer = setTimeout(runCheck, 350); }
     function runCheck() {

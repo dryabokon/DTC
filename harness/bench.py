@@ -1,7 +1,7 @@
 """dtc bench: the click-to-track benchmark (src/utils_bench.py, src/bench_worker.py) on the Pi from the laptop.
 
-    dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--tracks 3] [--frames 150]
-                  [--order smallest|largest|longest|all] [--starts first|first+middle] [--loss-rules]
+    dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--objects 3 (0 = all)]
+                  [--min-size 8] [--loss-rules]
         starts it on the Pi (the same worker as the web UI's Benchmark tab), shows progress, copies the run to runs/bench/NNNN
         Ctrl+C cancels it on the Pi (partial results are kept)
     dtc bench list                  the Pi's benchmark runs
@@ -30,8 +30,8 @@ def _fmt(s):
     return f'{s // 60} min {s % 60:02d} s' if s >= 60 else f'{s} s'
 # ----------------------------------------------------------------------------------------------------------------------
 def run(a):
-    cfg = {k: v for k, v in {'preset': a.preset, 'models': a.models, 'sequences': a.seqs, 'tracks': a.tracks, 'max_frames': a.frames,
-                             'order': a.order, 'starts': a.starts, 'min_size': a.min_size, 'loss_rules': True if a.loss_rules else None}.items() if v is not None}
+    cfg = {k: v for k, v in {'preset': a.preset, 'models': a.models, 'sequences': a.seqs, 'tracks': a.objects,
+                             'min_size': a.min_size, 'loss_rules': True if a.loss_rules else None}.items() if v is not None}
     pi = pi_app.Pi(verbose=False)
     rc, out, err = _py(pi, 'import sys, json, utils_bench as B\n'
                            'c, p = B.readiness(json.loads(sys.argv[1]))\n'
@@ -111,6 +111,6 @@ def add_parser(sub):
     s = sub.add_parser('bench', help='click-to-track benchmark on the Pi')
     s.add_argument('action', choices=['run', 'list', 'pull', 'cancel']); s.add_argument('id', nargs='?')
     s.add_argument('--preset', default='quick'); s.add_argument('--models'); s.add_argument('--seqs')
-    s.add_argument('--tracks', type=int); s.add_argument('--frames', type=int); s.add_argument('--min-size', type=int); s.add_argument('--order'); s.add_argument('--starts')
+    s.add_argument('--objects', type=int, help='objects per video, smallest first (0 = all)'); s.add_argument('--min-size', type=int)
     s.add_argument('--loss-rules', action='store_true')
     return s

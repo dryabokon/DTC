@@ -20,7 +20,7 @@
   dtc data convert FOLDER [--fps 25] [--keep-frames]   frames + Anti-UAV json -> FOLDER/<name>.mp4 + gt.txt (images/vNN layout)
 
   dtc test unit | smoke | integration [--sim] | quality     -> runs/<suite>/NNNN (report.md, metrics.json, manifest.json)
-  dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--tracks N] [--frames N] [--loss-rules]
+  dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--objects N] [--loss-rules]
                                    click-to-track benchmark on the Pi (as the web UI's Benchmark tab) -> runs/bench/NNNN
   dtc bench list | pull [NNNN|all] | cancel
   dtc runs [suite]                 latest runs and their verdicts

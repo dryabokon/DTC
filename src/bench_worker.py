@@ -203,11 +203,11 @@ def report(cfg_all, summary, results, cancelled, elapsed):
          f'{B.fmt_s(elapsed)} (estimate {B.fmt_s(cfg_all["estimate_s"])})', '',
          '## Method', '',
          '- One-pass evaluation: each model is initialised once with the ground-truth box of the target on the start frame and then tracks '
-         'on its own, without re-initialisation, until the target\'s track ends or max_frames.',
+         'on its own, without re-initialisation, to the end of the target\'s track.',
          '- Multi-object ground truth is used as single-object tasks: one task = one track ID (+ start frame); the tracker is compared only '
          'with that ID\'s box, so jumping to a neighbour counts as lost. Frames where the target has no box are not scored.',
-         f'- Targets per sequence: {c["order"]} {c["tracks"] or "all"} track(s) that are fully inside the frame, at least {c["min_size"]} px and '
-         f'{c["min_frames"]} frames; start(s): {c["starts"]}; at most {c["max_frames"]} frames per task; frames wider than {c["max_width"]} px downscaled.',
+         f'- Objects per video: the {c["tracks"] or "all"} smallest that are fully inside the frame, at least {c["min_size"]} px, for {c["min_frames"]} frames; '
+         f'each starts on its first such frame' + (f', at most {c["max_frames"]} frames' if c.get("max_frames") else '') + f'; frames wider than {c["max_width"]} px downscaled.',
          '- IoU = intersection over union with the truth box. success = share of scored frames with IoU >= 0.5; AUC = mean success over '
          'IoU thresholds 0..1 (OTB style); precision20 = share of frames with the centre within 20 px; lost = IoU < 0.1 and the centre further '
          'than max(10 px, target size) on 5 frames in a row; '
