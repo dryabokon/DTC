@@ -11,6 +11,10 @@ import numpy as np
 #   MIL      cv2.TrackerMIL, no weights                                                          fallback only
 # score_th: below it a frame counts as "lost" (lost_th such frames in a row stop SOT). Every model has its own score
 # scale, so the default is per model (None = no score check; the loss rules of Tracker_SOT still apply).
+# RPi5 CPU, tests/quality/sot_models.py 2026-11-04 (drone_ir + 10 PETS09 runs x 300 frames, raw tracker, IoU vs truth):
+#   NANO 10 ms, PETS IoU 0.53 | VIT 14 ms, 0.58 | SIAMBAN 42 ms, 0.41 | SIAMFC 384 ms (2.6 fps), 0.69 on 3 short runs.
+#   All four lose the 32x24 thermal drone of drone_ir after ~55 frames. Scores: NANO does not separate on/off target,
+#   VIT does (PETS), SIAMBAN (APCE) overlaps on PETS, SIAMFC's is always ~0 -> no score threshold for those two.
 # ----------------------------------------------------------------------------------------------------------------------
 SOT_MODELS = {
     'NANO':    {'label': 'NanoTrack (default)',                       'score_th': 0.30},
