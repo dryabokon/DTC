@@ -136,8 +136,11 @@ class Pi:
         rc, out, _ = self.sh("pgrep -f '[p]ython main.py' | head -1")
         return int(out) if out.strip().isdigit() else None
 
-    def start(self, args='', log=APP_LOG, wait=90, replace=True):
-        """Start DTC (run_me_arm.sh <args>) in the background; returns /status once the UI answers, else None."""
+    def start(self, args='', log=APP_LOG, wait=90, replace=True, idle_pause=False):
+        """Start DTC (run_me_arm.sh <args>) in the background; returns /status once the UI answers, else None.
+        idle_pause=False: the app keeps processing with no browser watching (tests read /status, nobody views the video)."""
+        if not idle_pause and '--idle_pause_s' not in args:
+            args = f'{args} --idle_pause_s 0'.strip()
         if self.app_pid():
             if not replace:
                 raise RuntimeError('DTC is already running on the Pi')

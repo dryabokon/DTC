@@ -26,6 +26,9 @@ class WebApp:
         self.target_fps = 10
         self.image = numpy.full((480, 640, 3), 127, dtype=numpy.uint8)
         self.image_id = 0
+        self.viewers = 0                            # open /video_feed streams (browsers showing the Live tab)
+        self.last_viewer_time = time.time()         # when the last one left (or the app started)
+        self._viewers_lock = threading.Lock()
         self.P = None
         self.E = None
         self.setup_routes()
@@ -244,6 +247,7 @@ class WebApp:
                     'sot_ms': round(self.P.SOT.last_ms) if self.P is not None and self.P.SOT.is_active else None, 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
                     'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
                     'paused': bool(self.E is not None and self.E.is_paused()), 'bench_hold': bool(self.E is not None and self.E._bench_held),
+                    'idle_hold': bool(self.E is not None and self.E._idle_held),
                     'can_pause': bool(self.E is not None and getattr(self.E.Grabber, 'can_pause', False)),
                     'sot_stop_age': (time.time() - self.P.SOT.stop_time) if self.P is not None and self.P.SOT.stop_reason else None}
         # ----------------------------------------------------------------------------------------------------------------------
@@ -264,6 +268,21 @@ class WebApp:
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def gen_frames(self):
+        with self._viewers_lock:
+            self.viewers += 1
+        try:
+            yield from self._gen_frames()
+        finally:                                    # the browser closed the stream (other tab, hidden window, closed)
+            with self._viewers_lock:
+                self.viewers -= 1
+                self.last_viewer_time = time.time()
+    # ----------------------------------------------------------------------------------------------------------------------
+    def idle_for(self):
+        """Seconds nobody has been watching the video (0 while somebody is)."""
+        with self._viewers_lock:
+            return 0.0 if self.viewers > 0 else time.time() - self.last_viewer_time
+    # ----------------------------------------------------------------------------------------------------------------------
+    def _gen_frames(self):
 
         self.fps = 0
         self.frame_id = 0

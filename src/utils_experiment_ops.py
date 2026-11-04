@@ -54,6 +54,8 @@ class Experimentor():
         self.should_be_closed = False
         self._bench_held = False                    # a SOT benchmark runs: live processing holds (fair timings, see bench_hold)
         self._bench_paused_grabber = False
+        self._idle_held = False                     # nobody watches the video: live processing holds (see idle_hold)
+        self._idle_paused_grabber = False
 
         return
     # ----------------------------------------------------------------------------------------------------------------------
@@ -216,6 +218,29 @@ class Experimentor():
             time.sleep(0.2)
         return self._bench_held
     # ----------------------------------------------------------------------------------------------------------------------
+    def idle_hold(self):
+        """Nobody has watched the video for idle_pause_s (no browser on the Live tab, hidden window, UI closed): stop processing
+        frames - the Pi stays cool and quiet. Never while click-to-track runs (its output may be used without anyone watching).
+        A video file pauses on its frame; a camera / stream keeps being received but is not processed. Off: --idle_pause_s 0."""
+        limit = float(getattr(self.config, 'idle_pause_s', 0) or 0)
+        idle = limit > 0 and self.UI is not None and self.UI.idle_for() >= limit and not self.Perceptioner.SOT.is_active
+        if idle and not self._idle_held:
+            self._idle_held = True
+            if getattr(self.Grabber, 'can_pause', False) and not self.Grabber.paused:
+                self.Grabber.set_paused(True)
+                self._idle_paused_grabber = True
+            print(f'[ Idle  ] nobody watches the video for {limit:.0f} s - live processing holds', flush=True)
+        elif not idle and self._idle_held:
+            self._idle_held = False
+            if self._idle_paused_grabber:
+                self.Grabber.set_paused(False)
+                self._idle_paused_grabber = False
+            self._last_frame_time = time.time()              # no "no signal" screen for the time we held
+            print('[ Idle  ] a viewer is back - live processing resumes', flush=True)
+        if self._idle_held:
+            time.sleep(0.1)
+        return self._idle_held
+    # ----------------------------------------------------------------------------------------------------------------------
     def show_notice(self, title, text):
         import numpy, cv2
         H, W = (self.H, self.W) if self.H is not None else (480, 640)
@@ -249,7 +274,7 @@ class Experimentor():
                 'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
                 'sot_stop_reason': P.SOT.stop_reason if P is not None else None,
-                'sot_model': P.SOT.model if P is not None else None, 'bench_hold': self._bench_held,
+                'sot_model': P.SOT.model if P is not None else None, 'bench_hold': self._bench_held, 'idle_hold': self._idle_held,
                 'sot_ms': round(P.SOT.last_ms, 1) if P is not None and P.SOT.is_active else None}
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
@@ -365,7 +390,7 @@ class Experimentor():
                 break
             if self.UI is not None:
                 self.process_key(self.UI.get_key())
-            if self.bench_hold():
+            if self.bench_hold() or self.idle_hold():
                 continue
 
             with self._source_lock:

@@ -58,7 +58,7 @@ def cmd_pi(a, extra):
     if a.action == 'start':
         args = ' '.join(extra) if extra else '--source campus'
         print(f'starting DTC on the Pi: {args}')
-        st = pi.start(args)
+        st = pi.start(args, idle_pause=True)
         if st is None:
             print('did not come up:\n' + pi.logs(20)); return 1
         print(f'running: {st["source_name"]} {st["frame_size"]}  ->  {pi.url()}'); return 0
@@ -84,7 +84,7 @@ def cmd_sim(a, extra):
         pi = pi_app.Pi(verbose=False)
         url = sim.rtsp_url_for(pi)
         args = f'--source {url} --detection_model /home/pi/sources/Fly2/models/fly_416_ncnn_model --imgsz_hw 256,416 ' + ' '.join(extra)
-        st = pi.start(args)
+        st = pi.start(args, idle_pause=True)
         print(f'DTC on {url}: ' + (f'running -> {pi.url()}' if st else 'did not come up\n' + pi.logs(20))); return 0 if st else 1
 # ----------------------------------------------------------------------------------------------------------------------
 def cmd_clips(a, extra):

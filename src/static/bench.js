@@ -25,6 +25,11 @@
         if (push !== false) { const u = new URL(location); u.searchParams.set('tab', t); if (t !== 'runs') u.searchParams.delete('run'); history.replaceState(null, '', u); }
     }
     document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); b.blur(); });
+    // a hidden browser tab / minimised window does not watch either: drop the stream, take it back when visible again
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) feed.removeAttribute('src');
+        else if (tab === 'live' && !feed.getAttribute('src')) feed.setAttribute('src', feedSrc);
+    });
 
     //------------------------------------------------------------------------------------------------------------------
     // Benchmark tab: preset -> parameters -> readiness + estimate (automatic) -> Run -> progress

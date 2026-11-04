@@ -92,9 +92,7 @@
 <body>
 
 <header class="topbar">
-  <h1>DTC</h1>
   <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button></nav>
-  <span class="meta" id="topMeta">detection · tracking · classification</span>
   <span class="spacer"></span>
   <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
   <span class="pill" id="modePill">idle</span>
@@ -235,6 +233,7 @@
             if (data.sot_model && $('sot_model').value !== data.sot_model && document.activeElement !== $('sot_model')) loadSotModels();
             $('sot_model_status').textContent = data.sot_active && data.sot_ms !== null ? `tracking: ${data.sot_ms} ms / frame` : '';
             if (data.bench_hold) { pill.textContent = 'benchmark running · live holds'; pill.className = 'pill warn'; pill.title = ''; }
+            else if (data.idle_hold) { pill.textContent = 'idle · nobody watching'; pill.className = 'pill'; pill.title = 'Live processing holds while no browser shows the video'; }
             else if (data.sot_active) { pill.textContent = `SOT ${data.sot_model || ''} tracking  ✕`; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
             else if (data.sot_stop_reason && data.sot_stop_age !== null && data.sot_stop_age < 8) {
                 pill.textContent = data.sot_stop_reason === 'stopped by user' ? 'tracking stopped' : 'SOT: ' + data.sot_stop_reason;
@@ -387,7 +386,6 @@
                 sel.appendChild(o);
             }
             $('source_status').textContent = message || ('Current: ' + data.current_path);
-            $('topMeta').textContent = data.current + '  ·  ' + data.current_path;
         });
     }
     function switchSource(spec) {

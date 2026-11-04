@@ -11,6 +11,8 @@ class cnfg_common(config_base.cnfg_base):
     max_seconds = 0                             # stop by itself after this many seconds / processed frames (0 = run until Esc / UI shutdown)
     max_frames = 0
     max_frame_width = 1280                      # frames wider than this are downscaled by the grabber (e.g. 1080p -> 1280x720)
+    idle_pause_s = 5                            # nobody watches the video (no browser on the Live tab) this long -> processing holds
+                                                # until a viewer is back (not while click-to-track runs); 0 = always process
 
     resize_ratio = None
     start = 0
