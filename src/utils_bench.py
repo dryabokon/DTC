@@ -31,7 +31,7 @@ RUNS_DIR = os.path.join(REPO, 'runs', 'bench')
 CLIPS_DIR = os.path.join(REPO, 'clips')
 DECODE_MS = 3.0                                 # per frame, for the estimate (decode + resize on the Pi)
 LOSS_RULES_MS = 3.0                             # extra per update of the full Tracker_SOT (embedding, contrast)
-CLIP_MS = 4.0                                   # per video frame and clip: drawing + piping to ffmpeg (the encoders run in parallel)
+CLIP_MS = 4.0                                   # per video frame and clip half: drawing + piping to ffmpeg (the encoders run in parallel)
 # ----------------------------------------------------------------------------------------------------------------------
 # tracks = objects per video, the smallest first (0 = all of them); max_frames = 0: to the end of the track (tests only cap it)
 DEFAULTS = {'models': ['NANO', 'VIT'], 'sequences': ['campus', 'drone_ir'], 'tracks': 3, 'max_frames': 0,
@@ -379,7 +379,7 @@ def task_series(run_id, task):
 # ----------------------------------------------------------------------------------------------------------------------
 def video_path(run_id, name):
     """Absolute path of a clip of a run (only files of <run>/video/ with a clip name), else None."""
-    if not re.fullmatch(r'\d{4}', run_id or '') or not re.fullmatch(r'[A-Za-z0-9_.-]+__[A-Z]+__(recall|precision)\.mp4', name or ''):
+    if not re.fullmatch(r'\d{4}', run_id or '') or not re.fullmatch(r'[A-Za-z0-9_.-]+__[A-Z]+\.mp4', name or ''):
         return None
     p = os.path.join(RUNS_DIR, run_id, 'video', name)
     return p if os.path.isfile(p) else None

@@ -246,21 +246,13 @@
         return wrap;
     }
 
-    function clipPair(id, v) {
-        // recall clip on the left, precision clip on the right, played together
-        const pair = el('div', 'clipPair');
-        const mk = name => { const x = E('video'); x.src = `/bench/video?id=${id}&name=${encodeURIComponent(name)}`; x.controls = true; x.muted = true; x.preload = 'metadata'; return x; };
-        const a = mk(v.recall), b = mk(v.precision);
-        let busy = false;
-        const follow = (src, dst) => {
-            src.addEventListener('play', () => { if (!busy && dst.paused) { busy = true; dst.currentTime = src.currentTime; dst.play().finally(() => busy = false); } });
-            src.addEventListener('pause', () => { if (!dst.paused) dst.pause(); });
-            src.addEventListener('seeked', () => { if (Math.abs(dst.currentTime - src.currentTime) > 0.05) dst.currentTime = src.currentTime; });
-            src.addEventListener('ratechange', () => { dst.playbackRate = src.playbackRate; });
-        };
-        follow(a, b); follow(b, a);
-        pair.append(el('div', null, E('div', 'recall · hit / miss', 'hint'), a), el('div', null, E('div', 'precision · hit / false positive', 'hint'), b));
-        return pair;
+    function clipPair(id, name) {
+        // one clip: recall on the left half, precision on the right half
+        if (typeof name !== 'string') return el('div');                  // clips of an older layout
+        const wrap = el('div', 'clip');
+        const x = E('video'); x.src = `/bench/video?id=${id}&name=${encodeURIComponent(name)}`; x.controls = true; x.muted = true; x.preload = 'metadata';
+        wrap.append(el('div', 'clipHead', E('span', 'recall · hit / miss', 'hint'), E('span', 'precision · hit / false positive', 'hint')), x);
+        return wrap;
     }
 
     function ganttCanvas(title, rows, tl, n, key, cols, w, labels) {
