@@ -177,9 +177,9 @@ class Worker:
 def _agg(rows, loss_rules):
     if not rows:
         return {}
-    mean = lambda k: round(float(np.mean([r[k] for r in rows if r[k] is not None])), 3) if any(r[k] is not None for r in rows) else None
+    mean = lambda k, n=3: round(float(np.mean([r[k] for r in rows if r[k] is not None])), n) if any(r[k] is not None for r in rows) else None
     out = {'tasks': len(rows), 'iou': mean('iou'), 'success': mean('success'), 'auc': mean('auc'), 'precision20': mean('precision20'),
-           'center_err': mean('center_err'), 'ms': round(float(np.median([r['ms'] for r in rows if r['ms'] is not None])), 1),
+           'center_err': mean('center_err', 1), 'ms': round(float(np.median([r['ms'] for r in rows if r['ms'] is not None])), 1),
            'ms_p95': round(float(np.median([r['ms_p95'] for r in rows if r['ms_p95'] is not None])), 1),
            'lost': sum(1 for r in rows if r['lost_at'] is not None)}
     if loss_rules:

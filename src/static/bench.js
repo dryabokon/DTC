@@ -193,7 +193,7 @@
         const cols = [['auc', 'AUC', 'higher'], ['success', 'success', 'higher'], ['iou', 'IoU', 'higher'], ['precision20', 'prec@20px', 'higher'],
                       ['center_err', 'centre err px', 'lower'], ['lost', 'lost', 'lower'], ['ms', 'ms', 'lower'], ['ms_p95', 'ms p95', 'lower']]
             .concat(c.loss_rules ? [['caught', 'caught', 'higher'], ['missed', 'missed', 'lower'], ['early_stop', 'early stop', 'lower'], ['kept', 'kept', 'higher']] : []);
-        box.appendChild(table(['model', 'tasks'].concat(cols.map(x => x[1])), Object.entries(res.models).map(([m, v]) => {
+        box.appendChild(table(['model', 'tasks'].concat(cols.map(x => x[1])), c.models.filter(m => res.models[m]).map(m => [m, res.models[m]]).map(([m, v]) => {
             const name = E('span', '■ ' + m); name.style.color = COLORS[m];
             return [name, v.tasks].concat(cols.map(([k, , b]) => { const s = E('span', num(v[k])); const dd = other[m] ? delta(v[k], other[m][k], b) : null; if (dd) s.appendChild(dd); return s; }));
         })));
@@ -231,14 +231,14 @@
             const g = cv.getContext('2d'), W = cv.width, H = cv.height, L = 34, B = 20, css = getComputedStyle(document.documentElement);
             g.strokeStyle = css.getPropertyValue('--line'); g.fillStyle = css.getPropertyValue('--muted'); g.font = '11px sans-serif';
             [0, 0.5, 1].forEach(v => { const y = H - B - v * (H - B - 8); g.beginPath(); g.moveTo(L, y); g.lineTo(W, y); g.stroke(); g.fillText(v.toFixed(1), 4, y + 4); });
-            g.fillText('IoU', 4, 12); g.fillText('frame →', W - 50, H - 4);
+            g.fillText('IoU', L + 4, 14); g.fillText('frame →', W - 50, H - 4);
             const n = meta.frames;
-            Object.entries(s).forEach(([m, d]) => {
+            detail.config.config.models.filter(m => s[m]).map(m => [m, s[m]]).forEach(([m, d]) => {
                 g.strokeStyle = COLORS[m] || '#888'; g.lineWidth = 1.5; g.beginPath(); let pen = false;
                 d.frame.forEach((f, k) => { const v = d.iou[k]; if (v === null) { pen = false; return; } const x = L + (W - L) * f / n, y = H - B - v * (H - B - 8); if (pen) g.lineTo(x, y); else g.moveTo(x, y); pen = true; });
                 g.stroke();
             });
-            const leg = E('div', null, 'hint'); Object.keys(s).forEach(m => { const sp = E('span', '■ ' + m + '  '); sp.style.color = COLORS[m]; leg.appendChild(sp); }); box.appendChild(leg);
+            const leg = E('div', null, 'hint'); detail.config.config.models.filter(m => s[m]).forEach(m => { const sp = E('span', '■ ' + m + '  '); sp.style.color = COLORS[m]; leg.appendChild(sp); }); box.appendChild(leg);
         });
     }
 

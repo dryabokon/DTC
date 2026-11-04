@@ -107,6 +107,29 @@ def _sot_models_check(R, pi, models=('VIT', 'SIAMBAN', 'SIAMFC')):
     st = pi.wait_for(lambda s: s.get('sot_model') == 'NANO', 5)
     R.check('SOT model: back to NANO', st is not None)
 # ----------------------------------------------------------------------------------------------------------------------
+def _bench_check(R, pi):
+    """A tiny click-to-track benchmark through the web API: live holds while it runs, results come back, live resumes."""
+    code, r = pi.post('/bench/start', js={'models': ['NANO'], 'sequences': ['campus'], 'tracks': 1, 'max_frames': 40})
+    if not R.check('bench: starts from the web API', code == 200 and isinstance(r, dict) and r.get('ok'), f'HTTP {code} {r}'):
+        return
+    rid = r['id']
+    st = pi.wait_for(lambda s: s.get('bench_hold'), 5)
+    R.check('bench: live holds while it runs', st is not None)
+    done = None
+    for _ in range(90):
+        _, pr = pi.get('/bench/progress?id=' + rid)
+        p = (pr or {}).get('progress') if isinstance(pr, dict) else None
+        if p and p.get('state') != 'RUNNING':
+            done = p; break
+        time.sleep(1)
+    _, d = pi.get('/bench/run?id=' + rid)
+    models = ((d or {}).get('results') or {}).get('models', {}) if isinstance(d, dict) else {}
+    R.check('bench: finishes with results', bool(done and done['state'] == 'DONE' and 'NANO' in models),
+            f'run {rid}: {done and done["state"]} in {done and done.get("elapsed_s")} s, NANO AUC {models.get("NANO", {}).get("auc")}')
+    a = pi.wait_for(lambda s: not s.get('bench_hold'), 5); time.sleep(1.5); b = pi.status()
+    R.check('bench: live resumes afterwards', bool(a and b and b['frames'] > a['frames']), f'{(b["frames"] - a["frames"]) if a and b else "?"} frames in 1.5 s')
+    pi.sh(f'rm -rf {PI_REPO}/runs/bench/{rid}')
+# ----------------------------------------------------------------------------------------------------------------------
 def _pause_check(R, pi):
     """Space pauses a video file, a click while paused starts SOT on the frame on screen, -> steps one frame, Space resumes."""
     pi.key('Space')
@@ -160,6 +183,8 @@ def smoke(R, sync=True):
     _sot_click_and_esc(R, pi)
     R.section('click-to-track models (UI switch)')
     _sot_models_check(R, pi)
+    R.section('click-to-track benchmark (web API)')
+    _bench_check(R, pi)
     R.section('pause (video file)')
     _pause_check(R, pi)
     R.section('detection + tracking on (YOLO NCNN + DeepSORT)')
