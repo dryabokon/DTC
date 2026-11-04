@@ -182,7 +182,12 @@
         const d = v - w; if (Math.abs(d) < Math.pow(10, -(digits || 3))) return E('span', ' =', 'hint');
         return E('span', ` ${d > 0 ? '▲' : '▼'}${Math.abs(d).toFixed(digits === undefined ? 3 : digits)}`, (d > 0) === (better === 'higher') ? 'up' : 'down');
     }
-    function heat(v) { return v === null || v === undefined ? '' : `rgba(48,209,88,${(0.08 + 0.42 * Math.max(0, Math.min(1, v))).toFixed(2)})`; }
+    function heat(v) {                       // red below 0.5, green above: good and bad cells read at a glance
+        if (v === null || v === undefined) return '';
+        v = Math.max(0, Math.min(1, v));
+        return v >= 0.5 ? `rgba(48,209,88,${(0.10 + 0.7 * (v - 0.5)).toFixed(2)})` : `rgba(255,69,58,${(0.10 + 0.6 * (0.5 - v)).toFixed(2)})`;
+    }
+    const r1 = v => v === null || v === undefined ? '–' : (Math.round(v * 10) / 10);
 
     function renderRun() {
         const box = $('r_detail'); box.innerHTML = '';
@@ -242,7 +247,7 @@
             const row = (key, label, value, extra) => el('div', 'mrow', help(key, label), el('b', null, value, extra || null));
             card.append(row('ms', 'speed', `${v.ms} ms · ${fps(v.ms)} fps`, o ? arrow(v.ms, o.ms, 'lower', 1) : null));
             if (!tiny) card.append(row('success', 'on target', pct(v.success)), row('precision20', 'centre within 20 px', pct(v.precision20)));
-            card.append(row('center_err', 'centre error', `${v.center_err} px`), row('lost', 'lost the target', `${v.lost} of ${v.tasks} tasks`));
+            card.append(row('center_err', 'centre error', `${r1(v.center_err)} px`), row('lost', 'lost the target', `${v.lost} of ${v.tasks} tasks`));
             if (c.loss_rules) card.append(el('div', 'mrow', help('lost', 'own loss detection'), el('b', null, `${v.caught} caught · ${v.early_stop} too early · ${v.missed} missed`)));
             cards.append(card);
         });
@@ -329,10 +334,17 @@
         [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].filter(v => Math.log10(v) >= x0 && Math.log10(v) <= x1).forEach(v => {
             g.beginPath(); g.moveTo(X(v), T); g.lineTo(X(v), h - B); g.stroke(); g.fillText(v + ' ms', X(v) - 12, h - B + 16); });
         g.fillText('ms per frame on the Pi (log scale) →', w - R - 210, h - 4);
-        pts.forEach(p => {
-            if (p.y === null || p.y === undefined) return;
-            g.fillStyle = COLORS[p.m] || '#888'; g.beginPath(); g.arc(X(p.x), Y(p.y), 7, 0, 2 * Math.PI); g.fill();
-            g.fillStyle = text; g.font = '600 13px system-ui, sans-serif'; g.fillText(`${p.m}  ${p.y} · ${p.x} ms`, X(p.x) + 11, Y(p.y) + 4); g.font = '12px system-ui, sans-serif';
+        const placed = [];                    // labels must not overlap: move a label down until it is clear of the others
+        pts.filter(p => p.y !== null && p.y !== undefined).sort((a, b) => b.y - a.y).forEach(p => {
+            const x = X(p.x), y = Y(p.y);
+            g.fillStyle = COLORS[p.m] || '#888'; g.beginPath(); g.arc(x, y, 7, 0, 2 * Math.PI); g.fill();
+            g.font = '600 13px system-ui, sans-serif';
+            const label = `${p.m}  ${p.y} · ${p.x} ms`, lw = g.measureText(label).width;
+            let ly = y + 4;
+            while (placed.some(q => x + 11 < q.x + q.w && q.x < x + 11 + lw && Math.abs(q.y - ly) < 16)) ly += 16;
+            if (ly !== y + 4) { g.strokeStyle = COLORS[p.m] || '#888'; g.beginPath(); g.moveTo(x + 6, y + 3); g.lineTo(x + 10, ly - 4); g.stroke(); }
+            g.fillStyle = text; g.fillText(label, x + 11, ly); placed.push({x: x + 11, y: ly, w: lw});
+            g.font = '12px system-ui, sans-serif';
         });
     }
     function showSeries(t) {

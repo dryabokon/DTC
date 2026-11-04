@@ -248,7 +248,7 @@
     //------------------------------------------------------------------------------------------------------------------
     function updateFromFlask() {
         fetch('/get_config').then(r => r.json()).then(data => {
-            $('pausePill').hidden = !data.paused;
+            $('pausePill').hidden = !data.paused || data.idle_hold || data.bench_hold;     // an automatic hold is not the user's pause
             $('restartBtn').hidden = !data.can_pause;          // video files only
             $('do_detection').checked = Boolean(data.do_detection);
             $('do_classification').checked = Boolean(data.do_classification);
