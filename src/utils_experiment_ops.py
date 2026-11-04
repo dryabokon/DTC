@@ -214,7 +214,9 @@ class Experimentor():
                 'video_pos': getattr(self.Grabber, 'position', None),
                 'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
-                'sot_stop_reason': P.SOT.stop_reason if P is not None else None}
+                'sot_stop_reason': P.SOT.stop_reason if P is not None else None,
+                'sot_model': P.SOT.model if P is not None else None,
+                'sot_ms': round(P.SOT.last_ms, 1) if P is not None and P.SOT.is_active else None}
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
 

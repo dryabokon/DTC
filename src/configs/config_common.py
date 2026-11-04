@@ -35,10 +35,11 @@ class cnfg_common(config_base.cnfg_base):
     track_lifetime = 2
 
     # click-to-track single-object tracking (SOT): detector/MOT are bypassed while SOT is active
-    sot_tracking_model = 'NANO'                 # 'NANO' (cv2.TrackerNano) | 'MIL'
-    sot_models_dir = '../models/nanotrack/'
+    sot_tracking_model = 'NANO'                 # NANO (NanoTrack, default) | VIT (VitTrack) | SIAMBAN (DTC_Training, MobileNetV3) | SIAMFC (AlexNet) | MIL
+                                                # also switchable in the web UI; details: utils_tracker_sot.SOT_MODELS
+    sot_models_dir = '../models/'               # nanotrack/, vittrack/, siamban/ (SiamFC weights come with tools/DL/siamfc_pytorch)
     sot_box_ratio = 0.10                        # ROI on click: this fraction of frame width and height
-    sot_score_th = 0.30                         # below this NanoTrack score the frame counts as "lost"
+    sot_score_th = None                         # tracker score below this -> the frame counts as "lost"; None: per-model default (SOT_MODELS)
     sot_lost_th = 15                            # consecutive lost frames before SOT is cancelled
     sot_lost_edge_frames = 8                    # box touching the frame border this many frames in a row -> target left the frame (0 = off)
     sot_lost_appearance = 0.60                  # appearance similarity (median over sot_lost_window) below this x start value -> lost (0 = off)

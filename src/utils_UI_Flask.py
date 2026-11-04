@@ -75,6 +75,23 @@ class WebApp:
                 return {'ok': False, 'error': str(e)}, 400
             return {'ok': True, 'name': name}, 200
 # ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/sot_models', methods=['GET'])
+        def sot_models():
+            if self.P is None:
+                return {'error': 'pipeline not ready'}, 503
+            return {'current': self.P.SOT.model, 'models': self.P.SOT.available()}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/sot_model', methods=['POST'])
+        def sot_model():
+            data = request.get_json(silent=True) or {}
+            if self.P is None:
+                return {'ok': False, 'error': 'pipeline not ready'}, 503
+            try:
+                name = self.P.request_sot_model(data.get('model', ''))
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'model': name}, 200
+# ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():
             if self.P is not None:
@@ -170,7 +187,8 @@ class WebApp:
         @self.app.route('/get_config', methods=['GET'])
         def get_config():
             return {'do_detection':self.config.do_detection,'do_classification':self.config.do_classification,'do_tracking':self.config.do_tracking,'do_profiling':self.config.do_profiling,
-                    'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
+                    'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_model': self.P.SOT.model if self.P is not None else None,
+                    'sot_ms': round(self.P.SOT.last_ms) if self.P is not None and self.P.SOT.is_active else None, 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
                     'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
                     'paused': bool(self.E is not None and self.E.is_paused()),
                     'can_pause': bool(self.E is not None and getattr(self.E.Grabber, 'can_pause', False)),

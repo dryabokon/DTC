@@ -56,8 +56,8 @@ class Pipeliner:
         self.ROI = None
 
         self.SOT = utils_tracker_sot.Tracker_SOT(model=getattr(self.config, 'sot_tracking_model', 'NANO'),
-                                                 models_dir=getattr(self.config, 'sot_models_dir', '../models/nanotrack/'),
-                                                 score_th=getattr(self.config, 'sot_score_th', 0.3),
+                                                 models_dir=getattr(self.config, 'sot_models_dir', '../models/'),
+                                                 score_th=getattr(self.config, 'sot_score_th', None),
                                                  lost_th=getattr(self.config, 'sot_lost_th', 15),
                                                  edge_frames=getattr(self.config, 'sot_lost_edge_frames', 8),
                                                  app_rel=getattr(self.config, 'sot_lost_appearance', 0.6),
@@ -889,6 +889,15 @@ class Pipeliner:
             self._sot_request = ('cancel', None)
         return
     # ----------------------------------------------------------------------------------------------------------------------
+    def request_sot_model(self, model):
+        """From the web UI thread: switch the click-to-track model (applied in the main loop; a running track stops)."""
+        model = str(model).strip().upper()
+        if model not in utils_tracker_sot.SOT_MODELS:
+            raise ValueError(f"unknown SOT model '{model}', one of: {', '.join(utils_tracker_sot.SOT_MODELS)}")
+        with self._sot_lock:
+            self._sot_request = ('model', model)
+        return model
+    # ----------------------------------------------------------------------------------------------------------------------
     def click_to_box(self, point_xy, frame_shape):
         H, W = frame_shape[:2]
         ratio = getattr(self.config, 'sot_box_ratio', 0.10)
@@ -918,6 +927,10 @@ class Pipeliner:
             action, point = request
             if action == 'cancel':
                 self.SOT.stop('stopped by user')
+            elif action == 'model':
+                self.SOT.set_model(point)
+                self.config.sot_tracking_model = self.SOT.model
+                print(f'[SOT trk] model: {self.SOT.model}')
             elif action == 'start':
                 point, box = point
                 self.ROI = self.clamp_box(box, frame.shape) if box is not None else self.click_to_box(point, frame.shape)

@@ -81,7 +81,9 @@
     <label class="check"><input type="checkbox" id="do_classification"> Classification</label>
     <label class="check"><input type="checkbox" id="do_tracking"> Tracking</label>
 
-    <div class="group">Click-to-track box</div>
+    <div class="group">Click-to-track</div>
+    <select id="sot_model" title="Single-object tracker used on the next click (a running track stops when changed)"></select>
+    <div id="sot_model_status" class="hint"></div>
     <div class="row"><label for="sot_size">Size</label><span class="val" id="sot_size_val">10%</span></div>
     <input type="range" id="sot_size" min="2" max="50" step="1" value="10">
     <div class="seg" id="sot_shape">
@@ -158,7 +160,9 @@
             $('do_tracking').checked = Boolean(data.do_tracking);
             const pill = $('modePill');
             $('sot_stop').hidden = !data.sot_active;
-            if (data.sot_active) { pill.textContent = 'SOT tracking  ✕'; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
+            if (data.sot_model && $('sot_model').value !== data.sot_model && document.activeElement !== $('sot_model')) loadSotModels();
+            $('sot_model_status').textContent = data.sot_active && data.sot_ms !== null ? `tracking: ${data.sot_ms} ms / frame` : '';
+            if (data.sot_active) { pill.textContent = `SOT ${data.sot_model || ''} tracking  ✕`; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
             else if (data.sot_stop_reason && data.sot_stop_age !== null && data.sot_stop_age < 8) {
                 pill.textContent = data.sot_stop_reason === 'stopped by user' ? 'tracking stopped' : 'SOT: ' + data.sot_stop_reason;
                 pill.className = data.sot_stop_reason === 'stopped by user' ? 'pill' : 'pill bad'; pill.title = '';
@@ -268,6 +272,29 @@
     img.addEventListener('contextmenu', e => { e.preventDefault(); stopSOT(); });
     $('sot_stop').onclick = stopSOT;
     $('modePill').onclick = () => { if ($('modePill').classList.contains('good')) stopSOT(); };
+
+    //------------------------------------------------------------------------------------------------------------------
+    function loadSotModels() {
+        fetch('/sot_models').then(r => r.json()).then(data => {
+            const sel = $('sot_model');
+            sel.innerHTML = '';
+            data.models.forEach(m => {
+                const o = document.createElement('option');
+                o.value = m.name; o.textContent = m.label + (m.ok ? '' : '  (no weights)'); o.disabled = !m.ok;
+                o.selected = m.name === data.current;
+                sel.appendChild(o);
+            });
+        });
+    }
+    $('sot_model').addEventListener('change', e => {
+        $('sot_model_status').textContent = 'switching ...';
+        post('/sot_model', {model: e.target.value}).then(r => r.json()).then(data => {
+            $('sot_model_status').textContent = data.ok ? '' : 'Error: ' + data.error;
+            setTimeout(() => { loadSotModels(); updateFromFlask(); }, 300);
+        });
+        e.target.blur();
+    });
+    loadSotModels();
 
     //------------------------------------------------------------------------------------------------------------------
     function loadSources(message) {

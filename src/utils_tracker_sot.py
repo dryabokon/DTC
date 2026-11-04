@@ -3,15 +3,68 @@ import time
 import cv2
 import numpy as np
 # ----------------------------------------------------------------------------------------------------------------------
+# Click-to-track models. All take a BGR frame and a box; weights live under models_dir (default ../models/).
+#   NANO     NanoTrack v2 (cv2.TrackerNano, ONNX)                       models/nanotrack/        default
+#   VIT      VitTrack 2023sep (cv2.TrackerVit, ONNX)                    models/vittrack/         from DTC_Training (Yemen-Romanian)
+#   SIAMBAN  SiamBAN, MobileNetV3 backbone, trained in DTC_Training     models/siamban/          torch, tools/DL/siamban_pytorch
+#   SIAMFC   SiamFC, AlexNet backbone (siamfc_alexnet_e50)              tools/DL/siamfc_pytorch/ torch
+#   MIL      cv2.TrackerMIL, no weights                                                          fallback only
+# score_th: below it a frame counts as "lost" (lost_th such frames in a row stop SOT). Every model has its own score
+# scale, so the default is per model (None = no score check; the loss rules of Tracker_SOT still apply).
+# ----------------------------------------------------------------------------------------------------------------------
+SOT_MODELS = {
+    'NANO':    {'label': 'NanoTrack (default)',                       'score_th': 0.30},
+    'VIT':     {'label': 'VitTrack (DTC_Training)',                   'score_th': 0.30},
+    'SIAMBAN': {'label': 'SiamBAN MobileNetV3 (DTC_Training, trained)', 'score_th': None},
+    'SIAMFC':  {'label': 'SiamFC AlexNet',                            'score_th': None},
+    'MIL':     {'label': 'MIL (OpenCV, no weights)',                  'score_th': None},
+}
+_TORCH_NETS = {}                    # loaded torch trackers, kept between runs (loading takes seconds on the Pi)
+# ----------------------------------------------------------------------------------------------------------------------
+class _CV:
+    """OpenCV tracker. Backend interface: init(frame, xywh); update(frame) -> (ok, xywh, score)."""
+    def __init__(self, tracker, has_score):
+        self.t, self.has_score = tracker, has_score
+    def init(self, frame, xywh):
+        self.t.init(frame, tuple(int(v) for v in xywh))
+    def update(self, frame):
+        ok, xywh = self.t.update(frame)
+        return ok, xywh, (float(self.t.getTrackingScore()) if self.has_score else (1.0 if ok else 0.0))
+# ----------------------------------------------------------------------------------------------------------------------
+class _SiamBAN:
+    def __init__(self, weights):
+        if weights not in _TORCH_NETS:
+            import torch
+            from DL.siamban_pytorch.siamban import SiamBANNet, TrackerSiamBAN
+            net = SiamBANNet()
+            net.load_state_dict(torch.load(weights, map_location='cpu'))
+            _TORCH_NETS[weights] = TrackerSiamBAN(net, 'cpu')
+        self.t = _TORCH_NETS[weights]
+    def init(self, frame, xywh):
+        self.t.initialize(frame, list(xywh))
+    def update(self, frame):
+        r = self.t.track(frame)
+        return True, (r.bbox.x, r.bbox.y, r.bbox.width, r.bbox.height), float(r.confidence)
+# ----------------------------------------------------------------------------------------------------------------------
+class _SiamFC:
+    def __init__(self, weights):
+        if weights not in _TORCH_NETS:
+            from DL.siamfc_pytorch.siamfc.siamfc import TrackerSiamFC
+            _TORCH_NETS[weights] = TrackerSiamFC(net_path=weights)
+        self.t = _TORCH_NETS[weights]
+    def init(self, frame, xywh):
+        self.t.init(frame, list(xywh))
+    def update(self, frame):
+        box, score = self.t.update(frame)
+        return True, tuple(float(v) for v in box), float(score)
+# ----------------------------------------------------------------------------------------------------------------------
 class Tracker_SOT:
-    """Lightweight single-object tracker for click-to-track (no detector involved).
-
-    model 'NANO' -> cv2.TrackerNano (NanoTrack v2, ONNX via cv2.dnn), ~11-14 ms/frame on RPi5 CPU
-    model 'MIL'  -> cv2.TrackerMIL (no extra weights, slower ~70 ms/frame, fallback only)
-    Boxes are xyxy in frame pixels.
+    """Lightweight single-object tracker for click-to-track (no detector involved). Models: SOT_MODELS above.
+    Boxes are xyxy in frame pixels. The model can be changed at any time (set_model); a running track is stopped.
 
     Loss detection. NanoTrack's own score does NOT drop when the target is lost (it latches onto background or a
-    neighbour with score ~0.87, same as when tracking; PETS09 study with ground truth: AUC 0.48). Two checks that do work:
+    neighbour with score ~0.87, same as when tracking; PETS09 study with ground truth: AUC 0.48). Checks that do work,
+    for every model (the appearance check always uses the NanoTrack backbone as the embedder):
       edge       - the box touches the frame border for edge_frames consecutive frames: the target has left the frame
       appearance - NanoTrack backbone embedding of the current box vs the one taken at start (1.4 ms on RPi5):
                    median over app_window frames below app_rel x its value in the first frames -> occluded / drifted away
@@ -20,11 +73,13 @@ class Tracker_SOT:
                    (Fly2 sim with camera yaw: silent drift after the target left the view 860 -> 28 frames)
     Known limit: a swap to another similar-looking person at a crossing mostly goes unnoticed (needs a detector / ReID).
     """
-    def __init__(self, model='NANO', models_dir='../models/nanotrack/', score_th=0.3, lost_th=15,
+    def __init__(self, model='NANO', models_dir='../models/', score_th=None, lost_th=15,
                  edge_frames=8, edge_px=3, app_rel=0.6, app_window=30, app_base_frames=10, empty_rel=0.35, empty_frames=5):
-        self.model = model.upper()
+        models_dir = os.path.normpath(models_dir)
+        if os.path.basename(models_dir) == 'nanotrack':     # older setting: the NanoTrack folder itself
+            models_dir = os.path.dirname(models_dir)
         self.models_dir = models_dir
-        self.score_th = score_th
+        self.score_th_override = score_th       # None: per-model default from SOT_MODELS
         self.lost_th = lost_th
         self.edge_frames = edge_frames          # 0/None disables the edge check
         self.edge_px = edge_px
@@ -42,22 +97,55 @@ class Tracker_SOT:
         self.last_ms = 0.0
         self.stop_reason = None                 # why the last run ended: 'cancelled', 'left the frame', ...
         self.stop_time = 0.0
+        self.set_model(model)
         return
     # ----------------------------------------------------------------------------------------------------------------------
+    def set_model(self, model):
+        model = str(model).strip().upper()
+        if model not in SOT_MODELS:
+            raise ValueError(f"unknown SOT model '{model}', one of: {', '.join(SOT_MODELS)}")
+        if self.tracker is not None:
+            self.stop('model changed')
+        self.model = model
+        self.score_th = self.score_th_override if self.score_th_override is not None else SOT_MODELS[model]['score_th']
+        return model
+    # ----------------------------------------------------------------------------------------------------------------------
+    def weights(self, model=None):
+        """Files the model needs (none for MIL)."""
+        d = self.models_dir
+        return {'NANO': [os.path.join(d, 'nanotrack', 'nanotrack_backbone_sim.onnx'), os.path.join(d, 'nanotrack', 'nanotrack_head_sim.onnx')],
+                'VIT': [os.path.join(d, 'vittrack', 'object_tracking_vittrack_2023sep.onnx')],
+                'SIAMBAN': [os.path.join(d, 'siamban', 'siamban_mobilenetv3.pth')],
+                'SIAMFC': [os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'tools', 'DL', 'siamfc_pytorch', 'siamfc_alexnet_e50.pth')],
+                'MIL': []}[model or self.model]
+    # ----------------------------------------------------------------------------------------------------------------------
+    def available(self):
+        """[{name, label, ok}] for the UI; ok = the weights are present."""
+        return [{'name': m, 'label': v['label'], 'ok': all(os.path.isfile(f) for f in self.weights(m))} for m, v in SOT_MODELS.items()]
+    # ----------------------------------------------------------------------------------------------------------------------
     def _create(self):
+        files = self.weights()
+        missing = [f for f in files if not os.path.isfile(f)]
+        if missing:
+            print(f'[SOT trk] {self.model}: weights not found ({missing[0]}) - falling back to MIL')
+            self.model, self.score_th, files = 'MIL', (self.score_th_override if self.score_th_override is not None else None), []
+        if self.embedder is None and self.app_rel:
+            backbone = self.weights('NANO')[0]
+            if os.path.isfile(backbone):
+                self.embedder = cv2.dnn.readNet(backbone)
         if self.model == 'NANO':
-            backbone = os.path.join(self.models_dir, 'nanotrack_backbone_sim.onnx')
-            head = os.path.join(self.models_dir, 'nanotrack_head_sim.onnx')
-            if os.path.isfile(backbone) and os.path.isfile(head):
-                params = cv2.TrackerNano_Params()
-                params.backbone = backbone
-                params.neckhead = head
-                if self.embedder is None and self.app_rel:
-                    self.embedder = cv2.dnn.readNet(backbone)
-                return cv2.TrackerNano_create(params)
-            print('[SOT trk] NanoTrack weights not found in', self.models_dir, '- falling back to MIL')
-            self.model = 'MIL'
-        return cv2.TrackerMIL_create()
+            params = cv2.TrackerNano_Params()
+            params.backbone, params.neckhead = files
+            return _CV(cv2.TrackerNano_create(params), True)
+        if self.model == 'VIT':
+            params = cv2.TrackerVit_Params()
+            params.net = files[0]
+            return _CV(cv2.TrackerVit_create(params), True)
+        if self.model == 'SIAMBAN':
+            return _SiamBAN(files[0])
+        if self.model == 'SIAMFC':
+            return _SiamFC(files[0])
+        return _CV(cv2.TrackerMIL_create(), False)
     # ----------------------------------------------------------------------------------------------------------------------
     def _embed(self, frame, box):
         """NanoTrack backbone on a 127x127 template-style crop (box + context), pooled to a unit 48-d vector."""
@@ -104,7 +192,7 @@ class Tracker_SOT:
         self.similarity = 1.0
         self.lost_cnt = 0
         self.stop_reason = None
-        print(f'[SOT trk] start {self.model} box={self.box}')
+        print(f'[SOT trk] start {self.model} box={self.box} ({self.last_ms:.0f} ms)')
         return True
     # ----------------------------------------------------------------------------------------------------------------------
     def stop(self, reason='cancelled'):
@@ -152,10 +240,9 @@ class Tracker_SOT:
         if self.tracker is None:
             return None, 0.0
         t = time.perf_counter()
-        ok, (x, y, w, h) = self.tracker.update(frame)
-        score = float(self.tracker.getTrackingScore()) if self.model == 'NANO' else (1.0 if ok else 0.0)
+        ok, (x, y, w, h), score = self.tracker.update(frame)
 
-        if ok and score >= self.score_th and w >= 2 and h >= 2:
+        if ok and (self.score_th is None or score >= self.score_th) and w >= 2 and h >= 2:
             self.box = [int(x), int(y), int(x + w), int(y + h)]
             self.lost_cnt = 0
         else:

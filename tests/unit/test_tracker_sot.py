@@ -57,5 +57,55 @@ class TestTrackerSOT(unittest.TestCase):
         self.assertFalse(T.is_active); self.assertEqual(T.stop_reason, 'stopped by user')
 
 
+def _torch():
+    try:
+        import torch, torchvision  # noqa: F401
+        return True
+    except ImportError:
+        return False
+
+
+class TestSOTModels(unittest.TestCase):
+    """Every selectable model (sot_tracking_model / UI dropdown) starts, follows a moving target and reports its score."""
+    def follow(self, model):
+        T = U.Tracker_SOT(model=model, models_dir=os.path.join(_paths.REPO, 'models'))
+        if not all(os.path.isfile(f) for f in T.weights()):
+            self.skipTest(f'{model}: weights not found')
+        x = 200
+        self.assertTrue(T.start(frame((x, 240)), [x - 24, 240 - 16, x + 24, 240 + 16]))
+        self.assertEqual(T.model, model)
+        for _ in range(40):
+            x += 2; T.update(frame((x, 240)))
+        self.assertTrue(T.is_active, f'{model}: {T.stop_reason}')
+        self.assertLess(abs((T.box[0] + T.box[2]) / 2 - x), 8, f'{model}: box {T.box}, target x {x}')
+
+    def test_nano(self): self.follow('NANO')
+    def test_vit(self): self.follow('VIT')
+    def test_mil(self): self.follow('MIL')
+
+    @unittest.skipUnless(_torch(), 'torch not installed')
+    def test_siamban(self): self.follow('SIAMBAN')
+
+    @unittest.skipUnless(_torch(), 'torch not installed')
+    def test_siamfc(self): self.follow('SIAMFC')
+
+    def test_unknown_model_is_an_error(self):
+        with self.assertRaises(ValueError):
+            U.Tracker_SOT(model='NOPE')
+
+    def test_set_model_stops_a_running_track(self):
+        T = started(320, 240)
+        T.set_model('VIT')
+        self.assertFalse(T.is_active); self.assertEqual(T.stop_reason, 'model changed'); self.assertEqual(T.model, 'VIT')
+
+    def test_old_models_dir_setting_still_works(self):
+        T = U.Tracker_SOT(models_dir=MODELS)          # .../models/nanotrack/ -> .../models
+        self.assertTrue(all(os.path.isfile(f) for f in T.weights('NANO')))
+
+    def test_available_lists_every_model(self):
+        names = [m['name'] for m in U.Tracker_SOT(models_dir=os.path.join(_paths.REPO, 'models')).available()]
+        self.assertEqual(names, list(U.SOT_MODELS))
+
+
 if __name__ == '__main__':
     unittest.main()
