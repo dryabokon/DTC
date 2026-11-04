@@ -2,6 +2,9 @@
 ![alt text](/images/Image1.jpg)
 
 
+Working on this repo with a coding agent: `AGENTS.md` (rules, layout, testing ladder) and `.claude/skills/` (Pi access,
+change loop, SOT benchmark, datasets, known issues).
+
 ## Setup
 `tools/` is a git submodule (github.com/dryabokon/tools, pinned commit):
 ```
@@ -27,9 +30,11 @@ Click / drag on the video: track a box (SOT) · right click, Esc, C: stop tracki
 Space: pause / resume (video files) · ->: next frame while paused · R / Home / ⏮: video from the start · H: hide the panel.
 Click-to-track model: the "Click-to-track" dropdown in the panel, or `--sot_tracking_model NANO|VIT|SIAMBAN|SIAMFC|MIL`
 (default NANO; `--sot_score_th X` overrides the per-model loss threshold). Details and Pi timings: `utils_tracker_sot.SOT_MODELS`,
-comparison: the web UI's **Benchmark** tab (presets, models, sequences, targets; readiness, estimate, progress, cancel) and
-**Runs** tab (runs/bench/NNNN on the Pi: tables, IoU per frame, compare two runs); same from the laptop:
-`dtc bench run --preset quick|standard|full [--models ...]`, `dtc bench list | pull [NNNN|all] | cancel` (copies to runs/bench/).
+comparison: the web UI's **Benchmark** tab (preset, models, videos, objects per video; readiness, estimate, progress, cancel)
+and **Runs** tab (runs/bench/NNNN on the Pi: precision / recall / F1 / fps per model, F1 per video, recall and precision
+Gantt charts per video, a hit / miss clip per video and model); same from the laptop:
+`dtc bench run --preset quick|standard|full [--models ...] [--seqs ...] [--objects N]`, `dtc bench list | pull [NNNN|all] | cancel`.
+Live video holds while nobody watches it (`--idle_pause_s`, default 5 s) and while a benchmark runs.
 Behind a full-tunnel VPN (Windows blocked, WSL not) the harness reaches the Pi through WSL; `dtc pi open` gives the UI on
 http://localhost:8509.
 
