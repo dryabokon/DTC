@@ -12,6 +12,7 @@ ALIASES = {
     'oxford':  'v01/TownCentreXVID',
     'boats_a': 'v10/boats10a',
     'boats_b': 'v10/boats10b',
+    'drone_ir': 'v30/IR',                    # Anti-UAV thermal sequence 640x512, one small drone, gt.txt
 }
 # ----------------------------------------------------------------------------------------------------------------------
 def _gt_for(video_path):

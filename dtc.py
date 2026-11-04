@@ -17,6 +17,7 @@
 
   dtc data prepare [mot15|visdrone|antiuav|all]   public datasets (datasets/_downloads) -> sources + reference clips
   dtc data list | push             list the built sequences / copy them to the Pi (UI dropdown there)
+  dtc data convert FOLDER [--fps 25] [--keep-frames]   frames + Anti-UAV json -> FOLDER/<name>.mp4 + gt.txt (images/vNN layout)
 
   dtc test unit | smoke | integration [--sim] | quality     -> runs/<suite>/NNNN (report.md, metrics.json, manifest.json)
   dtc runs [suite]                 latest runs and their verdicts
@@ -115,6 +116,10 @@ def cmd_data(a, extra):
             except FileNotFoundError as e:
                 print(f'   skipped - not downloaded: {e.filename}')
         return 0
+    if a.action == 'convert':
+        if not a.name:
+            print('usage: dtc data convert FOLDER'); return 1
+        datasets.frames_folder_to_source(a.name, fps=a.fps, keep_frames=a.keep_frames); return 0
     if a.action == 'list':
         if not os.path.isdir(datasets.VIDEOS):
             print('nothing built yet: dtc data prepare'); return 0
@@ -185,7 +190,8 @@ def main():
     s = sub.add_parser('sim'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--maneuver', default='none')
     s = sub.add_parser('clips'); s.add_argument('action', choices=['record', 'list']); s.add_argument('name', nargs='?')
     s.add_argument('--maneuver', default='yaw'); s.add_argument('--seconds', type=float, default=60)
-    s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push']); s.add_argument('name', nargs='?')
+    s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push', 'convert']); s.add_argument('name', nargs='?')
+    s.add_argument('--fps', type=float, default=25); s.add_argument('--keep-frames', action='store_true')
     s = sub.add_parser('test'); s.add_argument('suite', choices=['unit', 'smoke', 'integration', 'quality'])
     s.add_argument('--sim', action='store_true', help='integration: also the PC simulator stream'); s.add_argument('--no-sync', action='store_true')
     s = sub.add_parser('runs'); s.add_argument('suite', nargs='?'); s.add_argument('-n', type=int, default=5)

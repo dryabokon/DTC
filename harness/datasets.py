@@ -167,3 +167,35 @@ def prepare_antiuav(n_clips=6, log=print):
                     f.write(f'{i},1,{b[0]:.1f},{b[1]:.1f},{b[2] - b[0]:.1f},{b[3] - b[1]:.1f},1,-1,-1,-1\n')
         write_clip(f'antiuav_{seq}', mp4, boxes, fps, [W, H], f'Anti-UAV300 {seq} (visible)', f'median drone box {area:.0f} px^2')
         log(f'   antiuav/{seq}: {len(boxes)} frames {W}x{H} @ {fps} fps, median drone box {area:.0f} px^2 ({np.sqrt(area):.0f} px side)')
+# ----------------------------------------------------------------------------------------------------------------------
+IMG_EXT = ('.jpg', '.jpeg', '.png', '.bmp')
+def frames_folder_to_source(folder, name=None, fps=25, keep_frames=False, log=print):
+    """Folder of numbered frames + Anti-UAV label (IR_label.json / *.json: {exist: [...], gt_rect: [[x,y,w,h], ...]})
+    -> the images/vNN layout: <folder>/<name>.mp4 + gt.txt (MOT: frame,1,x,y,w,h,1,-1,-1,-1; frames from 1, absent target skipped).
+    The frames are deleted afterwards unless keep_frames (the json is kept as the original label)."""
+    folder = os.path.normpath(folder)
+    frames = sorted(f for f in os.listdir(folder) if f.lower().endswith(IMG_EXT))
+    if not frames:
+        raise ValueError(f'no image frames in {folder}')
+    labels = sorted(f for f in os.listdir(folder) if f.lower().endswith('.json'))
+    if not name:                                  # IR_label.json -> IR.mp4
+        name = os.path.splitext(labels[0])[0].replace('_label', '') if labels else os.path.basename(folder)
+    mp4 = os.path.join(folder, name + '.mp4')
+    n = encode((open(os.path.join(folder, f), 'rb').read() for f in frames), mp4, fps)
+    if n != len(frames):
+        raise RuntimeError(f'encoded {n} of {len(frames)} frames')
+    rows = 0
+    if labels:
+        a = json.load(open(os.path.join(folder, labels[0])))
+        rects, exist = a.get('gt_rect') or [], a.get('exist') or []
+        if len(rects) != len(frames):
+            log(f'   warning: {len(rects)} labels for {len(frames)} frames')
+        with open(os.path.join(folder, 'gt.txt'), 'w') as f:
+            for i, r in enumerate(rects, start=1):
+                if (i - 1 >= len(exist) or exist[i - 1]) and r and len(r) == 4 and r[2] > 0 and r[3] > 0:
+                    f.write(f'{i},1,{r[0]:.1f},{r[1]:.1f},{r[2]:.1f},{r[3]:.1f},1,-1,-1,-1\n'); rows += 1
+    if not keep_frames:
+        for f in frames:
+            os.remove(os.path.join(folder, f))
+    log(f'   {mp4}: {n} frames @ {fps} fps' + (f', gt.txt {rows} boxes' if labels else ', no label json - no gt.txt'))
+    return mp4
