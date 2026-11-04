@@ -349,17 +349,21 @@
     }
     function showSeries(t) {
         const box = $('r_chart'); box.innerHTML = ''; const meta = t.meta;
-        box.appendChild(E('div', `Task ${meta.task + 1}: ${meta.seq}, target ${meta.track}, from frame ${meta.start}, ${meta.frames} frames, target ≈ ${meta.median_side} px. Overlap with the truth (IoU) per frame; dashed line = where the model lost it.`, 'hint'));
+        const head = E('div', '', 'hint'); box.appendChild(head);
         getJ(`/bench/series?id=${detail.id}&task=${meta.task}`).then(s => {
+            // tiny targets: the centre error tells more than the overlap (and does not jump between 0 and 1 for a 1 px offset)
+            const errMode = meta.median_side < 12 && Object.values(s).some(d => d.err && d.err.some(v => v !== null)), EMAX = 40;
+            head.textContent = `Task ${meta.task + 1}: ${meta.seq}, target ${meta.track}, from frame ${meta.start}, ${meta.frames} frames, target ≈ ${meta.median_side} px. ` +
+                (errMode ? `Centre error per frame, px (lower is better, capped at ${EMAX})` : 'Overlap with the truth (IoU) per frame') + '; dashed line = where the model lost it.';
             const {g, w, h, line, muted} = canvasIn(box, 230), L = 40, B = 26, T = 10, R = 12, n = meta.frames;
-            const X = f => L + (w - L - R) * f / n, Y = v => h - B - (h - B - T) * v;
+            const X = f => L + (w - L - R) * f / n, Y = v => h - B - (h - B - T) * (errMode ? Math.min(v, EMAX) / EMAX : v);
             g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.fillStyle = muted; g.lineWidth = 1;
-            [0, 0.5, 1].forEach(v => { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v.toFixed(1), 8, Y(v) + 4); });
+            (errMode ? [0, 10, 20, 40] : [0, 0.5, 1]).forEach(v => { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(errMode ? v + ' px' : v.toFixed(1), 4, Y(v) + 4); });
             for (let f = 0; f <= n; f += Math.max(10, Math.round(n / 10 / 10) * 10)) g.fillText(String(f), X(f) - 6, h - 8);
             const models = detail.config.config.models.filter(m => s[m]);
             models.forEach(m => {
                 const d = s[m]; g.strokeStyle = COLORS[m] || '#888'; g.lineWidth = 1.8; g.setLineDash([]); g.beginPath(); let pen = false;
-                d.frame.forEach((f, k) => { const v = d.iou[k]; if (v === null) { pen = false; return; } if (pen) g.lineTo(X(f), Y(v)); else g.moveTo(X(f), Y(v)); pen = true; });
+                d.frame.forEach((f, k) => { const v = errMode ? d.err[k] : d.iou[k]; if (v === null || v === undefined) { pen = false; return; } if (pen) g.lineTo(X(f), Y(v)); else g.moveTo(X(f), Y(v)); pen = true; });
                 g.stroke();
                 const lost = t.m[m] && t.m[m].lost_at;
                 if (lost) { g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath(); g.moveTo(X(lost), T); g.lineTo(X(lost), h - B); g.stroke(); g.setLineDash([]); }

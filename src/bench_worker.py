@@ -81,7 +81,7 @@ class Worker:
         seqs = {s['id']: s for s in B.sequences()}
         models_dir = os.path.join(B.REPO, 'models')
         results, csv = [], open(os.path.join(self.d, 'frames.csv'), 'w')
-        csv.write('task,model,frame,iou,score,ms\n')
+        csv.write('task,model,frame,iou,score,ms,err\n')
         self.write_progress(force=True)
         for ti, task in enumerate(self.tasks):
             if self.cancelled:
@@ -128,14 +128,15 @@ class Worker:
                     a = acc[m]
                     t = time.perf_counter(); okm, (x, y, w, h), score = raw[m].update(frame); ms = (time.perf_counter() - t) * 1000
                     a['ms'].append(ms)
-                    v = ''
+                    v, err = '', ''
                     if g is not None:
                         b = [x, y, x + w, y + h]
                         v = iou(b, g)
                         a['ious'].append(v); a['rel'].append(rel)
-                        a['errs'].append(float(np.hypot(x + w / 2 - (g[0] + g[2]) / 2, y + h / 2 - (g[1] + g[3]) / 2)))
+                        err = float(np.hypot(x + w / 2 - (g[0] + g[2]) / 2, y + h / 2 - (g[1] + g[3]) / 2))
+                        a['errs'].append(err)
                         (a['on'] if v >= 0.3 else a['off'] if v < 0.1 else []).append(score)
-                    csv.write(f'{ti},{m},{rel},{"" if v == "" else round(v, 3)},{round(float(score), 3)},{round(ms, 1)}\n')
+                    csv.write(f'{ti},{m},{rel},{"" if v == "" else round(v, 3)},{round(float(score), 3)},{round(ms, 1)},{"" if err == "" else round(err, 1)}\n')
                     if m in full and full[m].is_active:
                         full[m].update(frame)
                         if not full[m].is_active:

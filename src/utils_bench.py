@@ -337,7 +337,8 @@ def run_detail(run_id):
             'files': sorted(os.listdir(d))}
 # ----------------------------------------------------------------------------------------------------------------------
 def task_series(run_id, task):
-    """Per-frame IoU / score / ms of one task for the chart: {model: {frame: [...], iou: [...], score: [...], ms: [...]}}"""
+    """Per-frame IoU / score / ms / centre error of one task for the chart: {model: {frame: [...], iou: [...], score, ms, err}}
+    (err is None in runs made before it was recorded)"""
     path = os.path.join(RUNS_DIR, run_id, 'frames.csv')
     if not re.fullmatch(r'\d{4}', run_id or '') or not os.path.isfile(path):
         return None
@@ -345,12 +346,15 @@ def task_series(run_id, task):
     with open(path) as f:
         next(f, None)
         for line in f:
-            t, m, fr, iou, score, ms = line.rstrip('\n').split(',')
+            p = line.rstrip('\n').split(',')
+            t, m, fr, iou, score, ms = p[:6]
+            err = p[6] if len(p) > 6 else ''
             if int(t) != int(task):
                 continue
-            s = out.setdefault(m, {'frame': [], 'iou': [], 'score': [], 'ms': []})
+            s = out.setdefault(m, {'frame': [], 'iou': [], 'score': [], 'ms': [], 'err': []})
             s['frame'].append(int(fr)); s['iou'].append(float(iou) if iou else None)
             s['score'].append(float(score) if score else None); s['ms'].append(float(ms) if ms else None)
+            s['err'].append(float(err) if err else None)
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def options():
