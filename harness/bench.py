@@ -31,7 +31,7 @@ def _fmt(s):
 # ----------------------------------------------------------------------------------------------------------------------
 def run(a):
     cfg = {k: v for k, v in {'preset': a.preset, 'models': a.models, 'sequences': a.seqs, 'tracks': a.tracks, 'max_frames': a.frames,
-                             'order': a.order, 'starts': a.starts, 'loss_rules': True if a.loss_rules else None}.items() if v is not None}
+                             'order': a.order, 'starts': a.starts, 'min_size': a.min_size, 'loss_rules': True if a.loss_rules else None}.items() if v is not None}
     pi = pi_app.Pi(verbose=False)
     rc, out, err = _py(pi, 'import sys, json, utils_bench as B\n'
                            'c, p = B.readiness(json.loads(sys.argv[1]))\n'
@@ -111,6 +111,6 @@ def add_parser(sub):
     s = sub.add_parser('bench', help='click-to-track benchmark on the Pi')
     s.add_argument('action', choices=['run', 'list', 'pull', 'cancel']); s.add_argument('id', nargs='?')
     s.add_argument('--preset', default='quick'); s.add_argument('--models'); s.add_argument('--seqs')
-    s.add_argument('--tracks', type=int); s.add_argument('--frames', type=int); s.add_argument('--order'); s.add_argument('--starts')
+    s.add_argument('--tracks', type=int); s.add_argument('--frames', type=int); s.add_argument('--min-size', type=int); s.add_argument('--order'); s.add_argument('--starts')
     s.add_argument('--loss-rules', action='store_true')
     return s

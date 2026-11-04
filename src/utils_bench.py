@@ -181,7 +181,8 @@ def readiness(cfg):
             add('torch', 'fail', 'not installed (needed by SIAMBAN / SIAMFC)')
     for s in p['per_sequence']:
         add(f'sequence {s["seq"]}', 'ok' if s['runs'] else 'warn',
-            f'{s["runs"]} task(s), {s["frames"]} frames, video {s["size"][0]}x{s["size"][1]}' if s['runs'] else 'no track fits the settings - skipped')
+            f'{s["runs"]} task(s), {s["frames"]} frames, video {s["size"][0]}x{s["size"][1]}' if s['runs'] else
+            f'skipped: no target is at least {c["min_size"]} px for {c["min_frames"]} frames inside the frame')
     if not p['runs']:
         add('tasks', 'fail', 'nothing to run')
     free = shutil.disk_usage(REPO).free / 1e9

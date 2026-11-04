@@ -67,13 +67,13 @@
         $('b_models').querySelectorAll('input').forEach(i => i.checked = p.models.includes(i.value) && !i.disabled);
         $('b_seqs').querySelectorAll('input').forEach(i => i.checked = p.sequences === '*' || p.sequences.includes(i.value));
         $('b_order').value = p.order; $('b_tracks').value = p.tracks; $('b_starts').value = p.starts;
-        $('b_frames').value = p.max_frames; $('b_loss').checked = p.loss_rules;
+        $('b_frames').value = p.max_frames; $('b_minsize').value = p.min_size; $('b_loss').checked = p.loss_rules;
         scheduleCheck();
     }
     function benchConfig() {
         const picked = id => Array.from($(id).querySelectorAll('input:checked')).map(i => i.value);
         return {models: picked('b_models'), sequences: picked('b_seqs'), order: $('b_order').value, tracks: parseInt($('b_tracks').value || '0'),
-                starts: $('b_starts').value, max_frames: parseInt($('b_frames').value || '0'), loss_rules: $('b_loss').checked};
+                starts: $('b_starts').value, max_frames: parseInt($('b_frames').value || '0'), min_size: parseInt($('b_minsize').value || '8'), loss_rules: $('b_loss').checked};
     }
     function scheduleCheck() { clearTimeout(checkTimer); $('b_estimate').textContent = 'checking ...'; checkTimer = setTimeout(runCheck, 350); }
     function runCheck() {
@@ -176,7 +176,7 @@
         h.append(E('h2', `Run ${d.id}`), E('span', p.state || '?', 'pill ' + (p.state === 'DONE' ? 'good-static' : p.state === 'RUNNING' ? 'warn' : 'bad')));
         box.appendChild(h);
         box.appendChild(E('div', `${d.config.created} · ${d.config.host} · DTC ${d.config.commit} (${d.config.branch}) · tools ${d.config.tools_commit} · ${fmtS(p.elapsed_s)} (estimate ${fmtS(d.config.estimate_s)})`, 'hint'));
-        box.appendChild(E('div', `models ${c.models.join(', ')} · ${c.order} ${c.tracks || 'all'} track(s) · starts ${c.starts} · ≤ ${c.max_frames} frames · loss rules ${c.loss_rules ? 'on' : 'off'} · ${d.config.runs.length} tasks, ${d.config.frames} frames`, 'hint'));
+        box.appendChild(E('div', `models ${c.models.join(', ')} · ${c.order} ${c.tracks || 'all'} track(s) ≥ ${c.min_size} px · starts ${c.starts} · ≤ ${c.max_frames} frames · loss rules ${c.loss_rules ? 'on' : 'off'} · ${d.config.runs.length} tasks, ${d.config.frames} frames`, 'hint'));
         if (p.state === 'RUNNING') { box.appendChild(E('p', 'Still running - see the Benchmark tab for progress.', 'hint')); }
         if (!res) return;
         if (!res.complete) box.appendChild(E('p', 'Cancelled: the tables cover the finished tasks only.', 'hint warnText'));
