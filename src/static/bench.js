@@ -146,8 +146,9 @@
             runsList.forEach(x => {
                 const li = E('li'); li.dataset.id = x.id;
                 const top = E('div'); top.append(E('b', x.id + ' '), E('span', x.state || '?', 'pill ' + (x.state === 'DONE' ? 'good-static' : x.state === 'RUNNING' ? 'warn' : 'bad')));
-                const auc = Object.entries(x.headline || {}).map(([m, v]) => `${m} ${num(v.auc)}`).join(' · ');
-                li.append(top, E('div', (x.created || '') + ` · ${x.tasks} tasks`, 'hint'), E('div', auc || (x.models || []).join(', '), 'hint'));
+                const chips = E('div', null, 'chips');
+                (x.models || []).forEach(m => { const v = (x.headline || {})[m]; const ch = E('span', `${m} ${v && v.auc !== null && v.auc !== undefined ? v.auc : ''}`, 'chip'); ch.style.borderColor = COLORS[m] || '#888'; chips.append(ch); });
+                li.append(top, E('div', (x.created || '') + ` · ${x.tasks} tasks`, 'hint'), chips);
                 li.onclick = () => selectRun(x.id);
                 ul.appendChild(li);
             });
@@ -162,88 +163,196 @@
         const u = new URL(location); u.searchParams.set('tab', 'runs'); u.searchParams.set('run', id); history.replaceState(null, '', u);
         getJ('/bench/run?id=' + id).then(d => { detail = d; compare = null; renderRun(); });
     }
-    function table(head, rows) {
-        const t = E('table'); const tr = E('tr'); head.forEach(h => tr.appendChild(E('th', h))); t.appendChild(tr);
-        rows.forEach(r => { const row = E('tr'); r.forEach(c => { const td = E('td'); if (c instanceof Node) td.appendChild(c); else td.textContent = num(c); row.appendChild(td); }); t.appendChild(row); });
-        return t;
-    }
-    function delta(v, w, better) {
+    // ---- one run -----------------------------------------------------------------------------------------------------
+    const HELP = {
+        auc: 'Accuracy (AUC): how well the box overlaps the truth, averaged over all overlap thresholds. 0 = never on the target, 1 = perfect. The main number.',
+        success: 'On target: share of frames where the box overlaps the truth by at least half (IoU >= 0.5).',
+        precision20: 'Centre within 20 px: share of frames where the box centre is at most 20 px from the true centre. The fair measure for tiny targets.',
+        center_err: 'Centre error: median distance between the box centre and the true centre, px. Lower is better.',
+        ms: 'Speed: median time of one tracker update on the Pi, ms per frame (fps = 1000 / ms).',
+        lost: 'Lost: in how many tasks the box left the target (overlap < 0.1 for 5 frames in a row).',
+    };
+    const fps = ms => ms ? Math.round(1000 / ms) : null;
+    const pct = v => v === null || v === undefined ? '–' : Math.round(100 * v) + '%';
+    function el(tag, cls, ...kids) { const e = E(tag, null, cls); kids.forEach(k => k !== null && k !== undefined && e.append(k instanceof Node ? k : document.createTextNode(String(k)))); return e; }
+    function swatch(m) { const s = E('span', '■', 'sw'); s.style.color = COLORS[m] || '#888'; return s; }
+    function help(key, text) { const s = E('span', text, 'helpable'); s.title = HELP[key]; return s; }
+    function arrow(v, w, better, digits) {
         if (v === null || v === undefined || w === null || w === undefined) return null;
-        const d = v - w, s = E('span', (d >= 0 ? ' +' : ' ') + (Math.abs(d) < 10 ? d.toFixed(3) : d.toFixed(0)));
-        s.className = Math.abs(d) < 1e-9 ? 'hint' : ((d > 0) === (better === 'higher') ? 'up' : 'down');
-        return s;
+        const d = v - w; if (Math.abs(d) < Math.pow(10, -(digits || 3))) return E('span', ' =', 'hint');
+        return E('span', ` ${d > 0 ? '▲' : '▼'}${Math.abs(d).toFixed(digits === undefined ? 3 : digits)}`, (d > 0) === (better === 'higher') ? 'up' : 'down');
     }
+    function heat(v) { return v === null || v === undefined ? '' : `rgba(48,209,88,${(0.08 + 0.42 * Math.max(0, Math.min(1, v))).toFixed(2)})`; }
+
     function renderRun() {
         const box = $('r_detail'); box.innerHTML = '';
-        const d = detail; if (!d) return;
-        const c = (d.config || {}).config || {}, p = d.progress || {}, res = d.results;
-        const h = E('div', null, 'runhead');
-        h.append(E('h2', `Run ${d.id}`), E('span', p.state || '?', 'pill ' + (p.state === 'DONE' ? 'good-static' : p.state === 'RUNNING' ? 'warn' : 'bad')));
-        box.appendChild(h);
-        box.appendChild(E('div', `${d.config.created} · ${d.config.host} · DTC ${d.config.commit} (${d.config.branch}) · tools ${d.config.tools_commit} · ${fmtS(p.elapsed_s)} (estimate ${fmtS(d.config.estimate_s)})`, 'hint'));
-        box.appendChild(E('div', `models ${c.models.join(', ')} · ${c.order} ${c.tracks || 'all'} track(s) ≥ ${c.min_size} px · starts ${c.starts} · ≤ ${c.max_frames} frames · loss rules ${c.loss_rules ? 'on' : 'off'} · ${d.config.runs.length} tasks, ${d.config.frames} frames`, 'hint'));
-        if (p.state === 'RUNNING') { box.appendChild(E('p', 'Still running - see the Benchmark tab for progress.', 'hint')); }
-        if (!res) return;
-        if (!res.complete) box.appendChild(E('p', 'Cancelled: the tables cover the finished tasks only.', 'hint warnText'));
-
-        // compare with
-        const cmpRow = E('div', null, 'row cmp'); const sel = E('select'); sel.appendChild(Object.assign(E('option', 'compare with: none'), {value: ''}));
-        runsList.filter(x => x.id !== d.id && x.state === 'DONE').forEach(x => sel.appendChild(Object.assign(E('option', `run ${x.id} · ${x.created} · ${(x.models || []).join(', ')}`), {value: x.id})));
-        if (compare) sel.value = compare.id;
-        sel.onchange = () => { if (!sel.value) { compare = null; renderRun(); } else getJ('/bench/run?id=' + sel.value).then(x => { compare = x; renderRun(); }); };
-        cmpRow.appendChild(sel); box.appendChild(cmpRow);
+        const d = detail; if (!d || !d.config) return;
+        const cfgAll = d.config, c = cfgAll.config, p = d.progress || {}, res = d.results;
+        const models = c.models.filter(m => res && res.models[m] && res.models[m].tasks);
         const other = compare && compare.results ? compare.results.models : {};
 
-        box.appendChild(E('h3', 'Models · mean over tasks'));
-        const cols = [['auc', 'AUC', 'higher'], ['success', 'success', 'higher'], ['iou', 'IoU', 'higher'], ['precision20', 'prec@20px', 'higher'],
-                      ['center_err', 'centre err px', 'lower'], ['lost', 'lost', 'lower'], ['ms', 'ms', 'lower'], ['ms_p95', 'ms p95', 'lower']]
-            .concat(c.loss_rules ? [['caught', 'caught', 'higher'], ['missed', 'missed', 'lower'], ['early_stop', 'early stop', 'lower'], ['kept', 'kept', 'higher']] : []);
-        box.appendChild(table(['model', 'tasks'].concat(cols.map(x => x[1])), c.models.filter(m => res.models[m]).map(m => [m, res.models[m]]).map(([m, v]) => {
-            const name = E('span', '■ ' + m); name.style.color = COLORS[m];
-            return [name, v.tasks].concat(cols.map(([k, , b]) => { const s = E('span', num(v[k])); const dd = other[m] ? delta(v[k], other[m][k], b) : null; if (dd) s.appendChild(dd); return s; }));
-        })));
+        // header: run, state, one readable line; compare + details on the right
+        const head = el('div', 'runhead2');
+        const left = el('div', null, el('div', 'titleline', E('h2', `Run ${d.id}`), E('span', p.state || '?', 'pill ' + (p.state === 'DONE' ? 'good-static' : p.state === 'RUNNING' ? 'warn' : 'bad'))),
+                        E('div', `${cfgAll.created} · ${cfgAll.runs.length} tasks on ${c.sequences.length} sequence(s) · ${cfgAll.frames} frames · took ${fmtS(p.elapsed_s)}`, 'hint'));
+        const sel = E('select', null, 'small'); sel.appendChild(Object.assign(E('option', 'Compare with…'), {value: ''}));
+        runsList.filter(x => x.id !== d.id && x.state === 'DONE').forEach(x => sel.appendChild(Object.assign(E('option', `run ${x.id} · ${(x.models || []).join(', ')}`), {value: x.id})));
+        if (compare) sel.value = compare.id;
+        sel.onchange = () => { if (!sel.value) { compare = null; renderRun(); } else getJ('/bench/run?id=' + sel.value).then(x => { compare = x; renderRun(); }); };
+        head.append(left, sel); box.appendChild(head);
 
-        box.appendChild(E('h3', 'By sequence · AUC / ms'));
-        box.appendChild(table(['sequence'].concat(c.models), Object.entries(res.by_sequence).map(([s, mv]) => [s].concat(c.models.map(m => mv[m] && mv[m].tasks ? `${num(mv[m].auc)} / ${num(mv[m].ms)}` : '–')))));
+        if (p.state === 'RUNNING') { box.appendChild(E('p', 'Still running — the Benchmark tab shows its progress.', 'note')); return; }
+        if (!res || !models.length) { box.appendChild(E('p', 'No results in this run.', 'note')); return; }
 
-        box.appendChild(E('h3', 'Tasks · click a row for the IoU per frame'));
+        // warnings the reader needs before reading the numbers
+        const sides = res.tasks.map(r => r.median_side).sort((a, b) => a - b), side = sides[Math.floor(sides.length / 2)];
+        const tiny = side < 12, nTasks = cfgAll.runs.length;
+        const notes = [];
+        if (!res.complete) notes.push(['bad', 'Cancelled: only the finished tasks are counted.']);
+        if (tiny) notes.push(['warn', `The targets are tiny (median ${side} px): box overlap (accuracy, on-target) is unreliable at this size — compare the models by "centre within 20 px" and the centre error.`]);
+        if (nTasks < 3) notes.push(['warn', `Only ${nTasks} task(s): a single unlucky moment changes the result — run more tracks / sequences before concluding.`]);
+        if (compare) notes.push(['info', `▲▼ = difference to run ${compare.id}.`]);
+        notes.forEach(([k, t]) => box.appendChild(E('div', t, 'note ' + k)));
+
+        // verdict
+        const accKey = tiny ? 'precision20' : 'auc';
+        const byAcc = [...models].sort((a, b) => (res.models[b][accKey] || 0) - (res.models[a][accKey] || 0));
+        const bySpeed = [...models].sort((a, b) => (res.models[a].ms || 1e9) - (res.models[b].ms || 1e9));
+        const best = byAcc[0], fast = bySpeed[0], bm = res.models[best];
+        const accText = m => tiny ? `centre within 20 px on ${pct(res.models[m].precision20)} of frames` : `accuracy ${res.models[m].auc}`;
+        const verdict = el('div', 'verdict');
+        if (models.length === 1) verdict.append(el('div', 'big', swatch(best), ` ${best}: ${accText(best)}, ${bm.ms} ms/frame (${fps(bm.ms)} fps)`));
+        else if (best === fast) verdict.append(el('div', 'big', swatch(best), ` ${best} is best here: the most accurate (${accText(best)}) and the fastest (${bm.ms} ms/frame)`));
+        else {
+            verdict.append(el('div', 'big', swatch(best), ` Most accurate: ${best} — ${accText(best)}, ${bm.ms} ms/frame`));
+            verdict.append(el('div', 'big2', swatch(fast), ` Fastest: ${fast} — ${res.models[fast].ms} ms/frame, ${accText(fast)}`));
+        }
+        box.appendChild(verdict);
+
+        // one card per model
+        const cards = el('div', 'mcards');
+        models.forEach(m => {
+            const v = res.models[m], o = other[m];
+            const card = el('div', 'mcard'); card.style.borderTopColor = COLORS[m] || '#888';
+            card.append(el('div', 'mname', swatch(m), ' ' + m));
+            const main = tiny ? ['precision20', 'centre within 20 px', pct(v.precision20), v.precision20] : ['auc', 'accuracy', v.auc, v.auc];
+            const big = el('div', 'mbig', main[2]); const a = o ? arrow(v[main[0]], o[main[0]], 'higher') : null; if (a) big.append(a);
+            card.append(el('div', 'mlabel', help(main[0], main[1])), big);
+            const bar = el('div', 'mbar'); const fill = el('div', 'mfill'); fill.style.width = Math.round(100 * (main[3] || 0)) + '%'; fill.style.background = COLORS[m]; bar.append(fill); card.append(bar);
+            const row = (key, label, value, extra) => el('div', 'mrow', help(key, label), el('b', null, value, extra || null));
+            card.append(row('ms', 'speed', `${v.ms} ms · ${fps(v.ms)} fps`, o ? arrow(v.ms, o.ms, 'lower', 1) : null));
+            if (!tiny) card.append(row('success', 'on target', pct(v.success)), row('precision20', 'centre within 20 px', pct(v.precision20)));
+            card.append(row('center_err', 'centre error', `${v.center_err} px`), row('lost', 'lost the target', `${v.lost} of ${v.tasks} tasks`));
+            if (c.loss_rules) card.append(el('div', 'mrow', help('lost', 'own loss detection'), el('b', null, `${v.caught} caught · ${v.early_stop} too early · ${v.missed} missed`)));
+            cards.append(card);
+        });
+        box.appendChild(cards);
+
+        // accuracy vs speed
+        if (models.length > 1) {
+            box.appendChild(E('h3', tiny ? 'Centre within 20 px ↔ speed' : 'Accuracy ↔ speed  (up = more accurate, left = faster)'));
+            const wrap = el('div', 'chartbox'); box.appendChild(wrap);
+            scatter(wrap, models.map(m => ({m, x: res.models[m].ms, y: res.models[m][accKey]})));
+        }
+
+        // by sequence: best cell of a row highlighted
+        box.appendChild(E('h3', 'By sequence'));
+        const st = E('table', null, 'grid');
+        const hr = E('tr'); hr.append(E('th', 'sequence')); models.forEach(m => hr.append(el('th', null, swatch(m), ' ' + m))); st.append(hr);
+        Object.entries(res.by_sequence).forEach(([s, mv]) => {
+            const tr = E('tr'); tr.append(E('td', s));
+            const vals = models.map(m => mv[m] && mv[m].tasks ? mv[m][accKey] : null), top = Math.max(...vals.filter(v => v !== null));
+            models.forEach((m, k) => {
+                const v = mv[m]; const td = E('td');
+                if (!v || !v.tasks) td.textContent = '–';
+                else { td.append(el('b', null, tiny ? pct(v.precision20) : v.auc), E('span', `  ${v.ms} ms`, 'hint')); td.style.background = heat(vals[k]); if (vals[k] === top && models.length > 1) td.classList.add('best'); }
+                tr.append(td);
+            });
+            st.append(tr);
+        });
+        box.appendChild(st);
+
+        // tasks + per-frame chart
+        box.appendChild(E('h3', 'Tasks — pick one to see the overlap frame by frame'));
+        const chart = el('div', 'chartbox'); chart.id = 'r_chart'; box.appendChild(chart);
         const tasks = {};
         res.tasks.forEach(r => { (tasks[r.task] = tasks[r.task] || {meta: r, m: {}}).m[r.model] = r; });
-        const tt = table(['#', 'sequence', 'target', 'start', 'frames', 'side px'].concat(c.models.map(m => m + ' AUC · lost at' + (c.loss_rules ? ' · stop' : ''))),
-            Object.values(tasks).map(t => [t.meta.task + 1, t.meta.seq, t.meta.track, t.meta.start, t.meta.frames, t.meta.median_side]
-                .concat(c.models.map(m => { const r = t.m[m]; return r ? `${num(r.auc)} · ${r.lost_at === null ? '–' : r.lost_at}` + (c.loss_rules ? ` · ${r.loss_verdict}` : '') : '–'; }))));
-        tt.classList.add('clickable');
-        Array.from(tt.querySelectorAll('tr')).slice(1).forEach((tr, k) => tr.onclick = () => {
-            tt.querySelectorAll('tr').forEach(x => x.classList.remove('on')); tr.classList.add('on'); showSeries(Object.values(tasks)[k].meta);
-        });
-        const chart = E('div', null, 'chartbox'); chart.id = 'r_chart'; chart.appendChild(E('p', 'Pick a task.', 'hint'));
-        box.append(chart, tt);
-
-        box.appendChild(E('h3', 'Score on / off the target · p5 / median / p95 (a usable loss threshold separates them)'));
-        box.appendChild(table(['model', 'on target (IoU ≥ 0.3)', 'off target (IoU < 0.1)'], c.models.map(m => {
-            const rs = res.tasks.filter(r => r.model === m), med = k => { const v = rs.map(r => r[k]).filter(Boolean); if (!v.length) return '–'; return [0, 1, 2].map(i => (v.map(x => x[i]).sort((a, b) => a - b)[Math.floor(v.length / 2)])).join(' / '); };
-            return [m, med('score_on'), med('score_off')];
-        })));
-
-        const det = E('details'); det.append(E('summary', 'Method and the full report (report.md)'), E('pre', d.report || '', 'report')); box.appendChild(det);
-        box.appendChild(E('div', 'Files: runs/bench/' + d.id + '/ ' + d.files.join(', '), 'hint'));
-    }
-    function showSeries(meta) {
-        const box = $('r_chart'); box.innerHTML = '';
-        box.appendChild(E('div', `task ${meta.task + 1}: ${meta.seq} · target ${meta.track} · from frame ${meta.start} · ${meta.frames} frames · median side ${meta.median_side} px`, 'hint'));
-        getJ(`/bench/series?id=${detail.id}&task=${meta.task}`).then(s => {
-            const cv = E('canvas'); cv.width = 900; cv.height = 220; box.appendChild(cv);
-            const g = cv.getContext('2d'), W = cv.width, H = cv.height, L = 34, B = 20, css = getComputedStyle(document.documentElement);
-            g.strokeStyle = css.getPropertyValue('--line'); g.fillStyle = css.getPropertyValue('--muted'); g.font = '11px sans-serif';
-            [0, 0.5, 1].forEach(v => { const y = H - B - v * (H - B - 8); g.beginPath(); g.moveTo(L, y); g.lineTo(W, y); g.stroke(); g.fillText(v.toFixed(1), 4, y + 4); });
-            g.fillText('IoU', L + 4, 14); g.fillText('frame →', W - 50, H - 4);
-            const n = meta.frames;
-            detail.config.config.models.filter(m => s[m]).map(m => [m, s[m]]).forEach(([m, d]) => {
-                g.strokeStyle = COLORS[m] || '#888'; g.lineWidth = 1.5; g.beginPath(); let pen = false;
-                d.frame.forEach((f, k) => { const v = d.iou[k]; if (v === null) { pen = false; return; } const x = L + (W - L) * f / n, y = H - B - v * (H - B - 8); if (pen) g.lineTo(x, y); else g.moveTo(x, y); pen = true; });
-                g.stroke();
+        const tt = E('table', null, 'grid clickable');
+        const th = E('tr'); ['#', 'sequence', 'target', 'from frame', 'frames', 'size px'].forEach(h => th.append(E('th', h)));
+        models.forEach(m => th.append(el('th', null, swatch(m), ` ${m}`))); tt.append(th);
+        const list = Object.values(tasks);
+        list.forEach((t, k) => {
+            const tr = E('tr'); [t.meta.task + 1, t.meta.seq, t.meta.track, t.meta.start, t.meta.frames, t.meta.median_side].forEach(v => tr.append(E('td', v)));
+            models.forEach(m => {
+                const r = t.m[m], td = E('td');
+                if (r) {
+                    td.append(el('b', null, tiny ? pct(r.precision20) : r.auc));
+                    td.append(E('span', r.lost_at === null ? '  kept it' : `  lost at ${r.lost_at}`, 'hint'));
+                    if (c.loss_rules) td.append(E('span', `  · ${r.loss_verdict.replace('_', ' ')}`, 'hint'));
+                    td.style.background = heat(tiny ? r.precision20 : r.auc);
+                } else td.textContent = '–';
+                tr.append(td);
             });
-            const leg = E('div', null, 'hint'); detail.config.config.models.filter(m => s[m]).forEach(m => { const sp = E('span', '■ ' + m + '  '); sp.style.color = COLORS[m]; leg.appendChild(sp); }); box.appendChild(leg);
+            tr.onclick = () => { tt.querySelectorAll('tr').forEach(x => x.classList.remove('on')); tr.classList.add('on'); showSeries(t); };
+            tt.append(tr);
+        });
+        box.appendChild(tt);
+        if (list.length) { tt.querySelectorAll('tr')[1].classList.add('on'); showSeries(list[0]); }
+
+        // details, folded
+        const det = E('details', null, 'more'); det.append(E('summary', 'Details: method, settings, tracker scores, files'));
+        det.append(E('p', `Settings: ${c.order} ${c.tracks || 'all'} track(s) per sequence, at least ${c.min_size} px and ${c.min_frames} frames, start(s): ${c.starts}, at most ${c.max_frames} frames per task, frames wider than ${c.max_width} px downscaled, loss rules ${c.loss_rules ? 'on' : 'off'}. Sequences: ${c.sequences.join(', ')}.`, 'hint'));
+        det.append(E('p', `Machine ${cfgAll.host} · DTC ${cfgAll.commit} (${cfgAll.branch}) · tools ${cfgAll.tools_commit} · estimate was ${fmtS(cfgAll.estimate_s)}.`, 'hint'));
+        det.append(E('div', 'Tracker score on / off the target (p5 / median / p95) — a model can detect its own loss from its score only if the two ranges do not overlap:', 'hint'));
+        const sc = E('table', null, 'grid'); const sh = E('tr'); ['model', 'on the target', 'off the target'].forEach(h => sh.append(E('th', h))); sc.append(sh);
+        models.forEach(m => {
+            const rs = res.tasks.filter(r => r.model === m), med = k => { const v = rs.map(r => r[k]).filter(Boolean); return v.length ? [0, 1, 2].map(i => v.map(x => x[i]).sort((a, b) => a - b)[Math.floor(v.length / 2)]).join(' / ') : '–'; };
+            const tr = E('tr'); tr.append(el('td', null, swatch(m), ' ' + m), E('td', med('score_on')), E('td', med('score_off'))); sc.append(tr);
+        });
+        det.append(sc, E('pre', d.report || '', 'report'), E('div', `Files on the Pi: runs/bench/${d.id}/ — ${d.files.join(', ')}`, 'hint'));
+        box.appendChild(det);
+    }
+
+    function canvasIn(box, h) {
+        const cv = E('canvas'), w = Math.max(320, box.clientWidth || 800), r = window.devicePixelRatio || 1;
+        cv.width = w * r; cv.height = h * r; cv.style.width = w + 'px'; cv.style.height = h + 'px';
+        box.appendChild(cv); const g = cv.getContext('2d'); g.scale(r, r);
+        const css = getComputedStyle(document.documentElement);
+        return {g, w, h, line: css.getPropertyValue('--line').trim(), muted: css.getPropertyValue('--muted').trim(), text: css.getPropertyValue('--text').trim()};
+    }
+    function scatter(box, pts) {
+        const {g, w, h, line, muted, text} = canvasIn(box, 260), L = 52, B = 34, T = 14, R = 24;
+        const xs = pts.map(p => Math.log10(Math.max(1, p.x))), x0 = Math.floor(Math.min(...xs) * 2) / 2 - 0.25, x1 = Math.ceil(Math.max(...xs) * 2) / 2 + 0.25;
+        const X = v => L + (w - L - R) * (Math.log10(Math.max(1, v)) - x0) / (x1 - x0), Y = v => h - B - (h - B - T) * v;
+        g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.fillStyle = muted; g.lineWidth = 1;
+        [0, 0.25, 0.5, 0.75, 1].forEach(v => { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v.toFixed(2), 8, Y(v) + 4); });
+        [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000].filter(v => Math.log10(v) >= x0 && Math.log10(v) <= x1).forEach(v => {
+            g.beginPath(); g.moveTo(X(v), T); g.lineTo(X(v), h - B); g.stroke(); g.fillText(v + ' ms', X(v) - 12, h - B + 16); });
+        g.fillText('ms per frame on the Pi (log scale) →', w - R - 210, h - 4);
+        pts.forEach(p => {
+            if (p.y === null || p.y === undefined) return;
+            g.fillStyle = COLORS[p.m] || '#888'; g.beginPath(); g.arc(X(p.x), Y(p.y), 7, 0, 2 * Math.PI); g.fill();
+            g.fillStyle = text; g.font = '600 13px system-ui, sans-serif'; g.fillText(`${p.m}  ${p.y} · ${p.x} ms`, X(p.x) + 11, Y(p.y) + 4); g.font = '12px system-ui, sans-serif';
+        });
+    }
+    function showSeries(t) {
+        const box = $('r_chart'); box.innerHTML = ''; const meta = t.meta;
+        box.appendChild(E('div', `Task ${meta.task + 1}: ${meta.seq}, target ${meta.track}, from frame ${meta.start}, ${meta.frames} frames, target ≈ ${meta.median_side} px. Overlap with the truth (IoU) per frame; dashed line = where the model lost it.`, 'hint'));
+        getJ(`/bench/series?id=${detail.id}&task=${meta.task}`).then(s => {
+            const {g, w, h, line, muted} = canvasIn(box, 230), L = 40, B = 26, T = 10, R = 12, n = meta.frames;
+            const X = f => L + (w - L - R) * f / n, Y = v => h - B - (h - B - T) * v;
+            g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.fillStyle = muted; g.lineWidth = 1;
+            [0, 0.5, 1].forEach(v => { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v.toFixed(1), 8, Y(v) + 4); });
+            for (let f = 0; f <= n; f += Math.max(10, Math.round(n / 10 / 10) * 10)) g.fillText(String(f), X(f) - 6, h - 8);
+            const models = detail.config.config.models.filter(m => s[m]);
+            models.forEach(m => {
+                const d = s[m]; g.strokeStyle = COLORS[m] || '#888'; g.lineWidth = 1.8; g.setLineDash([]); g.beginPath(); let pen = false;
+                d.frame.forEach((f, k) => { const v = d.iou[k]; if (v === null) { pen = false; return; } if (pen) g.lineTo(X(f), Y(v)); else g.moveTo(X(f), Y(v)); pen = true; });
+                g.stroke();
+                const lost = t.m[m] && t.m[m].lost_at;
+                if (lost) { g.setLineDash([4, 4]); g.lineWidth = 1.2; g.beginPath(); g.moveTo(X(lost), T); g.lineTo(X(lost), h - B); g.stroke(); g.setLineDash([]); }
+            });
+            const leg = el('div', 'legend'); models.forEach(m => { const r = t.m[m]; leg.append(el('span', null, swatch(m), ` ${m} ${r ? (r.lost_at === null ? 'kept it' : 'lost at ' + r.lost_at) : ''}`)); }); box.appendChild(leg);
         });
     }
 

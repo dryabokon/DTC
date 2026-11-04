@@ -86,6 +86,31 @@
   th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr.on td { background: var(--field); }
   .up { color: var(--good); } .down { color: var(--bad); } .warnText { color: var(--warn); }
   .chartbox canvas { width: 100%; max-width: 900px; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  /* Runs: readable report of one run */
+  #runsView { font-size: 14px; }
+  #r_detail { max-width: 1400px; }
+  .runhead2 { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 10px; }
+  .runhead2 .titleline { display: flex; gap: 10px; align-items: center; } .runhead2 h2 { font-size: 20px; }
+  .runhead2 select.small { width: auto; min-width: 180px; margin: 0; }
+  .note { padding: 8px 12px; border-radius: 6px; margin: 6px 0; border: 1px solid var(--line); background: var(--surface); }
+  .note.warn { border-color: var(--warn); } .note.bad { border-color: var(--bad); }
+  .verdict { margin: 14px 0 10px; } .verdict .big { font-size: 19px; font-weight: 600; } .verdict .big2 { font-size: 15px; color: var(--muted); margin-top: 4px; }
+  .sw { font-size: 15px; }
+  .mcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; margin: 8px 0 4px; }
+  .mcard { background: var(--surface); border: 1px solid var(--line); border-top: 4px solid; border-radius: 8px; padding: 12px 14px; }
+  .mname { font-weight: 700; font-size: 15px; } .mlabel { color: var(--muted); margin-top: 8px; font-size: 12px; }
+  .mbig { font-size: 30px; font-weight: 700; line-height: 1.1; } .mbig .up, .mbig .down, .mbig .hint { font-size: 14px; font-weight: 600; }
+  .mbar { height: 6px; background: var(--field); border-radius: 3px; margin: 6px 0 8px; overflow: hidden; } .mfill { height: 100%; }
+  .mrow { display: flex; justify-content: space-between; gap: 8px; padding: 3px 0; border-top: 1px solid var(--line); }
+  .mrow > span { color: var(--muted); }
+  .helpable { cursor: help; border-bottom: 1px dotted var(--faint); }
+  #runsView h3 { font-size: 12.5px; margin-top: 26px; }
+  table.grid { font-size: 13.5px; } table.grid td, table.grid th { padding: 6px 12px; }
+  table.grid td.best { outline: 2px solid var(--good); outline-offset: -2px; }
+  #runsView .chartbox { width: 100%; } #runsView .chartbox canvas { max-width: none; }
+  .legend { display: flex; gap: 18px; margin: 4px 0 8px; color: var(--muted); }
+  details.more { margin-top: 26px; } details.more summary { cursor: pointer; color: var(--muted); }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; } .chip { font-size: 11px; border: 1px solid; border-radius: 9px; padding: 0 6px; }
   pre.report { white-space: pre-wrap; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
 </style>
 </head>
