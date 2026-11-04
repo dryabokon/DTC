@@ -60,12 +60,40 @@
   #freeze { position: absolute; left: 0; top: 0; width: 100%; height: 100%; pointer-events: none; border-radius: 4px; }
   #sotPreview { position: absolute; border: 2px dashed var(--sot); pointer-events: none; display: none; border-radius: 2px; }
   #sotPreview.drag { border-style: solid; }
+
+  /* tabs: Live (video) · Benchmark · Runs */
+  #tabs { display: flex; gap: 2px; }
+  #tabs button { border: 1px solid transparent; background: none; color: var(--muted); padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+  #tabs button.on { background: var(--accent); color: var(--accent-text); }
+  #tabs button:hover:not(.on) { border-color: var(--line); }
+  .page { min-height: 0; overflow: auto; padding: 16px 20px; }
+  .page h2 { margin: 0; font-size: 16px; } .page h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 20px 0 6px; }
+  .cols { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .card input[type=number] { width: 90px; padding: 4px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--field); color: var(--text); }
+  .card select { margin-bottom: 0; }
+  .linkbtn { background: none; border: 0; color: var(--muted); cursor: pointer; text-decoration: underline; padding: 0 4px; font-size: 12px; }
+  .chk { display: flex; gap: 6px; align-items: baseline; padding: 2px 0; } .chk .mark { width: 12px; font-weight: 700; }
+  .chk.ok .mark { color: var(--good); } .chk.warn .mark { color: var(--warn); } .chk.fail .mark { color: var(--bad); }
+  .progress { height: 10px; background: var(--field); border: 1px solid var(--line); border-radius: 5px; overflow: hidden; margin: 10px 0 6px; }
+  .progress .bar { height: 100%; width: 0; background: var(--muted); transition: width .4s; } .progress .bar.good { background: var(--good); } .progress .bar.bad { background: var(--bad); }
+  #r_layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 20px; align-items: start; }
+  #r_list { list-style: none; margin: 0; padding: 0; } #r_list li { padding: 7px 9px; border: 1px solid var(--line); border-radius: 6px; margin-bottom: 6px; cursor: pointer; background: var(--surface); }
+  #r_list li.on { border-color: var(--muted); }
+  .runhead { display: flex; gap: 10px; align-items: center; }
+  .pill.good-static { border-color: var(--good); color: var(--good); background: var(--good-soft); }
+  table { border-collapse: collapse; margin: 4px 0 8px; font-size: 12px; } th, td { padding: 4px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr.on td { background: var(--field); }
+  .up { color: var(--good); } .down { color: var(--bad); } .warnText { color: var(--warn); }
+  .chartbox canvas { width: 100%; max-width: 900px; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
+  pre.report { white-space: pre-wrap; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
 </style>
 </head>
 <body>
 
 <header class="topbar">
   <h1>DTC</h1>
+  <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button></nav>
   <span class="meta" id="topMeta">detection · tracking · classification</span>
   <span class="spacer"></span>
   <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
@@ -74,7 +102,7 @@
   <button class="icon-btn" id="themeBtn" type="button" title="Light / dark theme" aria-label="Light / dark theme">◐</button>
 </header>
 
-<main>
+<main id="liveView">
   <aside id="sidebar">
     <div class="group">Pipeline</div>
     <label class="check"><input type="checkbox" id="do_detection"> Detection</label>
@@ -108,6 +136,49 @@
     </div>
   </div>
 </main>
+
+<section id="benchView" class="page" hidden>
+  <div class="cols">
+    <div class="card" id="benchForm">
+      <div class="group">Preset</div>
+      <select id="b_preset"></select>
+      <div class="group">Click-to-track models <span class="hint">(typical ms / frame on the Pi)</span></div>
+      <div id="b_models"></div>
+      <div class="group">Sequences with ground truth <button class="linkbtn" id="b_all" type="button">all</button><button class="linkbtn" id="b_none" type="button">none</button></div>
+      <div id="b_seqs"></div>
+      <div class="group">Targets</div>
+      <div class="row"><label for="b_order">which tracks</label><select id="b_order" style="width:130px"></select></div>
+      <div class="row"><label for="b_tracks">tracks per sequence (0 = all)</label><input type="number" id="b_tracks" min="0" max="1000"></div>
+      <div class="row"><label for="b_starts">start(s) on a track</label><select id="b_starts" style="width:130px"></select></div>
+      <div class="row"><label for="b_frames">max frames per task</label><input type="number" id="b_frames" min="20" max="10000"></div>
+      <label class="check"><input type="checkbox" id="b_loss"> also with the app loss rules (when SOT stops itself)</label>
+      <p class="hint">One task = one target (track ID) and one start: each model starts from its ground-truth box and tracks on its own.</p>
+    </div>
+    <div>
+      <div class="card">
+        <div class="group">Readiness and estimate</div>
+        <div id="b_checks" class="hint">…</div>
+        <p id="b_estimate" class="hint"></p>
+        <button class="btn" id="b_run" type="button" disabled>▶ Run benchmark</button>
+        <p class="hint">Live video holds while a benchmark runs (the timings stay fair); it resumes by itself.</p>
+      </div>
+      <div class="card" id="b_progress" hidden style="margin-top:14px">
+        <div class="row"><b id="b_state"></b><button class="btn stop" id="b_cancel" type="button" style="width:auto;margin:0;padding:4px 12px">■ Cancel</button></div>
+        <div class="progress"><div class="bar" id="b_bar"></div></div>
+        <div id="b_eta"></div>
+        <div id="b_current" class="hint"></div>
+        <button class="btn" id="b_open" type="button" hidden style="margin-top:10px"></button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="runsView" class="page" hidden>
+  <div id="r_layout">
+    <div><div class="row"><span class="hint" id="r_count"></span><button class="icon-btn" id="r_refresh" type="button" title="Rescan runs/bench">⟳</button></div><ul id="r_list"></ul></div>
+    <div id="r_detail"></div>
+  </div>
+</section>
 
 <script>
     const $ = id => document.getElementById(id);
@@ -162,7 +233,8 @@
             $('sot_stop').hidden = !data.sot_active;
             if (data.sot_model && $('sot_model').value !== data.sot_model && document.activeElement !== $('sot_model')) loadSotModels();
             $('sot_model_status').textContent = data.sot_active && data.sot_ms !== null ? `tracking: ${data.sot_ms} ms / frame` : '';
-            if (data.sot_active) { pill.textContent = `SOT ${data.sot_model || ''} tracking  ✕`; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
+            if (data.bench_hold) { pill.textContent = 'benchmark running · live holds'; pill.className = 'pill warn'; pill.title = ''; }
+            else if (data.sot_active) { pill.textContent = `SOT ${data.sot_model || ''} tracking  ✕`; pill.className = 'pill good'; pill.title = 'Click to stop tracking'; }
             else if (data.sot_stop_reason && data.sot_stop_age !== null && data.sot_stop_age < 8) {
                 pill.textContent = data.sot_stop_reason === 'stopped by user' ? 'tracking stopped' : 'SOT: ' + data.sot_stop_reason;
                 pill.className = data.sot_stop_reason === 'stopped by user' ? 'pill' : 'pill bad'; pill.title = '';
@@ -334,6 +406,7 @@
 
     //------------------------------------------------------------------------------------------------------------------
     document.addEventListener('keydown', function (event) {
+        if (window.dtcBenchTab && window.dtcBenchTab() !== 'live') return;                  // keys drive the live video only
         // only typing must not reach the app (Escape closes it when no SOT is active, 'c' cancels SOT, Space toggles sidebar).
         // Buttons, checkboxes, sliders keep the focus after a click - keys pressed then are meant for the app.
         const t = event.target;
@@ -362,5 +435,6 @@
     updateFromFlask();
     setInterval(updateFromFlask, 1000);
 </script>
+<script src="{{ url_for('static', filename='bench.js') }}"></script>
 </body>
 </html>

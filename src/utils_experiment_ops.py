@@ -52,6 +52,8 @@ class Experimentor():
 
         self.popup_message = None
         self.should_be_closed = False
+        self._bench_held = False                    # a SOT benchmark runs: live processing holds (fair timings, see bench_hold)
+        self._bench_paused_grabber = False
 
         return
     # ----------------------------------------------------------------------------------------------------------------------
@@ -191,6 +193,38 @@ class Experimentor():
             self.Grabber.show(raw, pos)
             print(f'[ Video ] paused on the frame on screen: {len(self._shown) - 1 - k} frame(s) back', flush=True)
     # ----------------------------------------------------------------------------------------------------------------------
+    def bench_hold(self):
+        """While a SOT benchmark (bench_worker.py) runs on this machine the live pipeline holds: it would share the CPU and make
+        the benchmark's timings wrong. Click-to-track stops, a video file pauses, the UI shows a notice. Returns True while holding."""
+        import utils_bench
+        bench = utils_bench.current()
+        if bench is not None and not self._bench_held:
+            self._bench_held = True
+            self.Perceptioner.SOT.stop('benchmark started')
+            if getattr(self.Grabber, 'can_pause', False) and not self.Grabber.paused:
+                self.Grabber.set_paused(True)
+                self._bench_paused_grabber = True
+            print(f'[ Bench ] benchmark {bench["id"]} running - live processing holds', flush=True)
+            self.show_notice('Benchmark ' + str(bench['id']) + ' is running', 'live video holds until it ends (fair timings) - see the Benchmark tab')
+        elif bench is None and self._bench_held:
+            self._bench_held = False
+            if self._bench_paused_grabber:
+                self.Grabber.set_paused(False)
+                self._bench_paused_grabber = False
+            print('[ Bench ] benchmark ended - live processing resumes', flush=True)
+        if self._bench_held:
+            time.sleep(0.2)
+        return self._bench_held
+    # ----------------------------------------------------------------------------------------------------------------------
+    def show_notice(self, title, text):
+        import numpy, cv2
+        H, W = (self.H, self.W) if self.H is not None else (480, 640)
+        image = numpy.full((H, W, 3), 48, dtype=numpy.uint8)
+        cv2.putText(image, title, (20, H // 2 - 20), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1, cv2.LINE_AA)
+        cv2.putText(image, text[:90], (20, H // 2 + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 200, 255), 1, cv2.LINE_AA)
+        if self.config.do_display:
+            self.UI.set_image(image)
+    # ----------------------------------------------------------------------------------------------------------------------
     def is_paused(self):
         return bool(getattr(self.Grabber, 'paused', False))
     # ----------------------------------------------------------------------------------------------------------------------
@@ -215,7 +249,7 @@ class Experimentor():
                 'do_detection': bool(self.config.do_detection), 'do_tracking': bool(self.config.do_tracking), 'do_classification': bool(self.config.do_classification),
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
                 'sot_stop_reason': P.SOT.stop_reason if P is not None else None,
-                'sot_model': P.SOT.model if P is not None else None,
+                'sot_model': P.SOT.model if P is not None else None, 'bench_hold': self._bench_held,
                 'sot_ms': round(P.SOT.last_ms, 1) if P is not None and P.SOT.is_active else None}
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
@@ -331,6 +365,8 @@ class Experimentor():
                 break
             if self.UI is not None:
                 self.process_key(self.UI.get_key())
+            if self.bench_hold():
+                continue
 
             with self._source_lock:
                 source_request, self._source_request = self._source_request, None

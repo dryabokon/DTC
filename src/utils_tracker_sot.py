@@ -11,19 +11,20 @@ import numpy as np
 #   MIL      cv2.TrackerMIL, no weights                                                          fallback only
 # score_th: below it a frame counts as "lost" (lost_th such frames in a row stop SOT). Every model has its own score
 # scale, so the default is per model (None = no score check; the loss rules of Tracker_SOT still apply).
-# RPi5 CPU, tests/quality/sot_models.py 2026-11-04 (drone_ir + 10 PETS09 runs x 300 frames, raw tracker, IoU vs truth):
+# RPi5 CPU, SOT benchmark 2026-11-04 (drone_ir + 10 PETS09 runs x 300 frames, raw tracker, IoU vs truth):
 #   NANO 10 ms, PETS IoU 0.53 | VIT 14 ms, 0.58 | SIAMBAN 42 ms, 0.41 | SIAMFC 384 ms (2.6 fps), 0.69 on 3 short runs.
 #   All four lose the 32x24 thermal drone of drone_ir after ~55 frames. Scores: NANO does not separate on/off target,
 #   VIT does (PETS), SIAMBAN (APCE) overlaps on PETS, SIAMFC's is always ~0 -> no score threshold for those two.
 # ----------------------------------------------------------------------------------------------------------------------
-SOT_MODELS = {
-    'NANO':    {'label': 'NanoTrack (default)',                       'score_th': 0.30},
-    'VIT':     {'label': 'VitTrack (DTC_Training)',                   'score_th': 0.30},
-    'SIAMBAN': {'label': 'SiamBAN MobileNetV3 (DTC_Training, trained)', 'score_th': None},
-    'SIAMFC':  {'label': 'SiamFC AlexNet',                            'score_th': None},
-    'MIL':     {'label': 'MIL (OpenCV, no weights)',                  'score_th': None},
+SOT_MODELS = {                      # pi_ms: typical tracker time per frame on the RPi5 (used for benchmark time estimates)
+    'NANO':    {'label': 'NanoTrack (default)',                         'score_th': 0.30, 'pi_ms': 10},
+    'VIT':     {'label': 'VitTrack (DTC_Training)',                     'score_th': 0.30, 'pi_ms': 14},
+    'SIAMBAN': {'label': 'SiamBAN MobileNetV3 (DTC_Training, trained)', 'score_th': None, 'pi_ms': 42},
+    'SIAMFC':  {'label': 'SiamFC AlexNet',                              'score_th': None, 'pi_ms': 384},
+    'MIL':     {'label': 'MIL (OpenCV, no weights)',                    'score_th': None, 'pi_ms': 70},
 }
-_TORCH_NETS = {}                    # loaded torch trackers, kept between runs (loading takes seconds on the Pi)
+_TORCH_NETS = {}                    # loaded torch networks, shared by all tracker instances (loading takes seconds on the Pi);
+                                    # the tracking state is per instance, so several tracks of one model can run side by side
 # ----------------------------------------------------------------------------------------------------------------------
 class _CV:
     """OpenCV tracker. Backend interface: init(frame, xywh); update(frame) -> (ok, xywh, score)."""
@@ -37,13 +38,13 @@ class _CV:
 # ----------------------------------------------------------------------------------------------------------------------
 class _SiamBAN:
     def __init__(self, weights):
+        import torch
+        from DL.siamban_pytorch.siamban import SiamBANNet, TrackerSiamBAN
         if weights not in _TORCH_NETS:
-            import torch
-            from DL.siamban_pytorch.siamban import SiamBANNet, TrackerSiamBAN
             net = SiamBANNet()
             net.load_state_dict(torch.load(weights, map_location='cpu'))
-            _TORCH_NETS[weights] = TrackerSiamBAN(net, 'cpu')
-        self.t = _TORCH_NETS[weights]
+            _TORCH_NETS[weights] = net
+        self.t = TrackerSiamBAN(_TORCH_NETS[weights], 'cpu')
     def init(self, frame, xywh):
         self.t.initialize(frame, list(xywh))
     def update(self, frame):
@@ -52,10 +53,11 @@ class _SiamBAN:
 # ----------------------------------------------------------------------------------------------------------------------
 class _SiamFC:
     def __init__(self, weights):
+        import copy
         if weights not in _TORCH_NETS:
             from DL.siamfc_pytorch.siamfc.siamfc import TrackerSiamFC
             _TORCH_NETS[weights] = TrackerSiamFC(net_path=weights)
-        self.t = _TORCH_NETS[weights]
+        self.t = copy.copy(_TORCH_NETS[weights])          # shares the network, own tracking state (set by init)
     def init(self, frame, xywh):
         self.t.init(frame, list(xywh))
     def update(self, frame):

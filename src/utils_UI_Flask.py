@@ -92,6 +92,59 @@ class WebApp:
                 return {'ok': False, 'error': str(e)}, 400
             return {'ok': True, 'model': name}, 200
 # ----------------------------------------------------------------------------------------------------------------------
+        # SOT benchmark (utils_bench / bench_worker.py): Benchmark and Runs tabs
+        @self.app.route('/bench/options', methods=['GET'])
+        def bench_options():
+            import utils_bench
+            return utils_bench.options()
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/check', methods=['POST'])
+        def bench_check():
+            import utils_bench
+            checks, p = utils_bench.readiness(request.get_json(silent=True) or {})
+            ok = not any(c['status'] == 'fail' for c in checks)
+            return {'ok': ok, 'checks': checks, 'tasks': len(p['runs']) if p else 0, 'frames': p['frames'] if p else 0,
+                    'estimate_s': p['estimate_s'] if p else None, 'estimate': utils_bench.fmt_s(p['estimate_s']) if p else None,
+                    'per_sequence': p['per_sequence'] if p else []}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/start', methods=['POST'])
+        def bench_start():
+            import utils_bench
+            try:
+                rid = utils_bench.start(request.get_json(silent=True) or {})
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'id': rid}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/progress', methods=['GET'])
+        def bench_progress():
+            import utils_bench
+            rid = request.args.get('id')
+            p = utils_bench.progress(rid) if rid and rid in utils_bench.run_ids() else utils_bench.current(max_age=0)
+            return {'progress': p}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/cancel', methods=['POST'])
+        def bench_cancel():
+            import utils_bench
+            return {'ok': utils_bench.cancel((request.get_json(silent=True) or {}).get('id'))}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/runs', methods=['GET'])
+        def bench_runs():
+            import utils_bench
+            return {'runs': utils_bench.runs_summary()}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/run', methods=['GET'])
+        def bench_run():
+            import utils_bench
+            d = utils_bench.run_detail(request.args.get('id', ''))
+            return d if d is not None else ({'error': 'no such run'}, 404)
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/series', methods=['GET'])
+        def bench_series():
+            import utils_bench
+            s = utils_bench.task_series(request.args.get('id', ''), request.args.get('task', '0'))
+            return s if s is not None else ({'error': 'no such run'}, 404)
+# ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():
             if self.P is not None:
@@ -190,7 +243,7 @@ class WebApp:
                     'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_model': self.P.SOT.model if self.P is not None else None,
                     'sot_ms': round(self.P.SOT.last_ms) if self.P is not None and self.P.SOT.is_active else None, 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
                     'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
-                    'paused': bool(self.E is not None and self.E.is_paused()),
+                    'paused': bool(self.E is not None and self.E.is_paused()), 'bench_hold': bool(self.E is not None and self.E._bench_held),
                     'can_pause': bool(self.E is not None and getattr(self.E.Grabber, 'can_pause', False)),
                     'sot_stop_age': (time.time() - self.P.SOT.stop_time) if self.P is not None and self.P.SOT.stop_reason else None}
         # ----------------------------------------------------------------------------------------------------------------------

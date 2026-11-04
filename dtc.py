@@ -20,6 +20,9 @@
   dtc data convert FOLDER [--fps 25] [--keep-frames]   frames + Anti-UAV json -> FOLDER/<name>.mp4 + gt.txt (images/vNN layout)
 
   dtc test unit | smoke | integration [--sim] | quality     -> runs/<suite>/NNNN (report.md, metrics.json, manifest.json)
+  dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--tracks N] [--frames N] [--loss-rules]
+                                   click-to-track benchmark on the Pi (as the web UI's Benchmark tab) -> runs/bench/NNNN
+  dtc bench list | pull [NNNN|all] | cancel
   dtc runs [suite]                 latest runs and their verdicts
   dtc report [suite] [NNNN]        print a run's report (default: the latest run)
 """
@@ -194,12 +197,15 @@ def main():
     s.add_argument('--fps', type=float, default=25); s.add_argument('--keep-frames', action='store_true')
     s = sub.add_parser('test'); s.add_argument('suite', choices=['unit', 'smoke', 'integration', 'quality'])
     s.add_argument('--sim', action='store_true', help='integration: also the PC simulator stream'); s.add_argument('--no-sync', action='store_true')
+    from harness import bench as bench_cli
+    bench_cli.add_parser(sub)
     s = sub.add_parser('runs'); s.add_argument('suite', nargs='?'); s.add_argument('-n', type=int, default=5)
     s = sub.add_parser('report'); s.add_argument('suite', nargs='?'); s.add_argument('number', nargs='?')
     a, extra = p.parse_known_args()
     if a.cmd is None:
         print(__doc__); return 0
-    return {'pi': cmd_pi, 'sim': cmd_sim, 'clips': cmd_clips, 'data': cmd_data, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report}[a.cmd](a, extra)
+    return {'pi': cmd_pi, 'sim': cmd_sim, 'clips': cmd_clips, 'data': cmd_data, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report,
+            'bench': lambda a, extra: bench_cli.main(a)}[a.cmd](a, extra)
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
     sys.exit(main())
