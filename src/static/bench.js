@@ -170,7 +170,7 @@
         precision20: 'Centre within 20 px: share of frames where the box centre is at most 20 px from the true centre. The fair measure for tiny targets.',
         center_err: 'Centre error: median distance between the box centre and the true centre, px. Lower is better.',
         ms: 'Speed: median time of one tracker update on the Pi, ms per frame (fps = 1000 / ms).',
-        lost: 'Lost: in how many tasks the box left the target (overlap < 0.1 for 5 frames in a row).',
+        lost: 'Lost: in how many tasks the box left the target (overlap < 0.1 and the centre further than max(10 px, target size), 5 frames in a row).',
     };
     const fps = ms => ms ? Math.round(1000 / ms) : null;
     const pct = v => v === null || v === undefined ? '–' : Math.round(100 * v) + '%';
@@ -319,7 +319,7 @@
     }
 
     function canvasIn(box, h) {
-        const cv = E('canvas'), w = Math.max(320, box.clientWidth || 800), r = window.devicePixelRatio || 1;
+        const cv = E('canvas'), w = Math.max(320, (box.clientWidth || 800) - 4), r = window.devicePixelRatio || 1;
         cv.width = w * r; cv.height = h * r; cv.style.width = w + 'px'; cv.style.height = h + 'px';
         box.appendChild(cv); const g = cv.getContext('2d'); g.scale(r, r);
         const css = getComputedStyle(document.documentElement);

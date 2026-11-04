@@ -107,7 +107,8 @@
   #runsView h3 { font-size: 12.5px; margin-top: 26px; }
   table.grid { font-size: 13.5px; } table.grid td, table.grid th { padding: 6px 12px; }
   table.grid td.best { outline: 2px solid var(--good); outline-offset: -2px; }
-  #runsView .chartbox { width: 100%; } #runsView .chartbox canvas { max-width: none; }
+  #runsView .chartbox { width: 100%; overflow: hidden; } #runsView .chartbox canvas { max-width: 100%; display: block; }
+  #runsView { overflow-x: hidden; }
   .legend { display: flex; gap: 18px; margin: 4px 0 8px; color: var(--muted); }
   details.more { margin-top: 26px; } details.more summary { cursor: pointer; color: var(--muted); }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 4px; } .chip { font-size: 11px; border: 1px solid; border-radius: 9px; padding: 0 6px; }

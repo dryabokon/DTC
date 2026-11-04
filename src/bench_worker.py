@@ -21,7 +21,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tools'))
 import utils_bench as B                                             # noqa: E402
 import utils_tracker_sot as U                                       # noqa: E402
 # ----------------------------------------------------------------------------------------------------------------------
-LOST_IOU, LOST_FRAMES, EARLY = 0.1, 5, 10       # lost = IoU < 0.1 on 5 scored frames in a row; a stop > 10 frames before that is early
+LOST_IOU, LOST_FRAMES, EARLY = 0.1, 5, 10       # lost = off the target on 5 scored frames in a row; a stop > 10 frames before that is early
+LOST_PX = 10                                    # off the target = IoU < 0.1 AND the centre further than max(10 px, target size):
+                                                # for a 7 px target a 5 px offset already gives IoU < 0.1 although the tracker is on it
 AUC_TH = np.linspace(0, 1, 21)
 # ----------------------------------------------------------------------------------------------------------------------
 def iou(a, b):
@@ -29,12 +31,12 @@ def iou(a, b):
     i = ix * iy; u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i
     return i / u if u > 0 else 0.0
 # ----------------------------------------------------------------------------------------------------------------------
-def task_metrics(ious, errs, ms, on, off, rel_frames):
-    """ious/errs on scored frames (rel_frames = their index after the start)."""
+def task_metrics(ious, errs, ms, on, off, rel_frames, side=0.0):
+    """ious/errs on scored frames (rel_frames = their index after the start); side = the target's median size, px."""
     a = np.array(ious, dtype=float)
     lost_at, bad = None, 0
-    for f, v in zip(rel_frames, ious):
-        bad = bad + 1 if v < LOST_IOU else 0
+    for f, v, e in zip(rel_frames, ious, errs):
+        bad = bad + 1 if v < LOST_IOU and e > max(LOST_PX, side) else 0
         if bad >= LOST_FRAMES:
             lost_at = f - LOST_FRAMES + 1; break
     pct = lambda v: [round(float(np.percentile(v, q)), 3) for q in (5, 50, 95)] if v else None
@@ -148,7 +150,7 @@ class Worker:
             cap.release()
             for m in self.c['models']:
                 a = acc[m]
-                r = task_metrics(a['ious'], a['errs'], a['ms'], a['on'], a['off'], a['rel'])
+                r = task_metrics(a['ious'], a['errs'], a['ms'], a['on'], a['off'], a['rel'], task['median_side'] * k)
                 r.update(task=ti, seq=task['seq'], track=task['track'], start=task['start'], frames=task['frames'],
                          median_side=task['median_side'], model=m, init_ms=a['init_ms'])
                 if self.c['loss_rules']:
@@ -207,7 +209,8 @@ def report(cfg_all, summary, results, cancelled, elapsed):
          f'- Targets per sequence: {c["order"]} {c["tracks"] or "all"} track(s) that are fully inside the frame, at least {c["min_size"]} px and '
          f'{c["min_frames"]} frames; start(s): {c["starts"]}; at most {c["max_frames"]} frames per task; frames wider than {c["max_width"]} px downscaled.',
          '- IoU = intersection over union with the truth box. success = share of scored frames with IoU >= 0.5; AUC = mean success over '
-         'IoU thresholds 0..1 (OTB style); precision20 = share of frames with the centre within 20 px; lost = IoU < 0.1 on 5 frames in a row; '
+         'IoU thresholds 0..1 (OTB style); precision20 = share of frames with the centre within 20 px; lost = IoU < 0.1 and the centre further '
+         'than max(10 px, target size) on 5 frames in a row; '
          'ms = median time of one tracker update on this machine.']
     if c['loss_rules']:
         L.append('- With loss rules (the app\'s Tracker_SOT): caught = stopped itself at most 10 frames before the loss or later; '

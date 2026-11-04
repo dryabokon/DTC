@@ -60,9 +60,15 @@ class TestMetrics(unittest.TestCase):
 
     def test_lost_at_is_the_first_of_five_bad_frames(self):
         ious = [0.8] * 10 + [0.05] * 6
-        m = BW.task_metrics(ious, [1.0] * 16, [5.0] * 16, [0.9] * 10, [0.2] * 6, list(range(1, 17)))
+        errs = [1.0] * 10 + [50.0] * 6
+        m = BW.task_metrics(ious, errs, [5.0] * 16, [0.9] * 10, [0.2] * 6, list(range(1, 17)))
         self.assertEqual(m['lost_at'], 11)
         self.assertAlmostEqual(m['success'], 10 / 16, places=3)
+
+    def test_a_tiny_target_a_few_px_off_is_not_lost(self):
+        ious = [0.05] * 20                                               # 7 px target, centre 5 px off: IoU ~0 but on it
+        m = BW.task_metrics(ious, [5.0] * 20, [5.0] * 20, [], [0.2] * 20, list(range(1, 21)), side=7)
+        self.assertIsNone(m['lost_at'])
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'images', 'v00', 'gt.txt')), 'campus video not found')
