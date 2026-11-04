@@ -94,9 +94,9 @@
   #runsView h3 { font-size: 12px; margin-top: 24px; }
   table.grid { font-size: 13.5px; margin-top: 12px; } table.grid td, table.grid th { padding: 6px 14px; } table.grid td.n { text-align: right; } table.grid th { text-align: left; }
   .helpable { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
-  #runsView .chartbox { width: 100%; overflow: hidden; margin-top: 10px; } #runsView .chartbox canvas { max-width: 100%; display: block; }
-  .legend { display: flex; gap: 18px; margin: 4px 0 8px; color: var(--muted); }
-  details.more { margin-top: 26px; } details.more summary { cursor: pointer; color: var(--muted); }
+  .timeline { width: 100%; overflow: hidden; margin-top: 8px; } .timeline canvas { max-width: 100%; display: block; margin-top: 8px; }
+  .timeline h3 { display: flex; align-items: center; gap: 6px; } .timeline select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
+  .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 6px 0 8px; color: var(--muted); }
   pre.report { white-space: pre-wrap; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
 </style>
 </head>
@@ -158,7 +158,6 @@
       <div class="group">Objects</div>
       <div class="row"><label for="b_tracks">objects per video, smallest first</label><select id="b_tracks" style="width:90px"></select></div>
       <div class="row"><label for="b_minsize">min object size, px</label><input type="number" id="b_minsize" min="2" max="1000"></div>
-      <label class="check"><input type="checkbox" id="b_loss"> also with the app loss rules (when SOT stops itself)</label>
       <p class="hint">Each object is tracked from the frame where it is first fully visible to the end of its track; every model starts from its ground-truth box.</p>
     </div>
     <div>

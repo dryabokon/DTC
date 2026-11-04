@@ -1,7 +1,7 @@
 """dtc bench: the click-to-track benchmark (src/utils_bench.py, src/bench_worker.py) on the Pi from the laptop.
 
     dtc bench run [--preset quick|standard|full] [--models NANO,VIT] [--seqs campus,drone_ir] [--objects 3 (0 = all)]
-                  [--min-size 8] [--loss-rules]
+                  [--min-size 8]
         starts it on the Pi (the same worker as the web UI's Benchmark tab), shows progress, copies the run to runs/bench/NNNN
         Ctrl+C cancels it on the Pi (partial results are kept)
     dtc bench list                  the Pi's benchmark runs
@@ -31,7 +31,7 @@ def _fmt(s):
 # ----------------------------------------------------------------------------------------------------------------------
 def run(a):
     cfg = {k: v for k, v in {'preset': a.preset, 'models': a.models, 'sequences': a.seqs, 'tracks': a.objects,
-                             'min_size': a.min_size, 'loss_rules': True if a.loss_rules else None}.items() if v is not None}
+                             'min_size': a.min_size}.items() if v is not None}
     pi = pi_app.Pi(verbose=False)
     rc, out, err = _py(pi, 'import sys, json, utils_bench as B\n'
                            'c, p = B.readiness(json.loads(sys.argv[1]))\n'
@@ -76,8 +76,8 @@ def pull_one(pi, rid, show=False):
     rep = os.path.join(dst, 'report.md')
     if show and os.path.isfile(rep):
         txt = open(rep, encoding='utf-8').read()
-        i = txt.find('## Models')
-        print(txt[i:txt.find('## Tasks')] if i >= 0 else txt[:2000])
+        i = txt.find('| model |')
+        print(txt[i:] if i >= 0 else txt[:2000])
     print(f'-> {dst}' if ok else f'copy failed: {rid}')
     return 0 if ok else 1
 # ----------------------------------------------------------------------------------------------------------------------
@@ -92,7 +92,7 @@ def main(a):
         except (ValueError, IndexError):
             print(err or out); return 1
         for r in runs:
-            head = '  '.join(f'{m} AUC {v["auc"]} {v["ms"]} ms' for m, v in (r.get('headline') or {}).items())
+            head = '  '.join(f'{m} F1 {v.get("f1")} {v.get("fps")} fps' for m, v in (r.get('headline') or {}).items())
             print(f'{r["id"]}  {r.get("created") or "":19s}  {r.get("state") or "?":11s}  {r.get("tasks")} tasks  {head}')
         return 0
     if a.action == 'cancel':
@@ -112,5 +112,4 @@ def add_parser(sub):
     s.add_argument('action', choices=['run', 'list', 'pull', 'cancel']); s.add_argument('id', nargs='?')
     s.add_argument('--preset', default='quick'); s.add_argument('--models'); s.add_argument('--seqs')
     s.add_argument('--objects', type=int, help='objects per video, smallest first (0 = all)'); s.add_argument('--min-size', type=int)
-    s.add_argument('--loss-rules', action='store_true')
     return s

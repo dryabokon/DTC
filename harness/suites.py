@@ -125,7 +125,7 @@ def _bench_check(R, pi):
     _, d = pi.get('/bench/run?id=' + rid)
     models = ((d or {}).get('results') or {}).get('models', {}) if isinstance(d, dict) else {}
     R.check('bench: finishes with results', bool(done and done['state'] == 'DONE' and 'NANO' in models),
-            f'run {rid}: {done and done["state"]} in {done and done.get("elapsed_s")} s, NANO AUC {models.get("NANO", {}).get("auc")}')
+            f'run {rid}: {done and done["state"]} in {done and done.get("elapsed_s")} s, NANO F1 {models.get("NANO", {}).get("f1")}')
     a = pi.wait_for(lambda s: not s.get('bench_hold'), 5); time.sleep(1.5); b = pi.status()
     R.check('bench: live resumes afterwards', bool(a and b and b['frames'] > a['frames']), f'{(b["frames"] - a["frames"]) if a and b else "?"} frames in 1.5 s')
     pi.sh(f'rm -rf {PI_REPO}/runs/bench/{rid}')

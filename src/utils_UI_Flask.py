@@ -146,7 +146,7 @@ class WebApp:
         def bench_series():
             import utils_bench
             s = utils_bench.task_series(request.args.get('id', ''), request.args.get('task', '0'))
-            return s if s is not None else ({'error': 'no such run'}, 404)
+            return s if s is not None else ({'error': 'no per-frame data (run made by an older version)'}, 404)
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():

@@ -34,13 +34,13 @@ LOSS_RULES_MS = 3.0                             # extra per update of the full T
 # ----------------------------------------------------------------------------------------------------------------------
 # tracks = objects per video, the smallest first (0 = all of them); max_frames = 0: to the end of the track (tests only cap it)
 DEFAULTS = {'models': ['NANO', 'VIT'], 'sequences': ['campus', 'drone_ir'], 'tracks': 3, 'max_frames': 0,
-            'min_frames': 50, 'min_size': 8, 'loss_rules': False, 'max_width': 1280}
+            'min_frames': 50, 'min_size': 8, 'max_width': 1280}
 PRESETS = {
     'quick':    {'label': 'Quick - NANO, VIT on campus + drone_ir, 3 objects per video', **DEFAULTS},
-    'standard': {'label': 'Standard - NANO, VIT, SIAMBAN on every video, 5 objects per video, loss rules',
-                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN'], 'sequences': '*', 'tracks': 5, 'loss_rules': True},
-    'full':     {'label': 'Full - every model (SIAMFC is slow), every video, 10 objects per video, loss rules',
-                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN', 'SIAMFC'], 'sequences': '*', 'tracks': 10, 'loss_rules': True},
+    'standard': {'label': 'Standard - NANO, VIT, SIAMBAN on every video, 5 objects per video',
+                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN'], 'sequences': '*', 'tracks': 5},
+    'full':     {'label': 'Full - every model (SIAMFC is slow), every video, 10 objects per video',
+                 **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN', 'SIAMFC'], 'sequences': '*', 'tracks': 10},
 }
 OBJECTS = (3, 5, 10, 20, 0)                     # the choices offered in the UI (0 = all)
 # ----------------------------------------------------------------------------------------------------------------------
@@ -131,7 +131,7 @@ def normalize(cfg):
         c[k] = int(c[k])
         if not lo <= c[k] <= hi:
             raise ValueError(f'{k} must be in [{lo}, {hi}]')
-    c['loss_rules'] = c['loss_rules'] in (True, 'true', 'True', '1', 1)
+    c.pop('loss_rules', None)                       # always on now: the benchmark runs the tracker as the app does
     c['models'], c['sequences'] = models, seqs
     c.pop('label', None)
     return c
@@ -149,11 +149,11 @@ def plan(cfg):
         per_seq.append({'seq': sid, 'size': [W, H], 'frames_in_video': n, 'runs': len(r), 'frames': sum(x['frames'] for x in r)})
     frames = sum(r['frames'] for r in runs)
     est = estimate_s(c, frames)
-    return {'config': c, 'runs': runs, 'frames': frames, 'updates': frames * len(c['models']) * (2 if c['loss_rules'] else 1),
+    return {'config': c, 'runs': runs, 'frames': frames, 'updates': frames * len(c['models']),
             'estimate_s': round(est), 'per_sequence': per_seq}
 # ----------------------------------------------------------------------------------------------------------------------
 def model_ms(c, m):
-    return utils_tracker_sot.SOT_MODELS[m]['pi_ms'] * (2 if c['loss_rules'] else 1) + (LOSS_RULES_MS if c['loss_rules'] else 0)
+    return utils_tracker_sot.SOT_MODELS[m]['pi_ms'] + LOSS_RULES_MS
 # ----------------------------------------------------------------------------------------------------------------------
 def estimate_s(c, frames):
     return frames * (DECODE_MS + sum(model_ms(c, m) for m in c['models'])) / 1000.0
@@ -321,7 +321,7 @@ def runs_summary():
         out.append({'id': rid, 'created': c.get('created'), 'state': p.get('state'), 'commit': c.get('commit'),
                     'models': cfg.get('models'), 'sequences': cfg.get('sequences'), 'tasks': len(c.get('runs', [])),
                     'frames': c.get('frames'), 'elapsed_s': p.get('elapsed_s'),
-                    'headline': {m: {k: v.get(k) for k in ('auc', 'ms')} for m, v in (r.get('models') or {}).items()}})
+                    'headline': {m: {k: v.get(k) for k in ('f1', 'fps')} for m, v in (r.get('models') or {}).items()}})
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def run_detail(run_id):
@@ -335,24 +335,21 @@ def run_detail(run_id):
             'files': sorted(os.listdir(d))}
 # ----------------------------------------------------------------------------------------------------------------------
 def task_series(run_id, task):
-    """Per-frame IoU / score / ms / centre error of one task for the chart: {model: {frame: [...], iou: [...], score, ms, err}}
-    (err is None in runs made before it was recorded)"""
+    """Per-frame state of one task for the timeline: {model: {frame: [...], gt: [0/1], box: [0/1], hit: [0/1]}}
+    (None for runs made before the hit / fp / fn timeline existed)."""
     path = os.path.join(RUNS_DIR, run_id, 'frames.csv')
-    if not re.fullmatch(r'\d{4}', run_id or '') or not os.path.isfile(path):
+    if not re.fullmatch(r'\d{4}', run_id or '') or not os.path.isfile(path) or not str(task).isdigit():
         return None
     out = {}
     with open(path) as f:
-        next(f, None)
+        if next(f, '').strip() != 'task,model,frame,gt,box,hit,ms':
+            return None
         for line in f:
-            p = line.rstrip('\n').split(',')
-            t, m, fr, iou, score, ms = p[:6]
-            err = p[6] if len(p) > 6 else ''
+            t, m, fr, gt, box, hit, _ = line.rstrip('\n').split(',')
             if int(t) != int(task):
                 continue
-            s = out.setdefault(m, {'frame': [], 'iou': [], 'score': [], 'ms': [], 'err': []})
-            s['frame'].append(int(fr)); s['iou'].append(float(iou) if iou else None)
-            s['score'].append(float(score) if score else None); s['ms'].append(float(ms) if ms else None)
-            s['err'].append(float(err) if err else None)
+            s = out.setdefault(m, {'frame': [], 'gt': [], 'box': [], 'hit': []})
+            s['frame'].append(int(fr)); s['gt'].append(int(gt)); s['box'].append(int(box)); s['hit'].append(int(hit))
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def options():

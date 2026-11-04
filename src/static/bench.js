@@ -71,13 +71,13 @@
         const p = opts.presets[k]; $('b_preset').value = k;
         $('b_models').querySelectorAll('input').forEach(i => i.checked = p.models.includes(i.value) && !i.disabled);
         $('b_seqs').querySelectorAll('input').forEach(i => i.checked = p.sequences === '*' || p.sequences.includes(i.value));
-        $('b_tracks').value = p.tracks; $('b_minsize').value = p.min_size; $('b_loss').checked = p.loss_rules;
+        $('b_tracks').value = p.tracks; $('b_minsize').value = p.min_size;
         scheduleCheck();
     }
     function benchConfig() {
         const picked = id => Array.from($(id).querySelectorAll('input:checked')).map(i => i.value);
         return {models: picked('b_models'), sequences: picked('b_seqs'), tracks: parseInt($('b_tracks').value || '0'),
-                min_size: parseInt($('b_minsize').value || '8'), loss_rules: $('b_loss').checked};
+                min_size: parseInt($('b_minsize').value || '8')};
     }
     function scheduleCheck() { clearTimeout(checkTimer); $('b_estimate').textContent = 'checking ...'; checkTimer = setTimeout(runCheck, 350); }
     function runCheck() {
@@ -134,7 +134,7 @@
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    // Runs tab: list of runs, one run's tables, per-task IoU chart
+    // Runs tab: list of runs, one run's tables, hit / miss timeline
     //------------------------------------------------------------------------------------------------------------------
     let selectedRun = new URL(location).searchParams.get('run'), runsList = [], detail = null;
     function loadRuns() {
@@ -160,97 +160,109 @@
         const u = new URL(location); u.searchParams.set('tab', 'runs'); u.searchParams.set('run', id); history.replaceState(null, '', u);
         getJ('/bench/run?id=' + id).then(d => { detail = d; renderRun(); });
     }
-    // ---- one run: plain numbers, no judgement ------------------------------------------------------------------------
+    // ---- one run: precision / recall / F1 / fps, and the hit-miss timeline of one model on one task --------------------
     const HELP = {
-        auc: 'Accuracy (AUC): overlap of the box with the truth averaged over all overlap thresholds; 0 = never on the target, 1 = perfect.',
-        success: 'Share of frames where the box overlaps the truth by at least half (IoU ≥ 0.5).',
-        lost: 'In how many tasks the tracker left the target and did not come back to it.',
-        ms: 'Median time of one tracker update on the Pi.',
+        precision: 'Of the frames where the tracker showed a box, the share where the box was on the target.',
+        recall: 'Of the frames where the target was there, the share where the tracker had its box on it.',
+        f1: 'Harmonic mean of precision and recall.',
+        fps: 'Frames per second the tracker manages on the Pi (1000 / median ms per update).',
     };
-    const fps = ms => ms ? Math.round(1000 / ms) : '–';
-    const pct = v => v === null || v === undefined ? '–' : Math.round(100 * v) + '%';
+    const TL = {caught: '#30c8d8', missed: '#ff9f0a', onTarget: '#30d158', falseBox: '#ff453a'};
     function el(tag, cls, ...kids) { const e = E(tag, null, cls); kids.forEach(k => k !== null && k !== undefined && e.append(k instanceof Node ? k : document.createTextNode(String(k)))); return e; }
     function swatch(m) { const s = E('span', '■ ', 'sw'); s.style.color = COLORS[m] || '#888'; return s; }
     function th(text, key) { const t = E('th', text); if (key) { t.title = HELP[key]; t.classList.add('helpable'); } return t; }
+    const v3 = v => v === null || v === undefined ? '–' : v.toFixed(2);
+    let tlModel = null, tlTask = null;
 
     function renderRun() {
         const box = $('r_detail'); box.innerHTML = '';
         const d = detail; if (!d || !d.config) return;
         const cfgAll = d.config, c = cfgAll.config, p = d.progress || {}, res = d.results;
-        const models = c.models.filter(m => res && res.models[m] && res.models[m].tasks);
-
         box.appendChild(el('div', 'titleline', E('h2', `Run ${d.id}`), E('span', (p.state || '?').toLowerCase(), 'hint')));
-        box.appendChild(E('div', `${cfgAll.created} · ${c.sequences.join(', ')} · ${cfgAll.runs.length} tasks, ${cfgAll.frames} frames · ${fmtS(p.elapsed_s)}` +
-                                 (res && !res.complete ? ' · cancelled, partial' : ''), 'hint'));
+        box.appendChild(E('div', `${cfgAll.created} · ${c.sequences.join(', ')} · ${cfgAll.runs.length} objects, ${cfgAll.frames} frames · ${fmtS(p.elapsed_s)}` +
+                                 (res && res.complete === false ? ' · cancelled, partial' : ''), 'hint'));
         if (p.state === 'RUNNING') { box.appendChild(E('p', 'Still running — progress is on the Benchmark tab.', 'hint')); return; }
-        if (!res || !models.length) { box.appendChild(E('p', 'No results.', 'hint')); return; }
+        if (!res) { box.appendChild(E('p', 'No results.', 'hint')); return; }
+        if (res.version !== 2) { box.appendChild(E('p', 'Made by an older version of the benchmark (other metrics) — run it again to compare.', 'hint')); return; }
+        const models = c.models.filter(m => res.models[m] && res.models[m].tasks);
+        if (!models.includes(tlModel)) tlModel = models[0];
 
-        // models
-        const mt = E('table', null, 'grid');
-        mt.append(el('tr', null, th('model'), th('accuracy', 'auc'), th('on target', 'success'), th('lost', 'lost'), th('ms / frame', 'ms'), th('fps')));
+        // models: click a row to pick the model of the timeline
+        const mt = E('table', null, 'grid clickable');
+        mt.append(el('tr', null, th('model'), th('precision', 'precision'), th('recall', 'recall'), th('F1', 'f1'), th('fps', 'fps'), th('ms / frame')));
         models.forEach(m => {
             const v = res.models[m];
-            mt.append(el('tr', null, el('td', null, swatch(m), m), el('td', 'n', v.auc), el('td', 'n', pct(v.success)),
-                         el('td', 'n', `${v.lost} / ${v.tasks}`), el('td', 'n', v.ms), el('td', 'n', fps(v.ms))));
+            const tr = el('tr', m === tlModel ? 'on' : null, el('td', null, swatch(m), m), el('td', 'n', v3(v.precision)), el('td', 'n', v3(v.recall)),
+                          el('td', 'n', el('b', null, v3(v.f1))), el('td', 'n', v.fps), el('td', 'n', v.ms));
+            tr.onclick = () => { tlModel = m; renderRun(); };
+            mt.append(tr);
         });
         box.appendChild(mt);
 
-        // by sequence
         if (Object.keys(res.by_sequence).length > 1) {
-            box.appendChild(E('h3', 'Accuracy by sequence'));
+            box.appendChild(E('h3', 'F1 by video'));
             const st = E('table', null, 'grid');
-            const hr = el('tr', null, th('sequence')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
+            const hr = el('tr', null, th('video')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
             Object.entries(res.by_sequence).forEach(([s, mv]) => {
-                const tr = el('tr', null, E('td', s));
-                models.forEach(m => tr.append(el('td', 'n', mv[m] && mv[m].tasks ? mv[m].auc : '–')));
-                st.append(tr);
+                const tr = el('tr', null, E('td', s)); models.forEach(m => tr.append(el('td', 'n', mv[m] && mv[m].tasks ? v3(mv[m].f1) : '–'))); st.append(tr);
             });
             box.appendChild(st);
         }
 
-        // tasks + overlap per frame
-        box.appendChild(E('h3', 'Tasks'));
-        const chart = el('div', 'chartbox'); chart.id = 'r_chart';
+        // objects (tasks): click a row for its timeline
         const tasks = {};
         res.tasks.forEach(r => { (tasks[r.task] = tasks[r.task] || {meta: r, m: {}}).m[r.model] = r; });
-        const tt = E('table', null, 'grid clickable');
-        const hr = el('tr', null, th('#'), th('sequence'), th('target'), th('from frame'), th('frames'), th('size px'));
-        models.forEach(m => hr.append(el('th', null, swatch(m), m))); tt.append(hr);
         const list = Object.values(tasks);
+        if (!list.some(t => t.meta.task === tlTask)) tlTask = list.length ? list[0].meta.task : null;
+        box.appendChild(E('h3', 'Objects · F1'));
+        const tt = E('table', null, 'grid clickable');
+        const hr = el('tr', null, th('#'), th('video'), th('object'), th('from frame'), th('frames'), th('size px'));
+        models.forEach(m => hr.append(el('th', null, swatch(m), m))); tt.append(hr);
         list.forEach(t => {
-            const tr = E('tr'); [t.meta.task + 1, t.meta.seq, t.meta.track, t.meta.start, t.meta.frames, t.meta.median_side].forEach(v => tr.append(E('td', v)));
-            models.forEach(m => { const r = t.m[m]; tr.append(el('td', 'n', r ? r.auc : '–', r && r.lost_at !== null ? E('span', `  lost at ${r.lost_at}`, 'hint') : null)); });
-            tr.onclick = () => { tt.querySelectorAll('tr').forEach(x => x.classList.remove('on')); tr.classList.add('on'); showSeries(t); };
+            const tr = el('tr', t.meta.task === tlTask ? 'on' : null);
+            [t.meta.task + 1, t.meta.seq, t.meta.track, t.meta.start, t.meta.frames, t.meta.median_side].forEach(v => tr.append(E('td', v)));
+            models.forEach(m => tr.append(el('td', 'n', t.m[m] ? v3(t.m[m].f1) : '–')));
+            tr.onclick = () => { tlTask = t.meta.task; renderRun(); };
             tt.append(tr);
         });
-        box.append(tt, chart);
-        if (list.length) { tt.querySelectorAll('tr')[1].classList.add('on'); showSeries(list[0]); }
+        box.appendChild(tt);
 
-        const det = E('details', null, 'more'); det.append(E('summary', 'Method, settings, full report'));
-        det.append(E('pre', d.report || '', 'report'), E('div', `runs/bench/${d.id}/ — ${d.files.join(', ')}`, 'hint'));
-        box.appendChild(det);
+        // timeline of the picked model on the picked object
+        const t = tasks[tlTask];
+        if (!t) return;
+        const tl = el('div', 'timeline'); tl.id = 'r_timeline'; box.appendChild(tl);
+        const sel = E('select', null, 'small'); models.forEach(m => sel.append(Object.assign(E('option', m), {value: m}))); sel.value = tlModel;
+        sel.onchange = () => { tlModel = sel.value; renderRun(); };
+        const r = t.m[tlModel];
+        tl.append(el('h3', null, 'Timeline · ', sel, ` · object ${t.meta.track} of ${t.meta.seq}, ${t.meta.frames} frames`));
+        tl.append(E('div', r ? `precision ${v3(r.precision)} · recall ${v3(r.recall)} · F1 ${v3(r.f1)}` +
+                              (r.stopped_at ? ` · the tracker dropped the box at frame ${r.stopped_at} (${r.stop_reason})` : '') : '', 'hint'));
+        getJ(`/bench/series?id=${d.id}&task=${t.meta.task}`).then(s => drawTimeline(tl, s[tlModel], t.meta.frames));
     }
 
-    function showSeries(t) {
-        const box = $('r_chart'); box.innerHTML = ''; const meta = t.meta;
-        box.appendChild(E('div', `Task ${meta.task + 1} · ${meta.seq} · target ${meta.track}: overlap with the truth per frame (1 = exact, 0 = off the target)`, 'hint'));
-        getJ(`/bench/series?id=${detail.id}&task=${meta.task}`).then(s => {
-            const cv = E('canvas'), w = Math.max(320, (box.clientWidth || 800) - 4), hgt = 200, r = window.devicePixelRatio || 1;
-            cv.width = w * r; cv.height = hgt * r; cv.style.width = w + 'px'; cv.style.height = hgt + 'px'; box.appendChild(cv);
-            const g = cv.getContext('2d'); g.scale(r, r);
-            const css = getComputedStyle(document.documentElement), L = 34, B = 22, T = 8, R = 10, n = meta.frames;
-            const X = f => L + (w - L - R) * f / n, Y = v => hgt - B - (hgt - B - T) * v;
-            g.font = '12px system-ui, sans-serif'; g.strokeStyle = css.getPropertyValue('--line'); g.fillStyle = css.getPropertyValue('--muted'); g.lineWidth = 1;
-            [0, 0.5, 1].forEach(v => { g.beginPath(); g.moveTo(L, Y(v)); g.lineTo(w - R, Y(v)); g.stroke(); g.fillText(v.toFixed(1), 6, Y(v) + 4); });
-            for (let f = 0; f <= n; f += Math.max(10, Math.round(n / 100) * 10)) g.fillText(String(f), X(f) - 6, hgt - 6);
-            const models = detail.config.config.models.filter(m => s[m]);
-            models.forEach(m => {
-                const d = s[m]; g.strokeStyle = COLORS[m] || '#888'; g.lineWidth = 1.6; g.beginPath(); let pen = false;
-                d.frame.forEach((f, k) => { const v = d.iou[k]; if (v === null) { pen = false; return; } if (pen) g.lineTo(X(f), Y(v)); else g.moveTo(X(f), Y(v)); pen = true; });
-                g.stroke();
-            });
-            const leg = el('div', 'legend'); models.forEach(m => leg.append(el('span', null, swatch(m), m))); box.appendChild(leg);
+    function drawTimeline(box, d, n) {
+        if (!d) { box.append(E('p', 'No per-frame data.', 'hint')); return; }
+        const cv = E('canvas'), w = Math.max(320, (box.clientWidth || 800) - 4), hgt = 84, r = window.devicePixelRatio || 1;
+        cv.width = w * r; cv.height = hgt * r; cv.style.width = w + 'px'; cv.style.height = hgt + 'px'; box.append(cv);
+        const g = cv.getContext('2d'); g.scale(r, r);
+        const css = getComputedStyle(document.documentElement), L = 70, R = 6, rowH = 22, y1 = 4, y2 = y1 + rowH + 6;
+        const X = f => L + (w - L - R) * f / n, empty = css.getPropertyValue('--field').trim(), muted = css.getPropertyValue('--muted').trim();
+        g.fillStyle = empty; g.fillRect(L, y1, w - L - R, rowH); g.fillRect(L, y2, w - L - R, rowH);
+        d.frame.forEach((f, k) => {
+            const x0 = X(f - 1), wd = Math.max(1, X(f) - x0 + 0.5);
+            if (d.gt[k]) { g.fillStyle = d.hit[k] ? TL.caught : TL.missed; g.fillRect(x0, y1, wd, rowH); }
+            if (d.box[k]) { g.fillStyle = d.hit[k] ? TL.onTarget : TL.falseBox; g.fillRect(x0, y2, wd, rowH); }
         });
+        g.font = '12px system-ui, sans-serif'; g.fillStyle = muted;
+        g.fillText('recall', 6, y1 + 15); g.fillText('precision', 6, y2 + 15);
+        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 10) || 1000;
+        for (let f = 0; f <= n; f += step) g.fillText(String(f), Math.min(X(f) - 4, w - 30), y2 + rowH + 16);
+        const leg = el('div', 'legend');
+        [[TL.caught, 'target caught'], [TL.missed, 'target missed'], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box']].forEach(([col, t]) => {
+            const s = E('span', '■ '); s.style.color = col; leg.append(el('span', null, s, t));
+        });
+        leg.append(E('span', 'empty = no target on the frame / no box shown', 'hint'));
+        box.append(leg);
     }
 
     //------------------------------------------------------------------------------------------------------------------

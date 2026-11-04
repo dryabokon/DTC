@@ -52,22 +52,26 @@ class TestTargets(unittest.TestCase):
 
 
 class TestMetrics(unittest.TestCase):
+    def test_frame_states(self):
+        g = [100, 100, 140, 140]
+        self.assertEqual(BW.frame_state([100, 100, 140, 140], g), (1, 0, 0))     # on the target
+        self.assertEqual(BW.frame_state([300, 300, 340, 340], g), (0, 1, 1))     # elsewhere: a false box and a miss
+        self.assertEqual(BW.frame_state(None, g), (0, 0, 1))                     # no box: a miss
+        self.assertEqual(BW.frame_state([1, 1, 5, 5], None), (0, 1, 0))         # a box, no target
+        self.assertEqual(BW.frame_state(None, None), (0, 0, 0))
+
+    def test_a_tiny_target_a_few_px_off_is_a_hit(self):
+        self.assertEqual(BW.frame_state([104, 102, 111, 109], [100, 100, 107, 107]), (1, 0, 0))
+
+    def test_precision_recall_f1(self):
+        r = BW.prf(8, 2, 8)
+        self.assertEqual((r['precision'], r['recall']), (0.8, 0.5))
+        self.assertAlmostEqual(r['f1'], 2 * 0.8 * 0.5 / 1.3, places=3)
+
     def test_iou(self):
         self.assertAlmostEqual(BW.iou([0, 0, 10, 10], [0, 0, 10, 10]), 1.0)
         self.assertAlmostEqual(BW.iou([0, 0, 10, 10], [5, 0, 15, 10]), 1 / 3)
         self.assertEqual(BW.iou([0, 0, 10, 10], [20, 20, 30, 30]), 0.0)
-
-    def test_lost_at_is_the_first_of_five_bad_frames(self):
-        ious = [0.8] * 10 + [0.05] * 6
-        errs = [1.0] * 10 + [50.0] * 6
-        m = BW.task_metrics(ious, errs, [5.0] * 16, [0.9] * 10, [0.2] * 6, list(range(1, 17)))
-        self.assertEqual(m['lost_at'], 11)
-        self.assertAlmostEqual(m['success'], 10 / 16, places=3)
-
-    def test_a_tiny_target_a_few_px_off_is_not_lost(self):
-        ious = [0.05] * 20                                               # 7 px target, centre 5 px off: IoU ~0 but on it
-        m = BW.task_metrics(ious, [5.0] * 20, [5.0] * 20, [], [0.2] * 20, list(range(1, 21)), side=7)
-        self.assertIsNone(m['lost_at'])
 
 
 @unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'images', 'v00', 'gt.txt')), 'campus video not found')
@@ -81,7 +85,7 @@ class TestRun(unittest.TestCase):
         B.RUNS_DIR = self.saved
 
     def test_tiny_run_end_to_end(self):
-        rid = B.start({'models': ['NANO', 'MIL'], 'sequences': ['campus'], 'tracks': 1, 'max_frames': 25, 'loss_rules': True})
+        rid = B.start({'models': ['NANO', 'MIL'], 'sequences': ['campus'], 'tracks': 1, 'max_frames': 25})
         t0 = time.time()
         while B.progress(rid)['state'] == 'RUNNING' and time.time() - t0 < 120:
             time.sleep(0.5)
@@ -90,10 +94,10 @@ class TestRun(unittest.TestCase):
         self.assertEqual(p['done_frac'], 1.0)
         r = json.load(open(os.path.join(B.RUNS_DIR, rid, 'results.json')))
         self.assertEqual(set(r['models']), {'NANO', 'MIL'})
-        self.assertGreater(r['models']['NANO']['iou'], 0.3)
+        self.assertGreater(r['models']['NANO']['f1'], 0.3)
         self.assertEqual(B.runs_summary()[0]['id'], rid)
         s = B.task_series(rid, 0)
-        self.assertEqual(len(s['NANO']['iou']), 25)
+        self.assertEqual(len(s['NANO']['hit']), 25)
 
 
 if __name__ == '__main__':
