@@ -134,7 +134,7 @@
     }
 
     //------------------------------------------------------------------------------------------------------------------
-    // Runs tab: list of runs, one run's tables, hit / miss timeline
+    // Runs tab: list of runs, one run's tables, Gantt of the objects
     //------------------------------------------------------------------------------------------------------------------
     let selectedRun = new URL(location).searchParams.get('run'), runsList = [], detail = null;
     function loadRuns() {
@@ -160,19 +160,19 @@
         const u = new URL(location); u.searchParams.set('tab', 'runs'); u.searchParams.set('run', id); history.replaceState(null, '', u);
         getJ('/bench/run?id=' + id).then(d => { detail = d; renderRun(); });
     }
-    // ---- one run: precision / recall / F1 / fps, and the hit-miss timeline of one model on one task --------------------
+    // ---- one run: precision / recall / F1 / fps, and a Gantt of the objects over time for one model ----------------------
     const HELP = {
         precision: 'Of the frames where the tracker showed a box, the share where the box was on the target.',
         recall: 'Of the frames where the target was there, the share where the tracker had its box on it.',
         f1: 'Harmonic mean of precision and recall.',
         fps: 'Frames per second the tracker manages on the Pi (1000 / median ms per update).',
     };
-    const TL = {caught: '#30c8d8', missed: '#ff9f0a', onTarget: '#30d158', falseBox: '#ff453a'};
+    const TL = {caught: '#30c8d8', missed: '#ff453a', onTarget: '#30d158', falseBox: '#ff9f0a'};   // lost = red, false box = orange
     function el(tag, cls, ...kids) { const e = E(tag, null, cls); kids.forEach(k => k !== null && k !== undefined && e.append(k instanceof Node ? k : document.createTextNode(String(k)))); return e; }
     function swatch(m) { const s = E('span', '■ ', 'sw'); s.style.color = COLORS[m] || '#888'; return s; }
     function th(text, key) { const t = E('th', text); if (key) { t.title = HELP[key]; t.classList.add('helpable'); } return t; }
     const v3 = v => v === null || v === undefined ? '–' : v.toFixed(2);
-    let tlModel = null, tlTask = null;
+    let tlModel = null;
 
     function renderRun() {
         const box = $('r_detail'); box.innerHTML = '';
@@ -209,60 +209,62 @@
             box.appendChild(st);
         }
 
-        // objects (tasks): click a row for its timeline
+        // Gantt per video: one row per object (sorted by when it appears), recall over precision, for one model
         const tasks = {};
         res.tasks.forEach(r => { (tasks[r.task] = tasks[r.task] || {meta: r, m: {}}).m[r.model] = r; });
-        const list = Object.values(tasks);
-        if (!list.some(t => t.meta.task === tlTask)) tlTask = list.length ? list[0].meta.task : null;
-        box.appendChild(E('h3', 'Objects · F1'));
-        const tt = E('table', null, 'grid clickable');
-        const hr = el('tr', null, th('#'), th('video'), th('object'), th('from frame'), th('frames'), th('size px'));
-        models.forEach(m => hr.append(el('th', null, swatch(m), m))); tt.append(hr);
-        list.forEach(t => {
-            const tr = el('tr', t.meta.task === tlTask ? 'on' : null);
-            [t.meta.task + 1, t.meta.seq, t.meta.track, t.meta.start, t.meta.frames, t.meta.median_side].forEach(v => tr.append(E('td', v)));
-            models.forEach(m => tr.append(el('td', 'n', t.m[m] ? v3(t.m[m].f1) : '–')));
-            tr.onclick = () => { tlTask = t.meta.task; renderRun(); };
-            tt.append(tr);
-        });
-        box.appendChild(tt);
-
-        // timeline of the picked model on the picked object
-        const t = tasks[tlTask];
-        if (!t) return;
-        const tl = el('div', 'timeline'); tl.id = 'r_timeline'; box.appendChild(tl);
         const sel = E('select', null, 'small'); models.forEach(m => sel.append(Object.assign(E('option', m), {value: m}))); sel.value = tlModel;
         sel.onchange = () => { tlModel = sel.value; renderRun(); };
-        const r = t.m[tlModel];
-        tl.append(el('h3', null, 'Timeline · ', sel, ` · object ${t.meta.track} of ${t.meta.seq}, ${t.meta.frames} frames`));
-        tl.append(E('div', r ? `precision ${v3(r.precision)} · recall ${v3(r.recall)} · F1 ${v3(r.f1)}` +
-                              (r.stopped_at ? ` · the tracker dropped the box at frame ${r.stopped_at} (${r.stop_reason})` : '') : '', 'hint'));
-        getJ(`/bench/series?id=${d.id}&task=${t.meta.task}`).then(s => drawTimeline(tl, s[tlModel], t.meta.frames));
+        box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
+        const leg = el('div', 'legend');
+        [['recall:', null], [TL.caught, 'target caught'], [TL.missed, 'target lost'], ['precision:', null], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box']]
+            .forEach(([a, b]) => { if (b === null) { leg.append(E('span', a, 'hint')); return; } const s = E('span', '■ '); s.style.color = a; leg.append(el('span', null, s, b)); });
+        box.appendChild(leg);
+        const gantt = el('div', 'gantt'); box.appendChild(gantt);
+        const videoFrames = Object.fromEntries((cfgAll.per_sequence || []).map(s => [s.seq, s.frames_in_video]));
+        getJ(`/bench/timelines?id=${d.id}&model=${tlModel}`).then(tl => {
+            c.sequences.forEach(seq => {
+                const rows = Object.values(tasks).filter(t => t.meta.seq === seq && tl[t.meta.task]).sort((a, b) => a.meta.start - b.meta.start || a.meta.track - b.meta.track);
+                if (!rows.length) return;
+                const n = Math.max(videoFrames[seq] || 0, ...rows.map(t => t.meta.start + 1 + tl[t.meta.task].recall.length));
+                gantt.append(drawGantt(seq, rows, tl, n));
+            });
+        });
     }
 
-    function drawTimeline(box, d, n) {
-        if (!d) { box.append(E('p', 'No per-frame data.', 'hint')); return; }
-        const cv = E('canvas'), w = Math.max(320, (box.clientWidth || 800) - 4), hgt = 84, r = window.devicePixelRatio || 1;
-        cv.width = w * r; cv.height = hgt * r; cv.style.width = w + 'px'; cv.style.height = hgt + 'px'; box.append(cv);
-        const g = cv.getContext('2d'); g.scale(r, r);
-        const css = getComputedStyle(document.documentElement), L = 70, R = 6, rowH = 22, y1 = 4, y2 = y1 + rowH + 6;
-        const X = f => L + (w - L - R) * f / n, empty = css.getPropertyValue('--field').trim(), muted = css.getPropertyValue('--muted').trim();
-        g.fillStyle = empty; g.fillRect(L, y1, w - L - R, rowH); g.fillRect(L, y2, w - L - R, rowH);
-        d.frame.forEach((f, k) => {
-            const x0 = X(f - 1), wd = Math.max(1, X(f) - x0 + 0.5);
-            if (d.gt[k]) { g.fillStyle = d.hit[k] ? TL.caught : TL.missed; g.fillRect(x0, y1, wd, rowH); }
-            if (d.box[k]) { g.fillStyle = d.hit[k] ? TL.onTarget : TL.falseBox; g.fillRect(x0, y2, wd, rowH); }
+    function drawGantt(seq, rows, tl, n) {
+        const wrap = el('div', 'ganttBox');
+        const w = Math.max(400, (document.getElementById('r_detail').clientWidth || 900) - 4);
+        const L = 150, R = 8, top = 22, sub = 7, gap = 1, rowH = 2 * sub + gap + 7, hgt = top + rows.length * rowH + 22, ratio = window.devicePixelRatio || 1;
+        const cv = E('canvas'); cv.width = w * ratio; cv.height = hgt * ratio; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
+        const g = cv.getContext('2d'); g.scale(ratio, ratio);
+        const css = getComputedStyle(document.documentElement), muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim(), text = css.getPropertyValue('--text').trim();
+        const X = f => L + (w - L - R) * f / n;
+        g.font = '600 13px system-ui, sans-serif'; g.fillStyle = text; g.fillText(`${seq}`, 4, 14);
+        g.font = '12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(`${n} frames`, L, 14);
+        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 12) || 1000;
+        g.strokeStyle = line; g.lineWidth = 1;
+        for (let f = 0; f <= n; f += step) { g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - 18); g.stroke(); g.fillText(String(f), Math.min(X(f) - 4, w - 30), hgt - 4); }
+        const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
+        rows.forEach((t, i) => {
+            const y = top + i * rowH, s = tl[t.meta.task], r = t.m[tlModel];
+            g.fillStyle = muted; g.font = '12px system-ui, sans-serif';
+            g.fillText(`object ${t.meta.track}`, 4, y + sub + 4);
+            g.fillStyle = text; g.fillText(r && r.f1 !== null ? `F1 ${r.f1.toFixed(2)}` : '', 84, y + sub + 4);
+            const start = t.meta.start + 1;
+            const paint = (str, cols, y0) => {
+                let k = 0;
+                while (k < str.length) {                   // runs of one state: one rectangle each (fast for long videos)
+                    let j = k; while (j < str.length && str[j] === str[k]) j++;
+                    if (cols[str[k]]) { g.fillStyle = cols[str[k]]; g.fillRect(X(start + k), y0, Math.max(1, X(start + j) - X(start + k)), sub); }
+                    k = j;
+                }
+            };
+            paint(s.recall, colR, y);
+            paint(s.precision, colP, y + sub + gap);
+            if (r && r.stopped_at) { g.fillStyle = text; g.fillRect(X(start + r.stopped_at - 1) - 0.5, y - 1, 1.5, 2 * sub + gap + 2); }
         });
-        g.font = '12px system-ui, sans-serif'; g.fillStyle = muted;
-        g.fillText('recall', 6, y1 + 15); g.fillText('precision', 6, y2 + 15);
-        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 10) || 1000;
-        for (let f = 0; f <= n; f += step) g.fillText(String(f), Math.min(X(f) - 4, w - 30), y2 + rowH + 16);
-        const leg = el('div', 'legend');
-        [[TL.caught, 'target caught'], [TL.missed, 'target missed'], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box']].forEach(([col, t]) => {
-            const s = E('span', '■ '); s.style.color = col; leg.append(el('span', null, s, t));
-        });
-        leg.append(E('span', 'empty = no target on the frame / no box shown', 'hint'));
-        box.append(leg);
+        wrap.append(cv);
+        return wrap;
     }
 
     //------------------------------------------------------------------------------------------------------------------

@@ -142,6 +142,12 @@ class WebApp:
             d = utils_bench.run_detail(request.args.get('id', ''))
             return d if d is not None else ({'error': 'no such run'}, 404)
 # ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/timelines', methods=['GET'])
+        def bench_timelines():
+            import utils_bench
+            s = utils_bench.timelines(request.args.get('id', ''), request.args.get('model', ''))
+            return s if s is not None else ({'error': 'no per-frame data (run made by an older version)'}, 404)
+# ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/bench/series', methods=['GET'])
         def bench_series():
             import utils_bench

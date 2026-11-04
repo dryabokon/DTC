@@ -334,6 +334,26 @@ def run_detail(run_id):
             'report': open(rep, encoding='utf-8').read() if os.path.isfile(rep) else None,
             'files': sorted(os.listdir(d))}
 # ----------------------------------------------------------------------------------------------------------------------
+def timelines(run_id, model):
+    """Every object's frame states of one model, for the Gantt view: {task: {'recall': str, 'precision': str}}, one character
+    per frame from the object's start: recall c = caught, m = missed, . = no target; precision g = box on the target,
+    f = false box, . = no box. None for runs made before the hit / fp / fn timeline existed."""
+    path = os.path.join(RUNS_DIR, run_id, 'frames.csv')
+    if not re.fullmatch(r'\d{4}', run_id or '') or not os.path.isfile(path):
+        return None
+    out = {}
+    with open(path) as f:
+        if next(f, '').strip() != 'task,model,frame,gt,box,hit,ms':
+            return None
+        for line in f:
+            t, m, fr, gt, box, hit, _ = line.rstrip('\n').split(',')
+            if m != model:
+                continue
+            o = out.setdefault(int(t), {'recall': [], 'precision': []})
+            o['recall'].append('.' if gt == '0' else 'c' if hit == '1' else 'm')
+            o['precision'].append('.' if box == '0' else 'g' if hit == '1' else 'f')
+    return {t: {k: ''.join(v) for k, v in o.items()} for t, o in out.items()}
+# ----------------------------------------------------------------------------------------------------------------------
 def task_series(run_id, task):
     """Per-frame state of one task for the timeline: {model: {frame: [...], gt: [0/1], box: [0/1], hit: [0/1]}}
     (None for runs made before the hit / fp / fn timeline existed)."""
