@@ -215,12 +215,12 @@
         const sel = E('select', null, 'small'); models.forEach(m => sel.append(Object.assign(E('option', m), {value: m}))); sel.value = tlModel;
         sel.onchange = () => { tlModel = sel.value; renderRun(); };
         box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
+        const gantt = el('div', 'gantt'); box.appendChild(gantt);
         const leg = el('div', 'legend');
-        [['recall:', null], [TL.caught, 'target caught'], [TL.missed, 'target lost'], ['precision:', null], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box'],
-         ['grey = no target / no box on that frame · white tick = the tracker dropped its box', null]]
+        [['recall:', null], [TL.caught, 'hit'], [TL.missed, 'miss'], ['precision:', null], [TL.onTarget, 'hit'], [TL.falseBox, 'false positive'],
+         ['grey = no box on that frame · white tick = the tracker dropped its box', null]]
             .forEach(([a, b]) => { if (b === null) { leg.append(E('span', a, 'hint')); return; } const s = E('span', '■ '); s.style.color = a; leg.append(el('span', null, s, b)); });
         box.appendChild(leg);
-        const gantt = el('div', 'gantt'); box.appendChild(gantt);
         const videoFrames = Object.fromEntries((cfgAll.per_sequence || []).map(s => [s.seq, s.frames_in_video]));
         getJ(`/bench/timelines?id=${d.id}&model=${tlModel}`).then(tl => {
             c.sequences.forEach(seq => {
@@ -228,6 +228,8 @@
                 if (!rows.length) return;
                 const n = Math.max(videoFrames[seq] || 0, ...rows.map(t => t.meta.start + 1 + tl[t.meta.task].recall.length));
                 gantt.append(drawGantt(seq, rows, tl, n));
+                const v = ((res.videos || {})[seq] || {})[tlModel];
+                if (v) gantt.append(clipPair(d.id, v));
             });
         });
     }
@@ -242,6 +244,23 @@
         const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
         pair.append(ganttCanvas('recall', rows, tl, n, 'recall', colR, 140 + plot + 8, true), ganttCanvas('precision', rows, tl, n, 'precision', colP, 8 + plot + 8, false));
         return wrap;
+    }
+
+    function clipPair(id, v) {
+        // recall clip on the left, precision clip on the right, played together
+        const pair = el('div', 'clipPair');
+        const mk = name => { const x = E('video'); x.src = `/bench/video?id=${id}&name=${encodeURIComponent(name)}`; x.controls = true; x.muted = true; x.preload = 'metadata'; return x; };
+        const a = mk(v.recall), b = mk(v.precision);
+        let busy = false;
+        const follow = (src, dst) => {
+            src.addEventListener('play', () => { if (!busy && dst.paused) { busy = true; dst.currentTime = src.currentTime; dst.play().finally(() => busy = false); } });
+            src.addEventListener('pause', () => { if (!dst.paused) dst.pause(); });
+            src.addEventListener('seeked', () => { if (Math.abs(dst.currentTime - src.currentTime) > 0.05) dst.currentTime = src.currentTime; });
+            src.addEventListener('ratechange', () => { dst.playbackRate = src.playbackRate; });
+        };
+        follow(a, b); follow(b, a);
+        pair.append(el('div', null, E('div', 'recall · hit / miss', 'hint'), a), el('div', null, E('div', 'precision · hit / false positive', 'hint'), b));
+        return pair;
     }
 
     function ganttCanvas(title, rows, tl, n, key, cols, w, labels) {

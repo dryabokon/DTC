@@ -31,6 +31,7 @@ RUNS_DIR = os.path.join(REPO, 'runs', 'bench')
 CLIPS_DIR = os.path.join(REPO, 'clips')
 DECODE_MS = 3.0                                 # per frame, for the estimate (decode + resize on the Pi)
 LOSS_RULES_MS = 3.0                             # extra per update of the full Tracker_SOT (embedding, contrast)
+CLIP_MS = 4.0                                   # per video frame and clip: drawing + piping to ffmpeg (the encoders run in parallel)
 # ----------------------------------------------------------------------------------------------------------------------
 # tracks = objects per video, the smallest first (0 = all of them); max_frames = 0: to the end of the track (tests only cap it)
 DEFAULTS = {'models': ['NANO', 'VIT'], 'sequences': ['campus', 'drone_ir'], 'tracks': 3, 'max_frames': 0,
@@ -148,15 +149,19 @@ def plan(cfg):
         runs += r
         per_seq.append({'seq': sid, 'size': [W, H], 'frames_in_video': n, 'runs': len(r), 'frames': sum(x['frames'] for x in r)})
     frames = sum(r['frames'] for r in runs)
-    est = estimate_s(c, frames)
+    est = estimate_s(c, frames, sum(s['frames_in_video'] for s in per_seq if s['runs']))
     return {'config': c, 'runs': runs, 'frames': frames, 'updates': frames * len(c['models']),
             'estimate_s': round(est), 'per_sequence': per_seq}
 # ----------------------------------------------------------------------------------------------------------------------
 def model_ms(c, m):
     return utils_tracker_sot.SOT_MODELS[m]['pi_ms'] + LOSS_RULES_MS
 # ----------------------------------------------------------------------------------------------------------------------
-def estimate_s(c, frames):
-    return frames * (DECODE_MS + sum(model_ms(c, m) for m in c['models'])) / 1000.0
+def render_ms(c):
+    """Per video frame when the clips are made: decode + 2 clips (recall, precision) per model."""
+    return DECODE_MS + 2 * len(c['models']) * CLIP_MS
+# ----------------------------------------------------------------------------------------------------------------------
+def estimate_s(c, frames, video_frames=0):
+    return (frames * (DECODE_MS + sum(model_ms(c, m) for m in c['models'])) + video_frames * render_ms(c)) / 1000.0
 # ----------------------------------------------------------------------------------------------------------------------
 def readiness(cfg):
     """[{key, status: ok|warn|fail, detail}] - read only."""
@@ -343,10 +348,10 @@ def timelines(run_id, model):
         return None
     out = {}
     with open(path) as f:
-        if next(f, '').strip() != 'task,model,frame,gt,box,hit,ms':
+        if not next(f, '').startswith('task,model,frame,gt,box,hit,ms'):
             return None
         for line in f:
-            t, m, fr, gt, box, hit, _ = line.rstrip('\n').split(',')
+            t, m, fr, gt, box, hit = line.rstrip('\n').split(',')[:6]
             if m != model:
                 continue
             o = out.setdefault(int(t), {'recall': [], 'precision': []})
@@ -362,15 +367,22 @@ def task_series(run_id, task):
         return None
     out = {}
     with open(path) as f:
-        if next(f, '').strip() != 'task,model,frame,gt,box,hit,ms':
+        if not next(f, '').startswith('task,model,frame,gt,box,hit,ms'):
             return None
         for line in f:
-            t, m, fr, gt, box, hit, _ = line.rstrip('\n').split(',')
+            t, m, fr, gt, box, hit = line.rstrip('\n').split(',')[:6]
             if int(t) != int(task):
                 continue
             s = out.setdefault(m, {'frame': [], 'gt': [], 'box': [], 'hit': []})
             s['frame'].append(int(fr)); s['gt'].append(int(gt)); s['box'].append(int(box)); s['hit'].append(int(hit))
     return out
+# ----------------------------------------------------------------------------------------------------------------------
+def video_path(run_id, name):
+    """Absolute path of a clip of a run (only files of <run>/video/ with a clip name), else None."""
+    if not re.fullmatch(r'\d{4}', run_id or '') or not re.fullmatch(r'[A-Za-z0-9_.-]+__[A-Z]+__(recall|precision)\.mp4', name or ''):
+        return None
+    p = os.path.join(RUNS_DIR, run_id, 'video', name)
+    return p if os.path.isfile(p) else None
 # ----------------------------------------------------------------------------------------------------------------------
 def options():
     T = utils_tracker_sot.Tracker_SOT(models_dir=os.path.join(REPO, 'models'))

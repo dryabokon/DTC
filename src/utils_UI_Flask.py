@@ -148,6 +148,13 @@ class WebApp:
             s = utils_bench.timelines(request.args.get('id', ''), request.args.get('model', ''))
             return s if s is not None else ({'error': 'no per-frame data (run made by an older version)'}, 404)
 # ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/bench/video', methods=['GET'])
+        def bench_video():
+            import utils_bench
+            from flask import send_file
+            p = utils_bench.video_path(request.args.get('id', ''), request.args.get('name', ''))
+            return send_file(p, mimetype='video/mp4', conditional=True) if p else ({'error': 'no such clip'}, 404)
+# ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/bench/series', methods=['GET'])
         def bench_series():
             import utils_bench

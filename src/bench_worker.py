@@ -8,7 +8,7 @@ Every frame is one of:
   fp    a box, but not on the target   (wrong place, or the target is not annotated on this frame)
   fn    the target is there, no box on it (no box at all, or the box is elsewhere - then the frame is fp and fn)
 precision = hit / (hit + fp), recall = hit / (hit + fn), F1; fps from the median time of one update.
-Writes progress.json (about twice a second), frames.csv, results.json, report.md.
+Writes progress.json (about twice a second), frames.csv, results.json, report.md, and the clips of bench_render.py in video/.
 """
 import os
 import signal
@@ -62,7 +62,9 @@ class Worker:
         self.cancelled = False
         self.t0 = time.time()
         self.per_frame = B.DECODE_MS + sum(B.model_ms(self.c, m) for m in self.c['models'])
-        self.total_work = sum(t['frames'] for t in self.tasks) * self.per_frame
+        self.render_frames = sum(s['frames_in_video'] for s in self.cfg_all.get('per_sequence', []) if s['runs'])
+        self.render_per_frame = B.render_ms(self.c)
+        self.total_work = sum(t['frames'] for t in self.tasks) * self.per_frame + self.render_frames * self.render_per_frame
         self.done_work = 0.0
         self.p = {'id': self.cfg_all['id'], 'state': 'RUNNING', 'pid': os.getpid(), 'stage': 'loading models', 'tasks_total': len(self.tasks),
                   'tasks_done': 0, 'frames_total': self.cfg_all['frames'], 'frames_done': 0, 'done_frac': 0.0,
@@ -89,7 +91,8 @@ class Worker:
         seqs = {s['id']: s for s in B.sequences()}
         models_dir = os.path.join(B.REPO, 'models')
         results, csv = [], open(os.path.join(self.d, 'frames.csv'), 'w')
-        csv.write('task,model,frame,gt,box,hit,ms\n')         # per frame: target annotated, box shown, box on the target
+        # per frame: target annotated, box shown, box on the target, ms; the boxes (benchmark frame pixels) for the clips
+        csv.write('task,model,frame,gt,box,hit,ms,bx1,by1,bx2,by2,gx1,gy1,gx2,gy2\n')
         self.write_progress(force=True)
         for ti, task in enumerate(self.tasks):
             if self.cancelled:
@@ -134,7 +137,9 @@ class Worker:
                             a['stopped_at'], a['reason'] = rel, tr.stop_reason
                     h, fp, fn = frame_state(box, g)
                     a['hit'] += h; a['fp'] += fp; a['fn'] += fn
-                    csv.write(f'{ti},{m},{rel},{int(g is not None)},{int(box is not None)},{h},{"" if ms == "" else round(ms, 1)}\n')
+                    bs = ',,,' if box is None else ','.join(str(int(v)) for v in box)
+                    gs = ',,,' if g is None else ','.join(f'{v:.1f}' for v in g)
+                    csv.write(f'{ti},{m},{rel},{int(g is not None)},{int(box is not None)},{h},{"" if ms == "" else round(ms, 1)},{bs},{gs}\n')
                 self.done_work += self.per_frame
                 self.p['frames_done'] += 1
                 self.p['current']['frame'] = rel
@@ -152,11 +157,24 @@ class Worker:
             print(f'[ bench ] {ti + 1}/{len(self.tasks)} {label}: ' +
                   ', '.join(f'{r["model"]} F1 {r["f1"]} {r["ms"]} ms' for r in results if r['task'] == ti), flush=True)
         csv.close()
+        videos = {}
+        if not self.cancelled:
+            self.p['stage'] = 'videos'
+            self.p['current'] = {'task': len(self.tasks), 'label': 'making the hit / miss videos', 'frame': 0, 'frames': self.render_frames}
+            import bench_render
+            def step(nf):
+                self.done_work += nf * self.render_per_frame
+                self.p['current']['frame'] += nf
+                self.write_progress()
+            try:
+                videos = bench_render.render(self.d, step)
+            except Exception as e:                      # no clips is not a failed benchmark
+                print(f'[ bench ] videos failed: {type(e).__name__}: {e}', flush=True)
         self.p['stage'] = 'report'
         self.write_progress(force=True)
         summary = aggregate(self.c, results)
         B.write_json(os.path.join(self.d, 'results.json'), {'version': 2, 'models': summary['models'], 'by_sequence': summary['by_sequence'],
-                                                            'tasks': results, 'complete': not self.cancelled})
+                                                            'tasks': results, 'videos': videos, 'complete': not self.cancelled})
         open(os.path.join(self.d, 'report.md'), 'w', encoding='utf-8').write(report(self.cfg_all, summary, self.cancelled, time.time() - self.t0))
         self.p.update(state='CANCELLED' if self.cancelled else 'DONE', stage='cancelled - partial results kept' if self.cancelled else 'done',
                       current=None, finished=time.strftime('%Y-%m-%d %H:%M:%S'))
