@@ -216,7 +216,8 @@
         sel.onchange = () => { tlModel = sel.value; renderRun(); };
         box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
         const leg = el('div', 'legend');
-        [['recall:', null], [TL.caught, 'target caught'], [TL.missed, 'target lost'], ['precision:', null], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box']]
+        [['recall:', null], [TL.caught, 'target caught'], [TL.missed, 'target lost'], ['precision:', null], [TL.onTarget, 'box on the target'], [TL.falseBox, 'false box'],
+         ['grey = no target / no box on that frame · white tick = the tracker dropped its box', null]]
             .forEach(([a, b]) => { if (b === null) { leg.append(E('span', a, 'hint')); return; } const s = E('span', '■ '); s.style.color = a; leg.append(el('span', null, s, b)); });
         box.appendChild(leg);
         const gantt = el('div', 'gantt'); box.appendChild(gantt);
@@ -232,39 +233,43 @@
     }
 
     function drawGantt(seq, rows, tl, n) {
+        // one video: recall Gantt on the left, precision Gantt on the right, the same objects in the same rows
         const wrap = el('div', 'ganttBox');
-        const w = Math.max(400, (document.getElementById('r_detail').clientWidth || 900) - 4);
-        const L = 150, R = 8, top = 22, sub = 7, gap = 1, rowH = 2 * sub + gap + 7, hgt = top + rows.length * rowH + 22, ratio = window.devicePixelRatio || 1;
+        wrap.append(el('div', 'ganttTitle', el('b', null, seq), E('span', `  ·  ${n} frames`, 'hint')));
+        const pair = el('div', 'ganttPair'); wrap.append(pair);
+        const full = Math.max(600, (document.getElementById('r_detail').clientWidth || 1000) - 4), gapPx = 24, half = Math.floor((full - gapPx) / 2);
+        const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
+        pair.append(ganttCanvas('recall', rows, tl, n, 'recall', colR, half, true), ganttCanvas('precision', rows, tl, n, 'precision', colP, half, false));
+        return wrap;
+    }
+
+    function ganttCanvas(title, rows, tl, n, key, cols, w, labels) {
+        const L = labels ? 140 : 8, R = 8, top = 22, bar = 11, rowH = 17, hgt = top + rows.length * rowH + 20, ratio = window.devicePixelRatio || 1;
         const cv = E('canvas'); cv.width = w * ratio; cv.height = hgt * ratio; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
         const g = cv.getContext('2d'); g.scale(ratio, ratio);
-        const css = getComputedStyle(document.documentElement), muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim(), text = css.getPropertyValue('--text').trim();
+        const css = getComputedStyle(document.documentElement), muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim(),
+              text = css.getPropertyValue('--text').trim(), field = css.getPropertyValue('--field').trim();
         const X = f => L + (w - L - R) * f / n;
-        g.font = '600 13px system-ui, sans-serif'; g.fillStyle = text; g.fillText(`${seq}`, 4, 14);
-        const tw = g.measureText(seq).width; g.font = '12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(`· ${n} frames`, Math.max(L, 4 + tw + 8), 14);
-        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 12) || 1000;
-        g.strokeStyle = line; g.lineWidth = 1;
-        for (let f = 0; f <= n; f += step) { g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - 18); g.stroke(); g.fillText(String(f), Math.min(X(f) - 4, w - 30), hgt - 4); }
-        const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
+        g.font = '600 12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(title.toUpperCase(), L, 13);
+        g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.lineWidth = 1;
+        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 8) || 1000;
+        for (let f = 0; f <= n; f += step) { g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - 16); g.stroke(); g.fillStyle = muted; g.fillText(String(f), Math.min(X(f) - 4, w - 28), hgt - 3); }
         rows.forEach((t, i) => {
-            const y = top + i * rowH, s = tl[t.meta.task], r = t.m[tlModel];
-            g.fillStyle = muted; g.font = '12px system-ui, sans-serif';
-            g.fillText(`object ${t.meta.track}`, 4, y + sub + 4);
-            g.fillStyle = text; g.fillText(r && r.f1 !== null ? `F1 ${r.f1.toFixed(2)}` : '', 84, y + sub + 4);
-            const start = t.meta.start + 1;
-            const paint = (str, cols, y0) => {
-                let k = 0;
-                while (k < str.length) {                   // runs of one state: one rectangle each (fast for long videos)
-                    let j = k; while (j < str.length && str[j] === str[k]) j++;
-                    if (cols[str[k]]) { g.fillStyle = cols[str[k]]; g.fillRect(X(start + k), y0, Math.max(1, X(start + j) - X(start + k)), sub); }
-                    k = j;
-                }
-            };
-            paint(s.recall, colR, y);
-            paint(s.precision, colP, y + sub + gap);
-            if (r && r.stopped_at) { g.fillStyle = text; g.fillRect(X(start + r.stopped_at - 1) - 0.5, y - 1, 1.5, 2 * sub + gap + 2); }
+            const y = top + i * rowH, s = tl[t.meta.task][key], r = t.m[tlModel], start = t.meta.start + 1;
+            if (labels) {
+                g.fillStyle = muted; g.fillText(`object ${t.meta.track}`, 4, y + bar - 1);
+                g.fillStyle = text; g.fillText(r && r.f1 !== null ? `F1 ${r.f1.toFixed(2)}` : '', 82, y + bar - 1);
+            }
+            g.fillStyle = field; g.fillRect(X(start), y, Math.max(1, X(start + s.length) - X(start)), bar);   // the object's lifetime
+            let k = 0;
+            while (k < s.length) {                         // runs of one state: one rectangle each
+                let j = k; while (j < s.length && s[j] === s[k]) j++;
+                if (cols[s[k]]) { g.fillStyle = cols[s[k]]; g.fillRect(X(start + k), y, Math.max(1, X(start + j) - X(start + k)), bar); }
+                k = j;
+            }
+            if (r && r.stopped_at) { g.fillStyle = text; g.fillRect(X(start + r.stopped_at - 1) - 0.5, y - 2, 1.5, bar + 4); }
         });
-        wrap.append(cv);
-        return wrap;
+        return cv;
     }
 
     //------------------------------------------------------------------------------------------------------------------
