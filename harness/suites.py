@@ -85,6 +85,28 @@ def _sot_click_and_esc(R, pi):
     R.check('SOT: Esc stops tracking (and only that)', bool(st and not st['sot_active'] and st['sot_stop_reason'] == 'stopped by user' and pi.app_pid()),
             f'reason {st["sot_stop_reason"] if st else None}, app running {bool(pi.app_pid())}')
 # ----------------------------------------------------------------------------------------------------------------------
+def _sot_models_check(R, pi, models=('VIT', 'SIAMBAN', 'SIAMFC')):
+    """The UI model switch: every alternative click-to-track model starts, holds the static van, Esc stops it; back to NANO."""
+    b = CAMPUS_STATIC_TARGET
+    for m in models:
+        code, _ = pi.post('/sot_model', js={'model': m})
+        st = pi.wait_for(lambda s: s.get('sot_model') == m, 5)
+        if not R.check(f'SOT model {m}: selected', code == 200 and st is not None, f'HTTP {code}'):
+            continue
+        pi.click((b[0] + b[2]) // 2, (b[1] + b[3]) // 2, b)
+        st = pi.wait_for(lambda s: s['sot_active'], 20)              # torch models load on first use (a few s on the Pi)
+        time.sleep(3)
+        st = pi.status()
+        ok = bool(st and st['sot_active'] and st['sot_model'] == m)
+        R.check(f'SOT model {m}: tracks the static target', ok, f'{st and st.get("sot_ms")} ms/frame, {st and st["fps"]} fps, reason {st and st["sot_stop_reason"]}')
+        if st and st.get('sot_ms') is not None:
+            R.metric(f'sot_ms_{m.lower()}', st['sot_ms'], 'ms', better='lower')
+        if ok:
+            pi.key('Escape'); pi.wait_for(lambda s: not s['sot_active'], 3)
+    pi.post('/sot_model', js={'model': 'NANO'})
+    st = pi.wait_for(lambda s: s.get('sot_model') == 'NANO', 5)
+    R.check('SOT model: back to NANO', st is not None)
+# ----------------------------------------------------------------------------------------------------------------------
 def _pause_check(R, pi):
     """Space pauses a video file, a click while paused starts SOT on the frame on screen, -> steps one frame, Space resumes."""
     pi.key('Space')
@@ -136,6 +158,8 @@ def smoke(R, sync=True):
         return
     _frames_flow(R, pi, 'video', min_fps=LIMITS['video_fps'])
     _sot_click_and_esc(R, pi)
+    R.section('click-to-track models (UI switch)')
+    _sot_models_check(R, pi)
     R.section('pause (video file)')
     _pause_check(R, pi)
     R.section('detection + tracking on (YOLO NCNN + DeepSORT)')

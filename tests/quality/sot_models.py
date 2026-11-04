@@ -7,7 +7,7 @@ Per model and sequence the raw tracker (no loss rules) starts on the true box an
     score_off    the same while off it (IoU < 0.1) - a usable loss threshold separates the two
 Then the full Tracker_SOT (loss rules on) runs the same start: frames until it stopped and why.
 Sequences: drone_ir (images/v30, one small thermal drone) and PETS09 (images/v00, several people, two starts each).
-Usage (on the Pi):  python tests/quality/sot_models.py out.json [--models NANO,VIT,SIAMBAN,SIAMFC] [--frames 300]
+Usage (on the Pi):  python tests/quality/sot_models.py out.json [--models NANO,VIT,SIAMBAN,SIAMFC] [--frames 300] [--pets 10]
 """
 import argparse
 import json
@@ -94,8 +94,12 @@ def run_one(model, frames, truth, s, n_frames):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('out'); ap.add_argument('--models', default='NANO,VIT,SIAMBAN,SIAMFC'); ap.add_argument('--frames', type=int, default=300)
+    ap.add_argument('--pets', type=int, default=0, help='at most this many PETS09 runs (every k-th), 0 = all')
     a = ap.parse_args()
     seqs = runs(a.frames)
+    if a.pets:
+        pets = [s for s in seqs if s[0] != 'drone_ir']
+        seqs = [seqs[0]] + pets[::max(1, len(pets) // a.pets)][:a.pets]
     res = {'models': {}, 'detail': []}
     for m in a.models.split(','):
         rows = []
