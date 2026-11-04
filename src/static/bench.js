@@ -240,7 +240,7 @@
         const css = getComputedStyle(document.documentElement), muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim(), text = css.getPropertyValue('--text').trim();
         const X = f => L + (w - L - R) * f / n;
         g.font = '600 13px system-ui, sans-serif'; g.fillStyle = text; g.fillText(`${seq}`, 4, 14);
-        g.font = '12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(`${n} frames`, L, 14);
+        const tw = g.measureText(seq).width; g.font = '12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(`· ${n} frames`, Math.max(L, 4 + tw + 8), 14);
         const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 12) || 1000;
         g.strokeStyle = line; g.lineWidth = 1;
         for (let f = 0; f <= n; f += step) { g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - 18); g.stroke(); g.fillText(String(f), Math.min(X(f) - 4, w - 30), hgt - 4); }
