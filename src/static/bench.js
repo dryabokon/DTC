@@ -237,9 +237,10 @@
         const wrap = el('div', 'ganttBox');
         wrap.append(el('div', 'ganttTitle', el('b', null, seq), E('span', `  ·  ${n} frames`, 'hint')));
         const pair = el('div', 'ganttPair'); wrap.append(pair);
-        const full = Math.max(600, (document.getElementById('r_detail').clientWidth || 1000) - 4), gapPx = 24, half = Math.floor((full - gapPx) / 2);
+        // equal plot widths, so a frame sits at the same x on both sides (only the left one has the object labels)
+        const full = Math.max(600, (document.getElementById('r_detail').clientWidth || 1000) - 4), gapPx = 24, plot = Math.floor((full - gapPx - 140 - 16) / 2);
         const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
-        pair.append(ganttCanvas('recall', rows, tl, n, 'recall', colR, half, true), ganttCanvas('precision', rows, tl, n, 'precision', colP, half, false));
+        pair.append(ganttCanvas('recall', rows, tl, n, 'recall', colR, 140 + plot + 8, true), ganttCanvas('precision', rows, tl, n, 'precision', colP, 8 + plot + 8, false));
         return wrap;
     }
 
