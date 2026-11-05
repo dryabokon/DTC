@@ -19,9 +19,6 @@ svg{display:block;width:100%;height:auto;max-height:calc(100vh - 130px);margin:6
 .g{font-size:10.5px;font-weight:700;letter-spacing:.08em;fill:var(--faint)}.k{font-size:9.5px;font-weight:700;letter-spacing:.05em;fill:var(--faint)}
 .ln{fill:none;stroke:var(--muted);stroke-width:1.4}.ln.dash{stroke-dasharray:5 4}.mk{fill:var(--muted)}
 .lb{font-size:10.5px;fill:var(--muted);font-weight:600}.lbg{fill:var(--bg)}.lbg.in{fill:var(--fill)}
-table{border-collapse:collapse;width:100%}th,td{padding:5px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
-th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--faint);font-weight:600}tr:last-child td{border-bottom:0}td.n{white-space:nowrap}
-.legend{display:flex;gap:18px;flex-wrap:wrap;color:var(--muted);font-size:12px;margin-top:8px}
 </style>
 </head>
 <body>
@@ -30,19 +27,6 @@ th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--fa
   <p class="muted">A frame travels left to right: a simulator on the PC (or a file / camera) → RTSP → the Raspberry Pi grabs it, runs
     detection, tracking and click-to-track, and streams the annotated frame to the browser. The laptop harness drives the Pi over SSH.</p>
   <svg id="d" viewBox="0 0 1400 700" role="img" aria-label="DTC component diagram"></svg>
-  <div class="legend"><span><b>TOGGLE</b> switched in the Live sidebar</span><span><b>CLICK</b> starts on a click in the video</span>
-    <span>dashed: optional or alternative</span><span>numbers: measured on the Pi 5</span></div>
-</div>
-
-<div class="card">
-  <h3>Measured on the Raspberry Pi 5 (CPU only)</h3>
-  <table>
-    <tr><th>what</th><th>value</th><th>source</th></tr>
-    <tr><td>Unreal stream read by the Pi</td><td class="n">1280×720, ~30 fps</td><td class="muted">dtc pi status, 2026-11-05</td></tr>
-    <tr><td>video only, campus 768×576</td><td class="n">23.5 fps</td><td class="muted">smoke 0012, 2026-11-05</td></tr>
-    <tr><td>+ detection YOLOv8n NCNN</td><td class="n">5.5 fps</td><td class="muted">smoke 0012</td></tr>
-    <tr><td>click-to-track, per frame</td><td class="n">NANO 10 · VIT 25.5 · SIAMBAN 56.6 · SIAMFC 828 ms</td><td class="muted">NANO: benchmark 2026-11-04; others: smoke 0012</td></tr>
-  </table>
 </div>
 
 <script>
