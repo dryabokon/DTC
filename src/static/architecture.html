@@ -9,25 +9,19 @@
 :root{--bg:#0e0e0e;--surface:#161616;--text:#ececec;--muted:#9b9b9b;--faint:#666;--line:#2a2a2a;--fill:#1b1b1b;color-scheme:dark}
 :root[data-theme=light]{--bg:#f6f6f5;--surface:#fff;--text:#141414;--muted:#6b6b6b;--faint:#a1a1a1;--line:#e2e2df;--fill:#efefed;color-scheme:light}
 *{box-sizing:border-box}html,body{margin:0}
-body{background:var(--bg);color:var(--text);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;padding:14px 18px 24px;font-variant-numeric:tabular-nums}
-h2{font-size:15px;margin:0 0 2px;font-weight:600}h3{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);margin:0 0 8px;font-weight:600}
-p{margin:0 0 6px}.muted{color:var(--muted)}code{font:12px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:12px;min-width:0}
-svg{display:block;width:100%;height:auto;max-height:calc(100vh - 130px);margin:6px auto 0}
+body{background:var(--bg);color:var(--text);font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;-webkit-font-smoothing:antialiased;padding:14px 18px 24px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+svg{display:block;width:100%;height:auto;max-height:calc(100vh - 60px);margin:0 auto}
 .bx{fill:var(--surface);stroke:var(--line);stroke-width:1.3}.bx.grp{fill:var(--fill)}.bx.dash{stroke-dasharray:5 4}.bx.stage{stroke:var(--faint)}
+.bx.key{stroke:var(--text);stroke-width:2;stroke-dasharray:7 4}
 .t{font-size:13px;font-weight:600;fill:var(--text)}.s{font-size:11px;fill:var(--muted)}.m{font:10.5px ui-monospace,Consolas,monospace;fill:var(--muted)}
-.g{font-size:10.5px;font-weight:700;letter-spacing:.08em;fill:var(--faint)}.k{font-size:9.5px;font-weight:700;letter-spacing:.05em;fill:var(--faint)}
-.ln{fill:none;stroke:var(--muted);stroke-width:1.4}.ln.dash{stroke-dasharray:5 4}.mk{fill:var(--muted)}
-.lb{font-size:10.5px;fill:var(--muted);font-weight:600}.lbg{fill:var(--bg)}.lbg.in{fill:var(--fill)}
+.g{font-size:10.5px;font-weight:700;letter-spacing:.08em;fill:var(--faint)}.k{font-size:9.5px;font-weight:700;letter-spacing:.05em;fill:var(--faint)}.k.hi{fill:var(--text)}
+.ln{fill:none;stroke:var(--muted);stroke-width:1.4}.ln.dash{stroke-dasharray:5 4}.ln.hi{stroke:var(--text);stroke-width:1.8}.mk{fill:var(--muted)}.mk.hi{fill:var(--text)}
+.lb{font-size:10.5px;fill:var(--muted);font-weight:600}.lbg{fill:var(--surface)}.lbg.in{fill:var(--fill)}
 </style>
 </head>
 <body>
-<div class="card">
-  <h2>How DTC works</h2>
-  <p class="muted">A frame travels left to right: a simulator on the PC (or a file / camera) → RTSP → the Raspberry Pi grabs it, runs
-    detection, tracking and click-to-track, and streams the annotated frame to the browser. The laptop harness drives the Pi over SSH.</p>
-  <svg id="d" viewBox="0 0 1400 700" role="img" aria-label="DTC component diagram"></svg>
-</div>
+<div class="card"><svg id="d" viewBox="0 0 1400 590" role="img" aria-label="DTC in a closed tracking and control loop"></svg></div>
 
 <script>
 (function(){
@@ -40,58 +34,56 @@ var svg=document.getElementById('d'),NS='http://www.w3.org/2000/svg';
 function el(tag,a,p){var e=document.createElementNS(NS,tag);for(var k in a)e.setAttribute(k,a[k]);(p||svg).appendChild(e);return e}
 function tx(x,y,cls,s,anchor){var t=el('text',{x:x,y:y,'class':cls});if(anchor)t.setAttribute('text-anchor',anchor);t.textContent=s;return t}
 // lines starting with ~ are code / paths (monospace)
-function box(x,y,w,h,title,lines,cls,tag){el('rect',{x:x,y:y,width:w,height:h,rx:8,'class':'bx '+(cls||'')});tx(x+10,y+19,'t',title);
-  if(tag)tx(x+w-8,y+17,'k',tag,'end');(lines||[]).forEach(function(l,i){tx(x+10,y+36+i*15,l.charAt(0)==='~'?'m':'s',l.replace(/^~/,''))})}
-function group(x,y,w,h,title,note){el('rect',{x:x,y:y,width:w,height:h,rx:10,'class':'bx grp'});tx(x+14,y+20,'g',title);if(note)tx(x+w-12,y+20,'m',note,'end')}
-var m=el('marker',{id:'a',viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},el('defs',{}));
-el('path',{d:'M0,0L10,5L0,10z','class':'mk'},m);
-// label on a line: background box so the text reads over the line; inGroup -> group fill colour
-function arrow(d,label,lx,ly,both,dash,inGroup){var p=el('path',{d:d,'class':'ln'+(dash?' dash':''),'marker-end':'url(#a)'});if(both)p.setAttribute('marker-start','url(#a)');
-  if(label){var t=tx(lx,ly,'lb',label,'middle');var b=t.getBBox();svg.insertBefore(el('rect',{x:b.x-3,y:b.y-1,width:b.width+6,height:b.height+2,'class':'lbg'+(inGroup?' in':'')}),t)}}
+function box(x,y,w,h,title,lines,cls,tag,tagHi){el('rect',{x:x,y:y,width:w,height:h,rx:8,'class':'bx '+(cls||'')});tx(x+10,y+19,'t',title);
+  if(tag)tx(x+w-8,y+17,'k'+(tagHi?' hi':''),tag,'end');(lines||[]).forEach(function(l,i){tx(x+10,y+36+i*15,l.charAt(0)==='~'?'m':'s',l.replace(/^~/,''))})}
+function group(x,y,w,h,title,note,cls){el('rect',{x:x,y:y,width:w,height:h,rx:10,'class':'bx grp '+(cls||'')});tx(x+14,y+20,'g',title);if(note)tx(x+w-12,y+20,'m',note,'end')}
+var defs=el('defs',{});
+['a','ah'].forEach(function(id){var m=el('marker',{id:id,viewBox:'0 0 10 10',refX:9,refY:5,markerWidth:7,markerHeight:7,orient:'auto-start-reverse'},defs);
+  el('path',{d:'M0,0L10,5L0,10z','class':'mk'+(id==='ah'?' hi':'')},m)});
+// Arrows run only through the gaps between columns (or under all blocks), never across a block.
+// A label sits on a background box so it reads over its own line; inGroup -> group fill, else card surface.
+function arrow(d,label,lx,ly,opt){opt=opt||{};el('path',{d:d,'class':'ln'+(opt.hi?' hi':''),'marker-end':'url(#'+(opt.hi?'ah':'a')+')'});
+  if(label){var t=tx(lx,ly,'lb',label,'middle');if(opt.rot)t.setAttribute('transform','rotate(-90 '+lx+' '+ly+')');var b=t.getBBox();
+    if(opt.rot){svg.insertBefore(el('rect',{x:lx-b.height/2-2,y:ly-b.width/2-3,width:b.height+3,height:b.width+6,'class':'lbg'}),t);return}svg.insertBefore(el('rect',{x:b.x-3,y:b.y-1,width:b.width+6,height:b.height+2,'class':'lbg'+(opt.inGroup?' in':'')}),t)}}
 
-// ---- simulation on the Windows PC ----
-group(10,20,260,450,'SIMULATION · WINDOWS PC');
-box(24,52,232,126,'Unreal Night427',['~UE 4.27 + AirSim · Level03','M: manual camera, WASD','smooth: 20°/s, 0.5 s ramp','~RTSPVideoPusherActor'],'','GAME');
-box(24,206,232,82,'ffmpeg',['H.264 1280×720 @ 30 fps','~4 Mb/s · GOP 0.5 s · UDP'],'','NVENC');
-box(24,316,232,72,'mediamtx :8554',['~/stream   Unreal','~/sim      Fly2']);
-box(24,406,232,52,'Fly2 simulator',['~AirSim camera → /sim'],'dash','ALT');
-arrow('M140,178V204','BGRA frames · stdin',140,195,false,false,true);
-arrow('M140,288V314','RTSP publish',140,305,false,false,true);
-arrow('M140,406V390');
+// ---- video in ----
+group(10,20,280,410,'VIDEO IN');
+box(24,52,252,96,'Your camera',['on the vehicle or a gimbal','any RTSP encoder, H.264','~rtsp://<camera>/...'],'','YOURS');
+box(24,176,252,124,'Test stand: Unreal Night427',['~UE 4.27 + AirSim camera','stands in for the real camera','ffmpeg NVENC → mediamtx :8554','~rtsp://<PC>:8554/stream'],'','OUR SIM');
+box(24,328,252,82,'Replay',['video files with ground truth','USB camera on the Pi'],'','TESTS');
 
-// ---- other sources ----
-box(10,490,260,100,'Other sources',['~images/vNN/*.mp4 + gt.txt','~datasets/videos/<set>/<seq>','~/dev/videoN   USB camera','~rtsp://       IP camera'],'','ON THE PI');
+// ---- DTC on the Pi ----
+group(380,20,560,470,'DTC · RASPBERRY PI 5','CPU only');
+box(400,70,240,100,'Grabber',['~PyAV, own thread','RTSP over TCP','keeps only the latest frame']);
+var ST=[['Detection','TOGGLE','YOLOv8n: candidates'],['Tracking','TOGGLE','DeepSORT: ids across frames'],
+  ['Click-to-track','TARGET','NANO · VIT · SIAMBAN, one target'],['Overlay','','boxes and ids on the frame']];
+ST.forEach(function(s,i){var y=70+i*60;el('rect',{x:680,y:y,width:240,height:48,rx:7,'class':'bx stage'});tx(690,y+20,'t',s[0]);if(s[1])tx(912,y+17,'k',s[1],'end');tx(690,y+38,'s',s[2]);
+  if(i<ST.length-1)el('path',{d:'M800,'+(y+48)+'V'+(y+58),'class':'ln','marker-end':'url(#a)'})});
+box(400,210,240,110,'Web UI :8509',['operator watches the video','clicks the target to follow','~MJPEG · any browser']);
+box(400,360,520,112,'Track output',['one message per processed frame, pixel coordinates',
+  '~{t, frame, id, box: [x1, y1, x2, y2], score, state, w, h}','~UDP JSON or a ROS 2 topic',
+  '~today: GET /status → sot_box (polled)','target from code: POST /mouse_click {x, y, box} · /cancel_sot'],'key','INTEGRATION POINT · PLANNED',true);
+arrow('M640,100H678','frame',659,92,{inGroup:true});
+arrow('M678,274H642','video',660,290,{inGroup:true});
+arrow('M642,230H660V214H678','target',660,206,{inGroup:true});
+arrow('M800,298V358','box per frame',800,333,{inGroup:true,hi:true});
 
-// ---- Raspberry Pi ----
-group(380,20,600,610,'RASPBERRY PI 5 · DTC APP','src/main.py · CPU only');
-box(400,60,250,110,'Grabber',['~utils_grabber_av · PyAV, own thread','RTSP over TCP, files, V4L2','keeps only the latest frame','files: pause, step, loop']);
-box(400,200,250,130,'Main loop',['~utils_experiment_ops.Experimentor','one frame at a time','switches the source on request','idle pause: 5 s nobody watching','holds while a benchmark runs']);
-box(400,360,250,110,'Flask web server',['~:8509 · own thread','~/video_feed      MJPEG','~/mouse_click  /key_press','~/status  /switch_source']);
-tx(700,52,'m','Pipeliner.process_frame()');
-var ST=[['Detection','TOGGLE','YOLOv8n NCNN · 5.5 fps'],['Classification','TOGGLE','YOLO classifier on the boxes'],['Tracking','TOGGLE','DeepSORT: ids across frames'],
-  ['Click-to-track','CLICK','NANO default · VIT · SIAMBAN …'],['Overlay','','boxes, ids, SOT box, fps']];
-ST.forEach(function(s,i){var y=60+i*60;el('rect',{x:700,y:y,width:260,height:48,rx:7,'class':'bx stage'});tx(710,y+20,'t',s[0]);if(s[1])tx(952,y+17,'k',s[1],'end');tx(710,y+38,'s',s[2]);
-  if(i<ST.length-1)el('path',{d:'M830,'+(y+48)+'V'+(y+58),'class':'ln','marker-end':'url(#a)'})});
-box(700,388,260,92,'Run folder',['~runs/sessions/NNNN/','~video.mp4  df_track.csv','report written on stop']);
-box(700,510,260,104,'Benchmark',['~bench_worker.py · subprocess','videos with gt.txt, N objects','precision · recall · F1 · fps','~runs/bench/NNNN + clips'],'dash','OPTIONAL');
-arrow('M525,170V198','latest frame',525,188,false,false,true);
-arrow('M470,330V358','JPEG',470,348,false,false,true);
-arrow('M590,358V332','click · key',590,349,false,false,true);
-arrow('M650,230H668V84H698','frame',668,160,false,false,true);
-arrow('M698,324H682V290H652');
-arrow('M830,348V386','annotated video, tracks',830,371,false,false,true);
-arrow('M650,440H676V560H698','/bench/*',676,505,false,true,true);
+// ---- integrator side ----
+group(1000,20,390,470,'YOUR SIDE · GUIDANCE','not part of DTC','dash');
+box(1014,52,362,96,'Box → errors',['~hor = (box cx − W/2) / (W/2)','~ver = (box cy − H/2) / (H/2)','~fwd = f(box size): range, closing'],'','GEOMETRY');
+box(1014,176,362,110,'Path planning + control loop',['filter + PID per axis','follow, intercept, keep in frame','limits, safety; lost → hold or search'],'','LOOP');
+box(1014,314,362,82,'Flight controller',['~MAVLink offboard setpoints','velocity, yaw rate, gimbal angles'],'','PX4 · ARDUPILOT');
+box(1014,414,362,60,'Vehicle + gimbal',['moves: the camera sees a new view']);
+arrow('M1195,148V174');
+arrow('M1195,286V312');
+arrow('M1195,396V412');
 
-// ---- browser and laptop harness ----
-box(1060,60,320,176,'Browser · web UI',['Live: video, click a target → track','Benchmark: compare trackers','Runs: Gantt charts, hit / miss clips','Architecture: this page','~MJPEG only while Live is visible'],'','ANY PC');
-box(1060,300,320,196,'Laptop harness · dtc',['~session_start.bat [unreal]','~session_stop.bat','SSH, Pi host key checked','git sync: GitHub, or a bundle over SSH','smoke / integration / quality tests','~dtc bench run · pull','starts mediamtx + the game on the PC'],'','WINDOWS');
-
-// ---- flows between machines ----
-arrow('M256,352H330V110H398','RTSP · TCP',293,344);
-arrow('M270,540H355V150H398','files · camera',312,532);
-arrow('M525,470V660H1220V238','HTTP :8509 — MJPEG down, clicks and keys up',870,664,true);
-arrow('M1058,360H982','SSH',1020,352);
-arrow('M1380,400H1392V8H140V18','starts mediamtx + game',760,12);
+// ---- flows between the parts (through the column gaps) ----
+arrow('M276,100H398','RTSP',337,92);
+arrow('M276,238H330V130H398','RTSP',303,230);
+arrow('M276,369H350V150H398','file · camera',313,361);
+arrow('M920,416H960V100H1012','track messages',964,258,{hi:true,rot:true});
+arrow('M1195,474V560H4V100H22','the camera moves with the vehicle → next frame: closed loop',700,564);
 })();
 </script>
 </body>
