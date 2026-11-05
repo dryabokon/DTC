@@ -14,6 +14,9 @@ ALIASES = {
     'boats_b': 'v10/boats10b',
     'drone_ir': 'v30/IR',                    # Anti-UAV thermal sequence 640x512, one small drone, gt.txt
 }
+# not offered in the web UI dropdown (too many sources there); still usable by name / alias, by the benchmark and the tests
+HIDDEN_IN_UI = {'v10/boats10a', 'v10/boats10b', 'v21/uav0000117_02622_v', 'v22/uav0000137_00458_v', 'v30/IR',
+                'antiuav_val/new29_train-new'}
 # ----------------------------------------------------------------------------------------------------------------------
 def _gt_for(video_path):
     folder = os.path.dirname(video_path)
@@ -48,7 +51,7 @@ def list_sources(images_dir=IMAGES_DIR):
         rel = os.path.relpath(path, images_dir).replace('\\', '/')
         name = os.path.splitext(rel)[0]
         alias = alias_of.get(name)
-        result.append({'name': alias or name,
+        result.append({'name': alias or name, 'key': name,
                        'label': f'{alias} ({rel})' if alias else rel,
                        'source': path.replace('\\', '/'),
                        'gt': _gt_for(path)})
@@ -56,7 +59,7 @@ def list_sources(images_dir=IMAGES_DIR):
         if not path.lower().endswith(VIDEO_EXT):
             continue
         rel = os.path.relpath(os.path.dirname(path), DATASETS_DIR).replace('\\', '/')     # e.g. visdrone/uav0000086_00000_v
-        result.append({'name': rel, 'label': f'{rel} (dataset)' + (' [gt]' if _gt_for(path) else ''),
+        result.append({'name': rel, 'key': rel, 'label': f'{rel} (dataset)' + (' [gt]' if _gt_for(path) else ''),
                        'source': path.replace('\\', '/'), 'gt': _gt_for(path)})
     return result
 # ----------------------------------------------------------------------------------------------------------------------

@@ -121,6 +121,11 @@
     <label class="check"><input type="checkbox" id="do_classification"> Classification</label>
     <label class="check"><input type="checkbox" id="do_tracking"> Tracking</label>
 
+    <div class="group">Video source</div>
+    <select id="source_select"></select>
+    <input id="source_custom" type="text" placeholder="or rtsp://... / path to video, Enter" title="Type a URL or a file path and press Enter">
+    <div id="source_status" class="hint"></div>
+
     <div class="group">Click-to-track</div>
     <select id="sot_model" title="Single-object tracker used on the next click (a running track stops when changed)"></select>
     <div id="sot_model_status" class="hint"></div>
@@ -133,11 +138,6 @@
       <button data-v="wide" title="Wide box, 2 : 1 (car, boat)">Wide</button>
     </div>
     <button id="sot_stop" class="btn stop" type="button" hidden>■ Stop tracking</button>
-
-    <div class="group">Video source</div>
-    <select id="source_select"></select>
-    <input id="source_custom" type="text" placeholder="or rtsp://... / path to video, Enter" title="Type a URL or a file path and press Enter">
-    <div id="source_status" class="hint"></div>
   </aside>
 
   <div id="videoContainer">
@@ -395,7 +395,7 @@
                 o.value = data.current; o.textContent = data.current; o.selected = true;
                 sel.appendChild(o);
             }
-            $('source_status').textContent = message || ('Current: ' + data.current_path);
+            $('source_status').textContent = message || '';
         });
     }
     function switchSource(spec) {

@@ -64,7 +64,8 @@ class WebApp:
             import utils_sources
             current = self.E.current_source_name() if self.E is not None else None
             return {'current': current, 'current_path': str(self.config.source),
-                    'sources': [{'name': s['name'], 'label': s['label']} for s in utils_sources.list_sources()]}
+                    'sources': [{'name': s['name'], 'label': s['label']} for s in utils_sources.list_sources()
+                                if s.get('key') not in utils_sources.HIDDEN_IN_UI]}
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/switch_source', methods=['POST'])
         def switch_source():
