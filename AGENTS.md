@@ -8,7 +8,7 @@ file named below before doing that task).
 ## What this is
 
 DTC = detection, tracking, classification on a **Raspberry Pi 5** (8 GB, CPU only). The app (`src/main.py`, started by
-`run_me_arm.sh` on the Pi) grabs a source (video file, USB camera, RTSP), runs YOLO detection / DeepSORT / click-to-track
+`app_run_pi.sh` on the Pi) grabs a source (video file, USB camera, RTSP), runs YOLO detection / DeepSORT / click-to-track
 (SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs**. The laptop (Windows) is where code is edited
 and where the harness (`dtc`) drives the Pi over SSH.
 
@@ -70,3 +70,4 @@ and where the harness (`dtc`) drives the Pi over SSH.
 | `sot-bench` | run the click-to-track benchmark, read precision / recall / F1 / Gantt / clips, re-render clips |
 | `add-dataset` | turn frames + Anti-UAV json or MOT data into a source with ground truth; screen many sequences fast |
 | `known-issues` | the gotchas that already cost time (shell quoting, pkill, VPN, clock, idle pause, ...) |
+| `unreal-rtsp` | use the Unreal game Night427 (packaged build on the PC) as an RTSP source `rtsp://<PC>:8554/stream` for the Pi |

@@ -12,6 +12,15 @@
   dtc sim stop
   dtc sim pi                       start DTC on the Pi on the simulator stream
 
+  dtc unreal start [--res 800x600] [-ManualYawRate=20 ...]   Unreal game Night427 on this PC: mediamtx + game (Level03)
+                                   -> rtsp://<this PC>:8554/stream (-Manual* flags go to the game)
+  dtc unreal stop                  close the game, its ffmpeg and mediamtx
+  dtc unreal pi [app flags]        start DTC on the Pi on the Unreal stream
+
+  dtc up [unreal] [app flags]      everything in one go: (Unreal + mediamtx +) DTC on the Pi; without unreal the Pi
+                                   gets its usual source (default campus, or --source X). Wrapper: session_start.bat [unreal]
+  dtc down                         stop all of it: DTC on the Pi, the game, ffmpeg, mediamtx (wrapper: session_stop.bat)
+
   dtc clips record NAME [--maneuver yaw|yaw_fast|sweep|none] [--seconds 60]   reference clip with ground truth -> clips/NAME
   dtc clips list
 
@@ -86,6 +95,67 @@ def cmd_sim(a, extra):
         args = f'--source {url} --detection_model /home/pi/sources/Fly2/models/fly_416_ncnn_model --imgsz_hw 256,416 ' + ' '.join(extra)
         st = pi.start(args, idle_pause=True)
         print(f'DTC on {url}: ' + (f'running -> {pi.url()}' if st else 'did not come up\n' + pi.logs(20))); return 0 if st else 1
+# ----------------------------------------------------------------------------------------------------------------------
+def _split_game_args(extra):
+    """-ManualYawRate=20 etc. go to the game, everything else to the app on the Pi."""
+    game = [x for x in extra if x.lower().startswith('-manual')]
+    return game, [x for x in extra if x not in game]
+# ----------------------------------------------------------------------------------------------------------------------
+def _pi_start(pi, args):
+    c = pi.commit()
+    here = runs.git('rev-parse', '--short', 'HEAD')
+    if c and c[0] != here:
+        print(f'note: the Pi is on commit {c[0]}, this laptop on {here} (dtc pi sync to align)')
+    print(f'Pi {pi.host}: starting DTC {args}')
+    st = pi.start(args, idle_pause=True)
+    if st is None:
+        print('DTC did not come up:\n' + pi.logs(20)); return 1
+    print(f'DTC running: {st["source_name"]} {st["frame_size"]}, {st["fps"]} fps')
+    print(f'UI: {pi.url()}'); return 0
+# ----------------------------------------------------------------------------------------------------------------------
+def _unreal_pi(pi, app_args):
+    from harness import unreal
+    return _pi_start(pi, f'--source {unreal.rtsp_url_for(pi)} ' + ' '.join(app_args))
+# ----------------------------------------------------------------------------------------------------------------------
+def cmd_unreal(a, extra):
+    from harness import unreal, pi_app
+    game_args, app_args = _split_game_args(extra)
+    try:
+        if a.action == 'start':
+            unreal.start(res=a.res, game_args=game_args); return 0
+        if a.action == 'stop':
+            return 0 if unreal.stop() else 1
+        if a.action == 'pi':
+            if not unreal.stream_ok():
+                print('no Unreal stream on this PC - dtc unreal start first'); return 1
+            return _unreal_pi(pi_app.Pi(verbose=False), app_args)
+    except RuntimeError as e:
+        print('ERROR: ' + str(e)); return 1
+# ----------------------------------------------------------------------------------------------------------------------
+def cmd_up(a, extra):
+    """One command for a session: with --unreal mediamtx -> game -> stream check -> DTC on the Pi on that stream."""
+    from harness import unreal, pi_app
+    if 'unreal' in extra:                           # session_start.bat unreal  ==  dtc up --unreal
+        extra = [x for x in extra if x != 'unreal']; a.unreal = True
+    game_args, app_args = _split_game_args(extra)
+    pi = pi_app.Pi(verbose=False)                   # finds the Pi first: no point starting the game if it is not there
+    try:
+        if a.unreal:
+            unreal.start(res=a.res, game_args=game_args)
+            return _unreal_pi(pi, app_args)
+        return _pi_start(pi, ' '.join(app_args) if app_args else '--source campus')
+    except RuntimeError as e:
+        print('ERROR: ' + str(e)); return 1
+# ----------------------------------------------------------------------------------------------------------------------
+def cmd_down(a, extra):
+    from harness import unreal, pi_app
+    ok = True
+    try:
+        pi = pi_app.Pi(verbose=False)
+        print(f'DTC on the Pi: stopped (exit code {pi.stop()})')
+    except Exception as e:                          # Pi unreachable: still stop the local side
+        print(f'DTC on the Pi: not stopped ({e})'); ok = False
+    return 0 if unreal.stop() and ok else 1
 # ----------------------------------------------------------------------------------------------------------------------
 def cmd_clips(a, extra):
     from harness import sim
@@ -191,6 +261,9 @@ def main():
     sub = p.add_subparsers(dest='cmd')
     s = sub.add_parser('pi'); s.add_argument('action', choices=['status', 'sync', 'start', 'stop', 'logs', 'open', 'run']); s.add_argument('-n', type=int, default=40)
     s = sub.add_parser('sim'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--maneuver', default='none')
+    s = sub.add_parser('unreal'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--res', default='720x640')
+    s = sub.add_parser('up'); s.add_argument('--unreal', action='store_true'); s.add_argument('--res', default='800x600')
+    sub.add_parser('down')
     s = sub.add_parser('clips'); s.add_argument('action', choices=['record', 'list']); s.add_argument('name', nargs='?')
     s.add_argument('--maneuver', default='yaw'); s.add_argument('--seconds', type=float, default=60)
     s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push', 'convert']); s.add_argument('name', nargs='?')
@@ -204,7 +277,7 @@ def main():
     a, extra = p.parse_known_args()
     if a.cmd is None:
         print(__doc__); return 0
-    return {'pi': cmd_pi, 'sim': cmd_sim, 'clips': cmd_clips, 'data': cmd_data, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report,
+    return {'pi': cmd_pi, 'sim': cmd_sim, 'unreal': cmd_unreal, 'up': cmd_up, 'down': cmd_down, 'clips': cmd_clips, 'data': cmd_data, 'test': cmd_test, 'runs': cmd_runs, 'report': cmd_report,
             'bench': lambda a, extra: bench_cli.main(a)}[a.cmd](a, extra)
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == '__main__':

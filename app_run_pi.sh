@@ -1,5 +1,5 @@
 #!/bin/bash
-# usage: ./run_me_arm.sh [--source campus|oxford|boats_a|boats_b|<file>|<url>] [--<config_field> value ...]
+# usage: ./app_run_pi.sh [--source campus|oxford|boats_a|boats_b|<file>|<url>] [--<config_field> value ...]
 cd "$(dirname "$0")/src"
 source ~/venv/p311_dtc/bin/activate
 if [[ " $* " != *" --source "* && " $* " != *" --source="* ]]; then

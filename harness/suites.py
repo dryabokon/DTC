@@ -199,9 +199,9 @@ def integration(R, sync=True, with_sim=False):
     pi = pi_app.Pi()
     _prepare(R, pi, sync)
     R.section('command line')
-    rc, out, _ = pi.sh(f'cd {PI_REPO} && ./run_me_arm.sh --list-sources', timeout=60)
+    rc, out, _ = pi.sh(f'cd {PI_REPO} && {pi_app.APP_SCRIPT} --list-sources', timeout=60)
     R.check('--list-sources lists the presets', 'campus' in out and 'oxford' in out, ', '.join(l.split()[0] for l in out.splitlines() if l.strip())[:120])
-    rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 60 ./run_me_arm.sh --source no-such-source', timeout=90)
+    rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 60 {pi_app.APP_SCRIPT} --source no-such-source', timeout=90)
     R.check('unknown --source: clear error, exit 2', rc == 2 and 'unknown source' in out, f'exit {rc}')
 
     R.section('sources (web UI)')
@@ -293,7 +293,7 @@ def _app_fps(R, pi, name, args):
     """Processing capacity: every frame of a file once (--realtime false), --max_frames frames."""
     folder = f'{_app_folder(R)}{name}/'
     t0 = time.time()
-    rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 600 ./run_me_arm.sh {args} --realtime false --max_frames 300 --folder_runs {folder} > /tmp/dtc_{name}.log 2>&1; '
+    rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 600 {pi_app.APP_SCRIPT} {args} --realtime false --max_frames 300 --folder_runs {folder} > /tmp/dtc_{name}.log 2>&1; '
                        f'echo rc=$?; grep "| TOTAL" {folder}0001/df_time.csv', timeout=700)
     m = re.search(r'\|\s*TOTAL\s*\|(?:[^|]*\|){4}\s*([\d.]+)', out)
     fps = float(m.group(1)) if m else None

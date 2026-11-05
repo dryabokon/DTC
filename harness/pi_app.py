@@ -19,6 +19,8 @@ PORT = 8509
 HARNESS_PORT = 18509                      # local end of the harness tunnel when the Pi is only reachable through WSL
 APP_LOG = '/tmp/dtc_app.log'
 REPO = '/home/pi/sources/DTC'
+# the app's launcher on the Pi; a Pi still on a commit before the rename (2026-11-05) only has run_me_arm.sh
+APP_SCRIPT = '$( [ -x ./app_run_pi.sh ] && echo ./app_run_pi.sh || echo ./run_me_arm.sh )'
 # ----------------------------------------------------------------------------------------------------------------------
 class Pi:
     def __init__(self, verbose=True):
@@ -137,7 +139,7 @@ class Pi:
         return int(out) if out.strip().isdigit() else None
 
     def start(self, args='', log=APP_LOG, wait=90, replace=True, idle_pause=False):
-        """Start DTC (run_me_arm.sh <args>) in the background; returns /status once the UI answers, else None.
+        """Start DTC (app_run_pi.sh <args>) in the background; returns /status once the UI answers, else None.
         idle_pause=False: the app keeps processing with no browser watching (tests read /status, nobody views the video)."""
         if not idle_pause and '--idle_pause_s' not in args:
             args = f'{args} --idle_pause_s 0'.strip()
@@ -146,7 +148,7 @@ class Pi:
                 raise RuntimeError('DTC is already running on the Pi')
             self.stop()
         # fully detached (own session, no stdin/stdout of the SSH channel), else the SSH call waits for the app to end
-        inner = f'cd {REPO} && PYTHONUNBUFFERED=1 ./run_me_arm.sh {args} > {log} 2>&1; echo "[ EXIT  ] $?" >> {log}'
+        inner = f'cd {REPO} && PYTHONUNBUFFERED=1 {APP_SCRIPT} {args} > {log} 2>&1; echo "[ EXIT  ] $?" >> {log}'
         self.sh("setsid nohup bash -c '" + inner.replace("'", "'\''") + "' < /dev/null > /dev/null 2>&1 &", timeout=30)
         t0 = time.time()
         while time.time() - t0 < wait:
