@@ -1,9 +1,0 @@
-@echo off
-setlocal EnableExtensions EnableDelayedExpansion
-::----------------------------------------------------------------------------------------------------------------------
-set "VENV_ACTIVATE=%~dp0\infrastructure\venv\p310_dtc\Scripts\activate.bat"
-::----------------------------------------------------------------------------------------------------------------------
-set CMD_MAIN=cd /d "%~dp0src" ^&^& call "%VENV_ACTIVATE%" ^&^& cls ^&^& python main.py
-::----------------------------------------------------------------------------------------------------------------------
-wt -w 0 new-tab cmd /k !CMD_MAIN!
-endlocal
