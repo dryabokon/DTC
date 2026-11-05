@@ -1,4 +1,5 @@
 import os
+import sys
 import glob
 # ----------------------------------------------------------------------------------------------------------------------
 # Video source registry shared by the CLI (--source) and the web UI dropdown.
@@ -38,13 +39,58 @@ def list_cameras():
         result.append((device, title))
     return [('camera' if i == 0 else f'camera{i}', device, title) for i, (device, title) in enumerate(result)]
 # ----------------------------------------------------------------------------------------------------------------------
+_picamera2 = None
+SYSTEM_SITE = '/usr/lib/python3/dist-packages'
+def import_picamera2():
+    """The picamera2 module, or None (not a Pi / not installed). picamera2 comes with Raspberry Pi OS (python3-picamera2)
+    and is not pip-installable together with its libcamera bindings, so when the venv lacks it the system dist-packages
+    are appended to sys.path (same Python 3.11; the venv's own packages such as numpy stay first). Imported once."""
+    global _picamera2
+    if _picamera2 is None:
+        _picamera2 = False
+        if sys.platform.startswith('linux'):
+            try:
+                import picamera2
+                _picamera2 = picamera2
+            except ImportError:
+                if os.path.isdir(SYSTEM_SITE) and SYSTEM_SITE not in sys.path:
+                    sys.path.append(SYSTEM_SITE)
+                    try:
+                        import picamera2
+                        _picamera2 = picamera2
+                    except Exception as e:
+                        print(f'picamera2 not usable: {e}')
+            except Exception as e:
+                print(f'picamera2 not usable: {e}')
+    return _picamera2 or None
+# ----------------------------------------------------------------------------------------------------------------------
+def list_csi_cameras():
+    """Embedded cameras (Camera Module on the Pi's CSI connectors): [(name, 'csi://N', title)], e.g. ('picam', 'csi://0', 'imx708').
+    libcamera also lists USB cameras; those are skipped here (they come as /dev/videoN through list_cameras)."""
+    picamera2 = import_picamera2()
+    if picamera2 is None:
+        return []
+    try:
+        info = picamera2.Picamera2.global_camera_info()
+    except Exception:
+        return []
+    result = [(f"csi://{c.get('Num', i)}", str(c.get('Model', 'camera'))) for i, c in enumerate(info) if 'usb' not in str(c.get('Id', '')).lower()]
+    return [('picam' if i == 0 else f'picam{i}', url, title) for i, (url, title) in enumerate(result)]
+# ----------------------------------------------------------------------------------------------------------------------
+def is_csi(spec):
+    return str(spec).startswith('csi://')
+# ----------------------------------------------------------------------------------------------------------------------
+def csi_number(spec):
+    return int(str(spec).split('://', 1)[1] or 0)
+# ----------------------------------------------------------------------------------------------------------------------
 def is_device(spec):
     return str(spec).startswith('/dev/video')
 # ----------------------------------------------------------------------------------------------------------------------
 def list_sources(images_dir=IMAGES_DIR):
-    """Ordered list of dicts {name, label, source, gt}: connected cameras first, then every video file under images_dir."""
+    """Ordered list of dicts {name, label, source, gt}: embedded (CSI) and USB cameras first, then every video file under images_dir."""
     alias_of = {v: k for k, v in ALIASES.items()}
-    result = [{'name': name, 'label': f'{name}: {title} ({device})', 'source': device, 'gt': None} for name, device, title in list_cameras()]
+    result = [{'name': name, 'label': f'{name}: embedded camera {title} ({url})', 'source': url, 'gt': None} for name, url, title in list_csi_cameras()]
+    result += [{'name': name, 'label': f'{name}: {title} ({device})', 'source': device, 'gt': None} for name, device, title in list_cameras()]
     for path in sorted(glob.glob(os.path.join(images_dir, '**', '*'), recursive=True)):
         if not path.lower().endswith(VIDEO_EXT):
             continue

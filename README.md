@@ -20,6 +20,7 @@ One command, `dtc` (`dtc.bat` on Windows, or `python dtc.py`). The Pi is found b
 dtc pi status                     where the Pi is, its commit vs the laptop's, is DTC running (source, fps, SOT)
 dtc pi sync                       Pi -> this laptop's branch and commit
 dtc pi start --source camera      start DTC on the Pi (any app flags), dtc pi stop / logs / open / run "<cmd>"
+                                  cameras: camera = first USB camera (/dev/videoN), picam = embedded Camera Module (csi://0, picamera2)
 dtc sim start                     Fly2 camera simulator on this PC -> rtsp://<PC>:8554/sim (camera moved in the Fly2 UI :8509)
 dtc sim pi                        DTC on the Pi on the simulator stream (drone detector ready)
 dtc clips record NAME --maneuver yaw|yaw_fast|sweep|none --seconds 60     reference clip -> clips/NAME

@@ -34,10 +34,18 @@ class TestSources(unittest.TestCase):
     def test_list_sources_has_presets_first_cameras_before_files(self):
         names = [s['name'] for s in S.list_sources()]
         self.assertIn('campus', names)
-        cams = [i for i, n in enumerate(names) if n.startswith('camera')]
+        cams = [i for i, n in enumerate(names) if n.startswith(('camera', 'picam'))]
         if cams:
             self.assertEqual(cams, list(range(len(cams))))
 
+
+    def test_embedded_camera_spec(self):
+        self.assertTrue(S.is_csi('csi://0')); self.assertFalse(S.is_csi('/dev/video0'))
+        self.assertEqual(S.csi_number('csi://1'), 1)
+        class C: pass
+        c = C(); S.apply_to_config(c, 'csi://0'); self.assertTrue(c.exp_name.startswith('[live]'))
+        for name, url, title in S.list_csi_cameras():          # only on a Pi with a Camera Module attached
+            self.assertTrue(name.startswith('picam') and S.is_csi(url))
 
 if __name__ == '__main__':
     unittest.main()

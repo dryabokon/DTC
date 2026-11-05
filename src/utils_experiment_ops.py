@@ -88,7 +88,11 @@ class Experimentor():
         # --realtime false: files are read frame by frame as fast as possible, once, by tools_grabber (offline runs).
         # V4L2 cameras (/dev/videoN) via PyAV as MJPEG; webcam indices, image folders etc. go to tools_grabber.
         # Cameras (V4L2 devices and webcam indices) are mirrored left-right when config.camera_mirror (selfie view).
+        # Embedded Pi camera (csi://N, Camera Module) via picamera2 at camera_size / camera_fps, never mirrored.
         src = str(source)
+        if utils_sources.is_csi(src):
+            import utils_grabber_csi
+            return utils_grabber_csi.Grabber_CSI(src, camera_size=getattr(self.config, 'camera_size', '1280x720'), camera_fps=getattr(self.config, 'camera_fps', 30))
         is_url, is_file = '://' in src or utils_sources.is_device(src), os.path.isfile(src)
         mirror = getattr(self.config, 'camera_mirror', False) and (utils_sources.is_device(src) or src.isdigit())
         if is_url or (is_file and getattr(self.config, 'realtime', True)):

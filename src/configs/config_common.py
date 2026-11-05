@@ -4,7 +4,7 @@ class cnfg_common(config_base.cnfg_base):
     exp_name = 'default'
     source = None
     realtime = True                             # True: files paced to source FPS and looped (PyAV); False: read once, as fast as possible (offline runs)
-    camera_size = '1280x720'                    # V4L2 cameras (/dev/videoN, MJPEG): capture size and fps
+    camera_size = '1280x720'                    # cameras (/dev/videoN as MJPEG, embedded Pi camera csi://N): capture size and fps
     camera_fps = 30
     camera_mirror = True                        # cameras (/dev/videoN, webcam index) flipped left-right, like a mirror; --camera_mirror false: as captured
     folder_runs = '../runs/sessions/'           # every start writes runs/sessions/NNNN/; the test harness points it elsewhere
