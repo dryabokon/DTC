@@ -12,7 +12,7 @@
   dtc sim stop
   dtc sim pi                       start DTC on the Pi on the simulator stream
 
-  dtc unreal start [--res 800x600] [-ManualYawRate=20 ...]   Unreal game Night427 on this PC: mediamtx + game (Level03)
+  dtc unreal start [--res 960x540] [--borderless] [-ManualYawRate=20 ...]   Unreal game Night427 on this PC: mediamtx + game (Level03)
                                    -> rtsp://<this PC>:8554/stream (-Manual* flags go to the game)
   dtc unreal stop                  close the game, its ffmpeg and mediamtx
   dtc unreal pi [app flags]        start DTC on the Pi on the Unreal stream
@@ -122,7 +122,7 @@ def cmd_unreal(a, extra):
     game_args, app_args = _split_game_args(extra)
     try:
         if a.action == 'start':
-            unreal.start(res=a.res, game_args=game_args); return 0
+            unreal.start(res=a.res, game_args=game_args, borderless=a.borderless); return 0
         if a.action == 'stop':
             return 0 if unreal.stop() else 1
         if a.action == 'pi':
@@ -141,7 +141,7 @@ def cmd_up(a, extra):
     pi = pi_app.Pi(verbose=False)                   # finds the Pi first: no point starting the game if it is not there
     try:
         if a.unreal:
-            unreal.start(res=a.res, game_args=game_args)
+            unreal.start(res=a.res, game_args=game_args, borderless=a.borderless)
             return _unreal_pi(pi, app_args)
         return _pi_start(pi, ' '.join(app_args) if app_args else '--source campus')
     except RuntimeError as e:
@@ -261,8 +261,10 @@ def main():
     sub = p.add_subparsers(dest='cmd')
     s = sub.add_parser('pi'); s.add_argument('action', choices=['status', 'sync', 'start', 'stop', 'logs', 'open', 'run']); s.add_argument('-n', type=int, default=40)
     s = sub.add_parser('sim'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--maneuver', default='none')
-    s = sub.add_parser('unreal'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--res', default='720x640')
-    s = sub.add_parser('up'); s.add_argument('--unreal', action='store_true'); s.add_argument('--res', default='800x600')
+    s = sub.add_parser('unreal'); s.add_argument('action', choices=['start', 'stop', 'pi']); s.add_argument('--res')
+    s.add_argument('--borderless', action='store_true', help='game window without a frame')
+    s = sub.add_parser('up'); s.add_argument('--unreal', action='store_true'); s.add_argument('--res')
+    s.add_argument('--borderless', action='store_true', help='game window without a frame')
     sub.add_parser('down')
     s = sub.add_parser('clips'); s.add_argument('action', choices=['record', 'list']); s.add_argument('name', nargs='?')
     s.add_argument('--maneuver', default='yaw'); s.add_argument('--seconds', type=float, default=60)

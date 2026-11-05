@@ -7,7 +7,7 @@ description: Use the Unreal Engine game Night427 (packaged build on this PC) as 
 
 Status: verified on 2026-11-05 - stream seen on the PC (ffprobe, VLC) and read by DTC on the Pi over the cable
 (`rtsp://169.254.132.43:8554/stream`, 30 fps). Scripted in `harness/unreal.py`: `session_start.bat unreal` (= `dtc up unreal`), `session_start.bat` (= `dtc up`, Pi only),
-`session_stop.bat` (= `dtc down`); parts: `dtc unreal start|stop|pi`. `-Manual*` flags go to the game, the rest to the Pi app.
+`session_stop.bat` (= `dtc down`); parts: `dtc unreal start|stop|pi`. Window 960x540 by default (16:9 like the camera; 800x600 gave black bars), `--res WxH`, `--borderless` strips the frame (Win32, after start). `-Manual*` flags go to the game, the rest to the Pi app.
 
 ## What pushes the stream
 
