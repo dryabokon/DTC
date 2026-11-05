@@ -3,4 +3,3 @@
 ::                 session_start.bat unreal     -> mediamtx + Unreal game Night427 on this PC, then DTC on the Pi on its RTSP stream
 :: With unreal: --res 960x540 (default, 16:9), --borderless and -ManualYawRate=20 ... go to the game, anything else to the app on the Pi. Stop: session_stop.bat
 python "%~dp0dtc.py" up %*
-if "%DTC_NOPAUSE%"=="" pause
