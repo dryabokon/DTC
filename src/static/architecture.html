@@ -21,7 +21,7 @@ svg{display:block;width:100%;height:auto;max-height:calc(100vh - 60px);margin:0 
 </style>
 </head>
 <body>
-<div class="card"><svg id="d" viewBox="0 0 1400 590" role="img" aria-label="DTC in a closed tracking and control loop"></svg></div>
+<div class="card"><svg id="d" viewBox="0 0 1440 590" role="img" aria-label="DTC in a closed tracking and control loop"></svg></div>
 
 <script>
 (function(){
@@ -42,18 +42,18 @@ var defs=el('defs',{});
   el('path',{d:'M0,0L10,5L0,10z','class':'mk'+(id==='ah'?' hi':'')},m)});
 // Arrows run only through the gaps between columns (or under all blocks), never across a block.
 // A label sits on a background box so it reads over its own line; inGroup -> group fill, else card surface.
-function arrow(d,label,lx,ly,opt){opt=opt||{};el('path',{d:d,'class':'ln'+(opt.hi?' hi':''),'marker-end':'url(#'+(opt.hi?'ah':'a')+')'});
+function arrow(d,label,lx,ly,opt){opt=opt||{};var p=el('path',{d:d,'class':'ln'+(opt.hi?' hi':'')});if(!opt.noHead)p.setAttribute('marker-end','url(#'+(opt.hi?'ah':'a')+')');
   if(label){var t=tx(lx,ly,'lb',label,'middle');if(opt.rot)t.setAttribute('transform','rotate(-90 '+lx+' '+ly+')');var b=t.getBBox();
     if(opt.rot){svg.insertBefore(el('rect',{x:lx-b.height/2-2,y:ly-b.width/2-3,width:b.height+3,height:b.width+6,'class':'lbg'}),t);return}svg.insertBefore(el('rect',{x:b.x-3,y:b.y-1,width:b.width+6,height:b.height+2,'class':'lbg'+(opt.inGroup?' in':'')}),t)}}
 
 // ---- video in ----
 group(10,20,280,410,'VIDEO IN');
-box(24,52,252,96,'Your camera',['on the vehicle or a gimbal','any RTSP encoder, H.264','~rtsp://<camera>/...'],'','YOURS');
-box(24,176,252,124,'Test stand: Unreal Night427',['~UE 4.27 + AirSim camera','stands in for the real camera','ffmpeg NVENC → mediamtx :8554','~rtsp://<PC>:8554/stream'],'','OUR SIM');
-box(24,328,252,82,'Replay',['video files with ground truth','USB camera on the Pi'],'','TESTS');
+box(24,52,252,96,'Onboard camera',['on the vehicle or a gimbal','any RTSP encoder, H.264','~rtsp://<camera>/...'],'','PAYLOAD');
+box(24,176,252,124,'Test stand: Unreal Night427',['~UE 4.27 + AirSim camera','stands in for the real camera','ffmpeg NVENC → mediamtx :8554','~rtsp://<PC>:8554/stream'],'','SIMULATION');
+box(24,328,252,82,'Replay',['video files with ground truth','USB camera on the Pi'],'','OFFLINE');
 
 // ---- DTC on the Pi ----
-group(380,20,560,470,'DTC · RASPBERRY PI 5','CPU only');
+group(380,20,560,470,'DTC · RASPBERRY PI 5','CPU today · accelerator next');
 box(400,70,240,100,'Grabber',['~PyAV, own thread','RTSP over TCP','keeps only the latest frame']);
 var ST=[['Detection','TOGGLE','YOLOv8n: candidates'],['Tracking','TOGGLE','DeepSORT: ids across frames'],
   ['Click-to-track','TARGET','NANO · VIT · SIAMBAN, one target'],['Overlay','','boxes and ids on the frame']];
@@ -79,11 +79,17 @@ arrow('M1195,286V312');
 arrow('M1195,396V412');
 
 // ---- flows between the parts (through the column gaps) ----
-arrow('M276,100H398','RTSP',337,92);
-arrow('M276,238H330V130H398','RTSP',303,230);
-arrow('M276,369H350V150H398','file · camera',313,361);
+// the three sources join one bus (x 335) with a single entry into the Grabber
+arrow('M276,100H335','RTSP',313,92,{noHead:true});
+arrow('M276,238H335','RTSP',313,230,{noHead:true});
+arrow('M276,369H335','files',313,361,{noHead:true});
+arrow('M335,100V369',null,0,0,{noHead:true});
+arrow('M335,120H398');
+[100,238,369].forEach(function(y){el('circle',{cx:335,cy:y,r:2.5,'class':'mk'})});
 arrow('M920,416H960V100H1012','track messages',964,258,{hi:true,rot:true});
-arrow('M1195,474V560H4V100H22','the camera moves with the vehicle → next frame: closed loop',700,564);
+arrow('M1195,474V560H-22V100H22','the camera moves with the vehicle → next frame: closed loop',700,564);
+// left margin for the closed-loop arrow: shift the whole drawing right (defs stay where they are)
+var g=el('g',{transform:'translate(40,0)'});Array.prototype.slice.call(svg.childNodes).forEach(function(n){if(n!==g&&n!==defs)g.appendChild(n)});
 })();
 </script>
 </body>
