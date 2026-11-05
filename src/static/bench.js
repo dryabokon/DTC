@@ -17,11 +17,12 @@
     function showTab(t, push) {
         tab = t;
         document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-        $('liveView').hidden = t !== 'live'; $('benchView').hidden = t !== 'bench'; $('runsView').hidden = t !== 'runs';
+        $('liveView').hidden = t !== 'live'; $('benchView').hidden = t !== 'bench'; $('runsView').hidden = t !== 'runs'; $('archView').hidden = t !== 'arch';
         if (t === 'live') { if (!feed.getAttribute('src')) feed.setAttribute('src', feedSrc); }       // the MJPEG stream only while it is seen
         else feed.removeAttribute('src');
         if (t === 'bench') initBench();
         if (t === 'runs') loadRuns();
+        if (t === 'arch' && !$('archFrame').src) $('archFrame').src = $('archFrame').dataset.src;     // static page, loaded on first view
         if (push !== false) { const u = new URL(location); u.searchParams.set('tab', t); if (t !== 'runs') u.searchParams.delete('run'); history.replaceState(null, '', u); }
     }
     document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); b.blur(); });
@@ -286,6 +287,6 @@
 
     //------------------------------------------------------------------------------------------------------------------
     const t0 = new URL(location).searchParams.get('tab');
-    if (t0 === 'bench' || t0 === 'runs') showTab(t0, false);
+    if (t0 === 'bench' || t0 === 'runs' || t0 === 'arch') showTab(t0, false);
     window.dtcBenchTab = () => tab;
 })();

@@ -68,6 +68,7 @@
   #tabs button.on { background: var(--accent); color: var(--accent-text); }
   #tabs button:hover:not(.on) { border-color: var(--line); }
   .page { min-height: 0; overflow: auto; padding: 16px 20px; }
+  #archView { min-height: 0; } #archFrame { border: 0; width: 100%; height: 100%; display: block; }
   .page h2 { margin: 0; font-size: 16px; } .page h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 20px 0 6px; }
   .cols { display: grid; grid-template-columns: 340px minmax(0, 1fr); gap: 20px; align-items: start; }
   .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
@@ -106,7 +107,7 @@
 <body>
 
 <header class="topbar">
-  <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button></nav>
+  <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button><button data-tab="arch" type="button">Architecture</button></nav>
   <span class="spacer"></span>
   <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
   <span class="pill" id="modePill">idle</span>
@@ -188,6 +189,8 @@
     <div id="r_detail"></div>
   </div>
 </section>
+
+<section id="archView" hidden><iframe id="archFrame" title="Architecture" data-src="{{ url_for('static', filename='architecture.html') }}"></iframe></section>
 
 <script>
     const $ = id => document.getElementById(id);
