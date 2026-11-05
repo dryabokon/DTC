@@ -69,7 +69,7 @@ arrow('M642,230H660V214H678','target',660,206,{inGroup:true});
 arrow('M800,298V358','box per frame',800,333,{inGroup:true,hi:true});
 
 // ---- integrator side ----
-group(1000,20,390,470,'YOUR SIDE · GUIDANCE','not part of DTC','dash');
+group(1000,20,390,470,'CONTROL SIDE · GUIDANCE','not part of DTC','dash');
 box(1014,52,362,96,'Box → errors',['~hor = (box cx − W/2) / (W/2)','~ver = (box cy − H/2) / (H/2)','~fwd = f(box size): range, closing'],'','GEOMETRY');
 box(1014,176,362,110,'Path planning + control loop',['filter + PID per axis','follow, intercept, keep in frame','limits, safety; lost → hold or search'],'','LOOP');
 box(1014,314,362,82,'Flight controller',['~MAVLink offboard setpoints','velocity, yaw rate, gimbal angles'],'','PX4 · ARDUPILOT');
