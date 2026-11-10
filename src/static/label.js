@@ -56,6 +56,7 @@
     function markSpeed(v) { document.querySelectorAll('#l_speed button').forEach(b => b.classList.toggle('on', +b.dataset.v === +v)); }
     function setSpeed(v) { markSpeed(v); if (S) postJ('/label/speed', {speed: v}); else pendingSpeed = v; }
     let pendingSpeed = null;
+    let resumeAt = null;                             // a reopened project: go to its last labeled frame once it is decoded
 
     const refreshedFor = {};                          // a new project shows up in the list once it has labels
     function status(text, bad) {
@@ -68,7 +69,7 @@
         status('opening ' + spec + ' …');
         postJ('/label/open', {source: spec, model: $('l_model').value}).then(d => {
             if (!d.ok) { status('Error: ' + d.error, true); return; }
-            imgs.clear(); ver = -1; L = []; cur = 0;
+            imgs.clear(); ver = -1; L = []; cur = 0; resumeAt = -1;
             setState(d.state); status(''); refreshSources();
             if (pendingSpeed !== null) { setSpeed(pendingSpeed); pendingSpeed = null; }
             poll();
@@ -93,19 +94,28 @@
 
     //------------------------------------------------------------------------------------------------------------------
     function setState(st) {
-        const first = !S || S.name !== st.name, wasTracking = S && S.tracking;
+        const first = !S || S.name !== st.name, wasTracking = S && S.tracking, decodedBefore = S ? S.decoded : -1;
         S = st;
         if (first) { cur = 0; fit(); }
         if (S.tracking && S.track_pos !== null) cur = S.track_pos;          // follow the tracker
         if (wasTracking && !S.tracking && S.track_pos !== null && !userStopped) cur = S.track_pos;   // land on the frame where it stopped
         if (!S.tracking) userStopped = false;
         if (S.version !== ver && !loadingLabels) loadLabels();
-        else if (S.decoding || first) drawTimeline();         // the grey "not decoded yet" part shrinks
+        else if (S.decoding || first || S.decoded !== decodedBefore) drawTimeline();   // the grey "not decoded yet" part shrinks
+        if (resumeAt !== null && resumeAt >= 0 && resumeAt < S.decoded) { cur = resumeAt; resumeAt = null; }
         info(); draw();
     }
     function loadLabels() {
         loadingLabels = true;
-        getJ('/label/labels').then(d => { L = d.labels || []; ver = d.version; loadingLabels = false; info(); draw(); drawTimeline(); })
+        getJ('/label/labels').then(d => {
+            L = d.labels || []; ver = d.version; loadingLabels = false;
+            if (resumeAt === -1) {                    // just opened: continue where the labels end, not at frame 0
+                let j = L.length - 1; while (j >= 0 && !L[j]) j--;
+                resumeAt = j >= 0 ? j : null;
+                if (resumeAt !== null && S && resumeAt < S.decoded) { cur = resumeAt; resumeAt = null; }
+            }
+            info(); draw(); drawTimeline();
+        })
             .catch(() => { loadingLabels = false; });
     }
     function poll() {

@@ -298,14 +298,18 @@ class LabelSession:
             self.save()
     # ----------------------------------------------------------------------------------------------------------------------
     def set_box(self, i, box):
-        """The operator's box on frame i: a key frame; what was tracked after it from the old box goes."""
+        """The operator's box on frame i: a key frame; what was tracked after it from the old box goes. The same box again
+        (K: "this tracked box is right") keeps them - the tracker got them from exactly this box."""
         self.stop_tracking('box drawn')
         with self.lock:
             i = self._check(i)
             box = self._box(box)
+            old = self.labels[i]
+            same = bool(old and old['box']) and max(abs(u - v) for u, v in zip(old['box'], box)) <= 0.5
             self._snapshot()
             self.labels[i] = {'src': 'manual', 'box': box}
-            self._clear_after(i)
+            if not same:
+                self._clear_after(i)
             self._changed()
         return i
     # ----------------------------------------------------------------------------------------------------------------------
@@ -450,8 +454,10 @@ class LabelSession:
                                       **({'check': 'jump'} if jump else {})}
                     self.track_pos = j
                     self._changed(save=False)
-                if jump:
-                    reason = f'the box jumped {jump:.1f} box heights - another object? Check this frame'
+                if jump:                                                  # either side can be the wrong one: on campus person
+                    reason = (f'the box jumped {jump:.1f} box heights since frame {j - 1}: here or just before, '
+                              f'it is on another object (it can come back after a passer-by)')
+                    self._mark_check(j - 1, reason)                       # 1 drifted to a passer-by at 485-488, jumped back at 489
                     break
                 recent = recent[-4:] + [box_src]
                 if j - last_save >= SAVE_EVERY:

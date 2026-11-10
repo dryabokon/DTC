@@ -67,7 +67,10 @@ class TestLabel(unittest.TestCase):
         for j in range(11, 30):                                # pretend the tracker ran
             S.labels[j] = {'src': 'track', 'box': truth(j)}
         S.set_box(40, truth(40))
-        S.set_box(20, truth(20))                               # a correction: tracked 21..29 are gone, 40 stays
+        S.set_box(15, S.labels[15]['box'])                     # K: the tracked box made a key frame - 16..29 stay
+        self.assertEqual(S.labels[15]['src'], 'manual'); self.assertEqual(S.labels[29]['src'], 'track')
+        S.undo()
+        S.set_box(20, [v + 2 for v in truth(20)])              # a correction (another box): tracked 21..29 are gone, 40 stays
         self.assertTrue(all(S.labels[j] is None for j in range(21, 30)))
         self.assertEqual(S.labels[40]['src'], 'manual')
         self.assertEqual(S.labels[15]['src'], 'track')
@@ -77,7 +80,7 @@ class TestLabel(unittest.TestCase):
         S.undo()                                               # Ctrl+Z: the tracked frame is back
         self.assertEqual(S.labels[35]['src'], 'track'); self.assertIsNone(S.labels[30])
         S.interpolate(25)
-        np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=0.6)
+        np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=1.1)   # halfway from the +2 box at 20 to 40
         self.assertEqual(S.set_absent(50, to_next_key=True), N - 50)
         self.assertIsNone(S.labels[N - 1]['box'])
         S.delete(20)                                           # a key frame removed: what hung on it goes too
