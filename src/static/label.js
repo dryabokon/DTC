@@ -14,6 +14,7 @@
     let drag = null;                                 // {x0, y0, x1, y1, shift} in canvas px while drawing a box
     let userStopped = false;                         // the operator stopped tracking: keep the cursor where they are
     let playTimer = null;                            // P: review playback of the labels
+    let boxOnly = false;                             // the Box only button: a drawn box is a key frame, no tracking (as Shift+drag)
     const imgs = new Map();                          // frame index -> Image (a small cache around the cursor)
 
     //------------------------------------------------------------------------------------------------------------------
@@ -237,6 +238,7 @@
         if (S.counts.labeled && $('l_source').value !== S.name && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
         markSpeed(S.speed);
+        updateBar();
     }
 
     //------------------------------------------------------------------------------------------------------------------
@@ -311,7 +313,7 @@
             go(Math.max(0, j)); drawTimeline();
         }));
     }
-    function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; info(); } }
+    function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; info(); updateBar(); } }
     function togglePlay() {                           // P: play the labels for review (no tracking), at the speed buttons' pace
         if (playTimer) { stopPlay(); return; }
         stopIfTracking();
@@ -322,6 +324,7 @@
             if (im && im.complete) go(cur + 1);      // never runs ahead of the frames it can show
         }, 1000 / fps);
         $('l_kind').textContent = 'reviewing (P / Space: stop) …';
+        updateBar();
     }
     function key(dir) {                               // previous / next key frame (manual or absent)
         for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && (l[0] === 'm' || l[0] === 'a')) { go(j); return; } }
@@ -344,9 +347,146 @@
         if (Math.abs(d.x1 - d.x0) < 3 || Math.abs(d.y1 - d.y0) < 3) { draw(); return; }
         const i = cur;
         L[i] = ['m', ...box]; draw();                 // at once on screen; the server confirms
-        act('/label/box', {i, box}, () => { if (!d.shift) act('/label/track', {i}); });     // Shift+drag: key frame only
+        act('/label/box', {i, box}, () => { if (!d.shift && !boxOnly) act('/label/track', {i}); });   // Shift+drag / Box only: key frame only
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
+
+    //------------------------------------------------------------------------------------------------------------------
+    // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
+    //------------------------------------------------------------------------------------------------------------------
+    const KEY_C = '#00e5ff', MARK_C = '#ff453a', INTERP_C = '#ff9f0a';
+    const ICON = {
+        first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
+        back10: '<path d="M10 4.5L4.5 10l5.5 5.5 M16 4.5L10.5 10l5.5 5.5"/>',
+        back: '<path d="M12.5 4.5L7 10l5.5 5.5"/>',
+        fwd: '<path d="M7.5 4.5L13 10l-5.5 5.5"/>',
+        fwd10: '<path d="M4 4.5L9.5 10 4 15.5 M10 4.5l5.5 5.5-5.5 5.5"/>',
+        last: '<path d="M15 4v12"/><path d="M4 4l8 6-8 6z" fill="currentColor"/>',
+        prevKey: `<path d="M8 10H2.5 M5 7.5L2.5 10 5 12.5"/><path d="M14 5l5 5-5 5-5-5z" fill="${KEY_C}" stroke="none"/>`,
+        nextKey: `<path d="M6 5l5 5-5 5-5-5z" fill="${KEY_C}" stroke="none"/><path d="M12 10h5.5 M15 7.5l2.5 2.5-2.5 2.5"/>`,
+        prevMark: `<path d="M10 10H2.5 M5 7.5L2.5 10 5 12.5"/><rect x="13" y="3" width="3.5" height="14" rx="1" fill="${MARK_C}" stroke="none"/>`,
+        nextMark: `<rect x="3.5" y="3" width="3.5" height="14" rx="1" fill="${MARK_C}" stroke="none"/><path d="M10 10h7.5 M15 7.5l2.5 2.5-2.5 2.5"/>`,
+        track: '<rect x="2.5" y="4.5" width="9" height="11" rx="1"/><path d="M13.5 6l5 4-5 4z" fill="currentColor"/>',
+        stop: '<rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/>',
+        boxOnly: '<rect x="3" y="4" width="14" height="12" rx="1" stroke-dasharray="3 2.2"/>',
+        key: `<path d="M10 2.5l7.5 7.5-7.5 7.5-7.5-7.5z" fill="${KEY_C}" stroke="none"/><path d="M6.8 10.2l2.2 2.2 4.2-4.6" stroke="#000"/>`,
+        interp: `<path d="M5.5 13.5l9-7" stroke="${INTERP_C}" stroke-dasharray="2 2.4"/><circle cx="4" cy="15" r="2.3" fill="${KEY_C}" stroke="none"/><circle cx="16" cy="5" r="2.3" fill="${KEY_C}" stroke="none"/>`,
+        absent: '<circle cx="10" cy="10" r="7"/><path d="M5 15L15 5"/>',
+        clear: '<path d="M6 3v14" stroke-dasharray="2 2"/><path d="M10 7l6 6 M16 7l-6 6"/>',
+        del: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/>',
+        undo: '<path d="M7 4L3 8l4 4"/><path d="M3 8h9a4.5 4.5 0 010 9H9"/>',
+        review: '<rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M8.5 7l5 3-5 3z" fill="currentColor"/>',
+        help: '<circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.3 2.3 0 114.1 1.4c-.8.8-1.9 1.2-1.9 2.6"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/>',
+    };
+    const isKey = l => !!l && (l[0] === 'm' || l[0] === 'a');
+    const hasBox = l => !!l && l.length >= 5;
+    const lastFrame = () => S ? Math.min(S.frames, S.decoded) - 1 : 0;
+    function findFrom(i, dir, pred) { for (let j = i + dir; j >= 0 && j < L.length; j += dir) if (pred(L[j])) return j; return -1; }
+    function interpOK() {                             // as the server: the key frames around this frame, both with a box
+        const a = L[cur] && L[cur][0] === 'm' ? cur : findFrom(cur, -1, isKey);
+        const b = a >= 0 ? findFrom(a, +1, isKey) : -1;
+        return a >= 0 && b > a + 1 && L[a][0] === 'm' && L[b][0] === 'm';
+    }
+    function clearOK() {                              // tracked / interpolated frames after this one, up to the next key frame
+        for (let j = cur + 1; j < L.length; j++) { const l = L[j]; if (isKey(l)) return false; if (l) return true; }
+        return false;
+    }
+    const nav = f => () => { stopIfTracking(); f(); };
+    const ACT = {
+        first:   {k: 'Home', text: 'First', tip: 'First frame', run: nav(() => go(0)), on: () => cur > 0},
+        back10:  {k: 'Shift+←', text: '−10', tip: '10 frames back', run: nav(() => go(cur - 10)), on: () => cur > 0},
+        back:    {k: '←', text: '−1', tip: 'Previous frame', run: nav(() => go(cur - 1)), on: () => cur > 0},
+        fwd:     {k: '→', text: '+1', tip: 'Next frame', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
+        fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
+        last:    {k: 'End', text: 'Last', tip: 'Last frame', run: nav(() => go(S.frames - 1)), on: () => cur < lastFrame()},
+        prevKey: {k: '[', text: 'Prev key', tip: 'Previous key frame (yours: a box or "no object")', run: nav(() => key(-1)), on: () => findFrom(cur, -1, isKey) >= 0},
+        nextKey: {k: ']', text: 'Next key', tip: 'Next key frame', run: nav(() => key(+1)), on: () => findFrom(cur, +1, isKey) >= 0},
+        prevMark: {k: ',', text: 'Prev mark', tip: 'Previous red mark: the tracker stopped or its box jumped there - check it', run: nav(() => check(-1)),
+                   on: () => findFrom(cur, -1, l => !!l && !!l[6]) >= 0},
+        nextMark: {k: '.', text: 'Next mark', tip: 'Next red mark', run: nav(() => check(+1)), on: () => findFrom(cur, +1, l => !!l && !!l[6]) >= 0},
+        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame (Esc / right click: stop). Drawing a box starts it too',
+                  run: () => { if (playTimer) stopPlay(); else toggleTrack(); }, on: () => S.tracking || hasBox(L[cur])},
+        boxOnly: {k: 'Shift+drag', text: 'Box only', tip: 'On: a box you draw is a key frame and the tracker does not start (occlusions: a box after it, then Interp)',
+                  run: () => { boxOnly = !boxOnly; updateBar(); }, active: () => boxOnly},
+        key:     {k: 'K', text: 'Key', tip: 'This box is right: make it a key frame (the tracked frames after it stay)',
+                  run: () => act('/label/box', {i: cur, box: L[cur].slice(1, 5)}), on: () => hasBox(L[cur]) && L[cur][0] !== 'm'},
+        interp:  {k: 'I', text: 'Interp', tip: 'Straight line between the key frames around this frame - replaces what the tracker put there (occlusions, a short drift)',
+                  run: () => act('/label/interp', {i: cur}), on: interpOK},
+        absent:  {k: 'N', text: 'No object', tip: 'No object on this frame, then the next frame. Shift+N / Shift+click: no object up to the next key frame',
+                  run: sh => { const i = cur; act('/label/absent', {i, to_next_key: !!sh}, () => { if (!sh) go(i + 1); }); }},
+        clear:   {k: 'X', text: 'Clear after', tip: 'Remove the tracked / interpolated frames after this one (up to the next key frame)',
+                  run: () => act('/label/clear', {i: cur}), on: clearOK},
+        del:     {k: 'Del', text: 'Delete', tip: "Remove this frame's label (a key frame: what was tracked from it goes too)",
+                  run: () => act('/label/delete', {i: cur}), on: () => !!L[cur]},
+        undo:    {k: 'Ctrl+Z', text: 'Undo', tip: 'Undo the last step (a whole tracking run is one step; kept until the app restarts)',
+                  run: () => undo(), on: () => S.undo > 0},
+        review:  {k: 'P', text: 'Review', tip: 'Play the labels to check them, no tracking (the speed buttons set the pace)',
+                  run: () => togglePlay(), active: () => !!playTimer},
+        help:    {k: '', text: 'Keys', tip: 'All mouse actions and keys', run: () => showHelp($('l_help').hidden), active: () => !$('l_help').hidden, always: true},
+    };
+    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['prevKey', 'nextKey', 'prevMark', 'nextMark'],
+                    ['track', 'SPEED', 'boxOnly'], ['key', 'interp', 'absent', 'clear', 'del', 'undo'], ['review', 'help']];
+    const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
+    function buildBar() {
+        const bar = $('l_tools');
+        LAYOUT.forEach((grp, gi) => {
+            if (gi) { const sp = document.createElement('span'); sp.className = 'sep'; bar.appendChild(sp); }
+            grp.forEach(id => {
+                if (id === 'SPEED') {
+                    const sp = document.createElement('div'); sp.className = 'seg'; sp.id = 'l_speed'; sp.title = 'Tracking / review speed';
+                    bar.appendChild(sp); return;
+                }
+                const x = ACT[id], b = document.createElement('button');
+                b.type = 'button'; b.className = 'tb'; b.id = 'lt_' + id;
+                b.innerHTML = svg(id) + (x.text ? `<span class="tx">${x.text}</span>` : '');
+                b.title = x.tip + (x.k ? `  [${x.k}]` : '');
+                b.setAttribute('aria-label', x.text || x.tip);
+                b.addEventListener('click', e => { b.blur(); if (S || x.always) x.run(e.shiftKey); });
+                bar.appendChild(b);
+                x.btn = b;
+            });
+        });
+        updateBar();
+    }
+    function updateBar() {
+        for (const id in ACT) {
+            const x = ACT[id], b = x.btn; if (!b) continue;
+            b.disabled = !x.always && (!S || (x.on ? !x.on() : false));
+            b.classList.toggle('on', !!(x.active && x.active()));
+        }
+        const t = ACT.track.btn, run = !!(S && S.tracking);
+        if (t && t.dataset.run !== String(run)) {
+            t.dataset.run = run; t.classList.toggle('halt', run);
+            t.innerHTML = svg(run ? 'stop' : 'track') + `<span class="tx">${run ? 'Stop' : 'Track'}</span>`;
+        }
+        const r = ACT.review.btn;
+        if (r) r.querySelector('.tx').textContent = playTimer ? 'Stop' : 'Review';
+    }
+    function showHelp(on) { $('l_help').hidden = !on; updateBar(); }
+    $('l_help_x').addEventListener('click', () => showHelp(false));
+    function keyAction(e) {                           // e.code = the physical key: any keyboard layout (Russian: N is 'т', [ is 'х')
+        switch (e.code) {
+            case 'ArrowRight': return e.shiftKey ? 'fwd10' : 'fwd';
+            case 'ArrowLeft': return e.shiftKey ? 'back10' : 'back';
+            case 'Home': return 'first';
+            case 'End': return 'last';
+            case 'BracketLeft': return 'prevKey';
+            case 'BracketRight': return 'nextKey';
+            case 'Comma': return 'prevMark';
+            case 'Period': return 'nextMark';
+            case 'Space': return 'track';
+            case 'KeyP': return 'review';
+            case 'KeyZ': return e.ctrlKey || e.metaKey ? 'undo' : null;
+            case 'Escape': if (!$('l_help').hidden) { showHelp(false); return null; } return 'stop';
+            case 'KeyN': return 'absent';
+            case 'KeyI': return 'interp';
+            case 'KeyK': return 'key';
+            case 'KeyX': return 'clear';
+            case 'Delete': case 'Backspace': return 'del';
+            default: return null;
+        }
+    }
+    buildBar();
 
     document.addEventListener('keydown', e => {
         if (!window.dtcBenchTab || window.dtcBenchTab() !== 'label' || !S) return;
@@ -355,39 +495,14 @@
             if (e.key === 'Escape') t.blur();
             return;
         }
-        if (t.tagName === 'BUTTON' && e.key === 'Enter') return;
-        const step = e.shiftKey ? 10 : 1;
+        if (t.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
         let handled = true;
         // e.code = the physical key: the letters work with any keyboard layout (Russian: N is 'т', [ is 'х', ...)
         if ((e.ctrlKey || e.metaKey) && e.code !== 'KeyZ') return;          // leave the browser's own shortcuts alone
-        switch (e.code) {
-            case 'ArrowRight': stopIfTracking(); go(cur + step); break;
-            case 'ArrowLeft': stopIfTracking(); go(cur - step); break;
-            case 'Home': stopIfTracking(); go(0); break;
-            case 'End': stopIfTracking(); go(S.frames - 1); break;
-            case 'BracketLeft': stopIfTracking(); key(-1); break;
-            case 'BracketRight': stopIfTracking(); key(+1); break;
-            case 'Space': if (playTimer) stopPlay(); else toggleTrack(); break;
-            case 'Comma': stopIfTracking(); check(-1); break;
-            case 'Period': stopIfTracking(); check(+1); break;
-            case 'KeyP': togglePlay(); break;
-            case 'KeyZ': if (e.ctrlKey || e.metaKey) undo(); else handled = false; break;
-            case 'Escape': stopIfTracking(); break;
-            case 'KeyN': {
-                const i = cur;
-                act('/label/absent', {i, to_next_key: e.shiftKey}, () => { if (!e.shiftKey) go(i + 1); });
-                break;
-            }
-            case 'KeyI': act('/label/interp', {i: cur}); break;
-            case 'KeyK': {                            // this box is right: make it a key frame (no tracking)
-                const l = L[cur];
-                if (l && l.length >= 5 && l[0] !== 'm') act('/label/box', {i: cur, box: l.slice(1, 5)});
-                break;
-            }
-            case 'KeyX': act('/label/clear', {i: cur}); break;
-            case 'Delete': case 'Backspace': act('/label/delete', {i: cur}); break;
-            default: handled = false;
-        }
+        const id = keyAction(e);
+        if (id === 'stop') stopIfTracking();
+        else if (id) { const x = ACT[id]; if (!x.on || x.on()) x.run(e.shiftKey); }
+        else handled = false;
         if (handled) e.preventDefault();
     });
 

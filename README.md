@@ -58,7 +58,9 @@ Ground truth for ONE object per frame, from any video file (listed sources, a pa
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
-Space: track / stop · Esc / right click: stop · Shift+drag: a key frame without tracking · K: this box is right, make it a
+Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
+cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
+Space: track / stop · Esc / right click: stop · Shift+drag (or the Box only button): a key frame without tracking · K: this box is right, make it a
 key frame (the tracked frames after it stay) · I: straight line between the key frames around (replaces tracked frames - occlusions, a short drift) · N: no
 object on this frame (Shift+N: up to the next key frame) · X: clear tracked frames after this one · Del: remove this
 frame's label · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) · [ ]: previous / next key frame ·

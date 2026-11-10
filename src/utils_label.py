@@ -278,6 +278,7 @@ class LabelSession:
         """Before an operator action: what Ctrl+Z goes back to (dicts are replaced, never changed in place)."""
         self.undo_stack.append(list(self.labels))
         del self.undo_stack[:-UNDO_DEPTH]
+        self.stop_reason = None             # the operator acts on it: the stop message is done (its red marks stay)
     # ----------------------------------------------------------------------------------------------------------------------
     def undo(self):
         """Back to the labels before the last action (a whole tracking run is one action). Returns how many are left."""
