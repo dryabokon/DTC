@@ -38,7 +38,13 @@ CACHE_WIDTH = 1280                  # frames wider than this are cached (and tra
 JPEG_Q = 92
 SAVE_EVERY = 100
 SPEEDS = (1, 2, 4, 0)               # x source fps while tracking (0 = as fast as the tracker goes)
-MANUAL = ('manual', 'absent')       # the operator's decisions: tracking stops there, clearing never removes them
+MANUAL = ('manual', 'absent')
+JUMP_REL = 0.3                      # tracking stops when the box centre lands this many box heights away from where its motion
+JUMP2_REL = 0.35                    # was heading (from the last frame / from two frames back - a swap can slide over 2-3 frames):
+                                    # on campus (PETS09) every such jump was a swap to another person, correct frames stayed
+                                    # <= 0.23 (the app's loss rules do not see swaps: the other person looks similar)
+MEET_IOU = 0.3                      # a run that ends on a key frame must arrive near its box, else it drifted on the way
+UNDO_DEPTH = 50       # the operator's decisions: tracking stops there, clearing never removes them
 # ----------------------------------------------------------------------------------------------------------------------
 def safe_name(text):
     n = re.sub(r'[^A-Za-z0-9_.-]+', '_', os.path.splitext(os.path.basename(str(text).rstrip('/\\')))[0]).strip('_.')
@@ -50,6 +56,11 @@ def _imwrite(path, img):            # cv2.imwrite fails on non-ASCII Windows pat
         with open(path, 'wb') as f:
             f.write(buf.tobytes())
     return ok
+# ----------------------------------------------------------------------------------------------------------------------
+def _iou(a, b):
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    i = ix * iy; u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i
+    return i / u if u > 0 else 0.0
 # ----------------------------------------------------------------------------------------------------------------------
 def _imread(path):
     data = np.fromfile(path, dtype=np.uint8)
@@ -110,6 +121,7 @@ class LabelSession:
         self.track_pos = None
         self.stop_reason = None
         self.speed = 1
+        self.undo_stack = []                                                  # label lists before each operator action
         self._stop = threading.Event()
         self._thread = None
         self._closed = False
@@ -158,7 +170,7 @@ class LabelSession:
                 self.labels.append(None)
             box = r.get('box')
             src = r.get('src') or ('manual' if box else 'absent')
-            self.labels[i] = {'src': src, 'box': [float(v) for v in box] if box else None}
+            self.labels[i] = {'src': src, 'box': [float(v) for v in box] if box else None, **{k: r[k] for k in ('score', 'sim', 'check') if k in r}}
         print(f'[ Label ] resumed {self.name}: {sum(1 for x in self.labels if x)} labeled frames')
     # ----------------------------------------------------------------------------------------------------------------------
     def _decode(self):
@@ -262,6 +274,24 @@ class LabelSession:
             if self.labels[j] and self.labels[j]['src'] not in MANUAL:
                 self.labels[j] = None
     # ----------------------------------------------------------------------------------------------------------------------
+    def _snapshot(self):
+        """Before an operator action: what Ctrl+Z goes back to (dicts are replaced, never changed in place)."""
+        self.undo_stack.append(list(self.labels))
+        del self.undo_stack[:-UNDO_DEPTH]
+    # ----------------------------------------------------------------------------------------------------------------------
+    def undo(self):
+        """Back to the labels before the last action (a whole tracking run is one action). Returns how many are left."""
+        self.stop_tracking('undo')
+        with self.lock:
+            if not self.undo_stack:
+                raise ValueError('nothing to undo')
+            self.labels = self.undo_stack.pop()
+            self.stop_reason = None                                       # it described the run just undone
+            if self.total is not None:
+                self._fit_labels()
+            self._changed()
+            return len(self.undo_stack)
+    # ----------------------------------------------------------------------------------------------------------------------
     def _changed(self, save=True):
         self.version += 1
         if save:
@@ -272,7 +302,9 @@ class LabelSession:
         self.stop_tracking('box drawn')
         with self.lock:
             i = self._check(i)
-            self.labels[i] = {'src': 'manual', 'box': self._box(box)}
+            box = self._box(box)
+            self._snapshot()
+            self.labels[i] = {'src': 'manual', 'box': box}
             self._clear_after(i)
             self._changed()
         return i
@@ -282,6 +314,7 @@ class LabelSession:
         self.stop_tracking('marked absent')
         with self.lock:
             i = self._check(i)
+            self._snapshot()
             end = self.next_key(i) if to_next_key else i + 1
             if not to_next_key:
                 self._clear_after(i)
@@ -295,6 +328,7 @@ class LabelSession:
         self.stop_tracking('label deleted')
         with self.lock:
             i = self._check(i)
+            self._snapshot()
             was_key = bool(self.labels[i] and self.labels[i]['src'] in MANUAL)
             self.labels[i] = None
             if was_key:
@@ -306,12 +340,13 @@ class LabelSession:
         self.stop_tracking('cleared')
         with self.lock:
             i = self._check(i)
+            self._snapshot()
             self._clear_after(i)
             self._changed()
     # ----------------------------------------------------------------------------------------------------------------------
     def interpolate(self, i):
-        """Linear boxes between the key frames around frame i (both must have a box), on the frames that have no label yet:
-        tracked frames stay (X clears them first if the line should replace them). Returns the number of frames filled."""
+        """Linear boxes between the key frames around frame i (both must have a box), replacing what the tracker put there
+        (occlusions, a short drift between two good boxes); Ctrl+Z brings them back. Returns the number of frames filled."""
         self.stop_tracking('interpolated')
         with self.lock:
             i = self._check(i)
@@ -322,11 +357,10 @@ class LabelSession:
             la, lb = self.labels[a], self.labels[b]
             if not (la['box'] and lb['box']):
                 raise ValueError('both key frames must have a box (not "absent")')
+            self._snapshot()
             A, B = np.array(la['box']), np.array(lb['box'])
             filled = 0
             for j in range(a + 1, b):
-                if self.labels[j] is not None:
-                    continue
                 t = (j - a) / (b - a)
                 filled += 1
                 self.labels[j] = {'src': 'interp', 'box': [round(float(v), 1) for v in A + (B - A) * t]}
@@ -352,6 +386,7 @@ class LabelSession:
                 raise ValueError('draw a box on this frame first')
             if speed is not None:
                 self.speed = int(speed) if int(speed) in SPEEDS else 1
+            self._snapshot()
             self._clear_after(i)
             self._changed()
             self._stop.clear()
@@ -377,6 +412,7 @@ class LabelSession:
                 reason = 'the tracker cannot start on this box'
                 return
             self.model = T.model                                          # MIL if the weights are missing
+            recent = [box]
             t_next = time.perf_counter()
             j = i + 1
             while True:
@@ -392,6 +428,10 @@ class LabelSession:
                     lab = self.labels[j] if j < len(self.labels) else None
                 if lab and lab['src'] in MANUAL:
                     reason = f'reached the key frame {j}'
+                    meet = _iou(recent[-1], lab['box']) if lab['box'] and j > i + 1 else 1.0
+                    if meet < MEET_IOU:                                   # it followed something else on the way (an occluder)
+                        reason = f'the track does not meet the key frame {j} (IoU {meet:.2f}): it drifted on the way - I = straight line'
+                        self._mark_check(j - 1, reason)
                     break
                 frame = self.frame(j)
                 if frame is None:
@@ -400,13 +440,20 @@ class LabelSession:
                 b, score = T.update(frame)
                 if b is None:
                     reason = 'tracker: ' + (T.stop_reason or 'low score')
+                    self._mark_check(j - 1, reason)
                     break
+                box_src = self._box([v / k for v in b])
+                jump = self._jump(recent, box_src)
                 with self.lock:
                     self._check(j)
-                    self.labels[j] = {'src': 'track', 'box': self._box([v / k for v in b]), 'score': round(float(score), 3),
-                                      'sim': round(float(T.similarity), 3)}
+                    self.labels[j] = {'src': 'track', 'box': box_src, 'score': round(float(score), 3), 'sim': round(float(T.similarity), 3),
+                                      **({'check': 'jump'} if jump else {})}
                     self.track_pos = j
                     self._changed(save=False)
+                if jump:
+                    reason = f'the box jumped {jump:.1f} box heights - another object? Check this frame'
+                    break
+                recent = recent[-4:] + [box_src]
                 if j - last_save >= SAVE_EVERY:
                     self.save(); last_save = j
                 j += 1
@@ -424,6 +471,29 @@ class LabelSession:
             self.version += 1
             self.save()
             print(f'[ Label ] {self.name}: tracking stopped at {self.track_pos}: {reason}')
+    @staticmethod
+    def _jump(boxes, box):
+        """How far (in box heights) the new box centre is from where the last boxes were heading, if beyond JUMP_REL (one step)
+        or JUMP2_REL (two steps); else 0."""
+        if len(boxes) < 3:
+            return 0.0
+        c = lambda b: np.array([(b[0] + b[2]) / 2, (b[1] + b[3]) / 2])
+        h = max(2.0, boxes[-1][3] - boxes[-1][1])
+        d1 = float(np.linalg.norm(c(box) - (c(boxes[-1]) + (c(boxes[-1]) - c(boxes[-3])) / 2)) / h)
+        if d1 > JUMP_REL:
+            return d1
+        if len(boxes) >= 5:
+            d2 = float(np.linalg.norm(c(box) - (c(boxes[-2]) + 2 * (c(boxes[-2]) - c(boxes[-5])) / 3)) / h)
+            if d2 > JUMP2_REL:
+                return d2
+        return 0.0
+    # ----------------------------------------------------------------------------------------------------------------------
+    def _mark_check(self, j, reason):
+        """The last tracked frame before a stop by the loss rules: a 'check here' mark on the timeline."""
+        with self.lock:
+            lab = self.labels[j] if 0 <= j < len(self.labels) else None
+            if lab and lab['src'] == 'track':
+                self.labels[j] = {**lab, 'check': reason}
     # ----------------------------------------------------------------------------------------------------------------------
     def counts(self):
         c = {'manual': 0, 'track': 0, 'interp': 0, 'absent': 0}
@@ -437,7 +507,8 @@ class LabelSession:
         return {'name': self.name, 'source': self.source, 'out_dir': self.out_dir, 'frames': self.n, 'decoded': self.decoded,
                 'decoding': self.total is None, 'decode_error': self.decode_error, 'width': self.src_w, 'height': self.src_h,
                 'fps': round(self.fps, 3), 'model': self.model, 'speed': self.speed, 'tracking': self.tracking,
-                'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'version': self.version, 'counts': self.counts()}
+                'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'version': self.version, 'counts': self.counts(),
+                'undo': len(self.undo_stack)}
     # ----------------------------------------------------------------------------------------------------------------------
     def labels_compact(self):
         """For the UI: per frame None or [src letter, x1, y1, x2, y2] (no box for absent)."""
@@ -449,13 +520,13 @@ class LabelSession:
                 elif lab['box'] is None:
                     out.append([lab['src'][0]])
                 else:
-                    out.append([lab['src'][0]] + lab['box'] + ([lab.get('sim')] if 'sim' in lab else []))
+                    out.append([lab['src'][0]] + lab['box'] + [lab.get('sim'), 1 if lab.get('check') else 0])
             return {'version': self.version, 'labels': out}
     # ----------------------------------------------------------------------------------------------------------------------
     def save(self):
         """clips/<name>/gt.jsonl + label.json (+ video.mp4 once, when the whole video is decoded)."""
         with self.lock:
-            rows = [json.dumps({'frame': i, 'box': lab['box'], 'src': lab['src'], **({'score': lab['score']} if 'score' in lab else {})})
+            rows = [json.dumps({'frame': i, 'box': lab['box'], 'src': lab['src'], **{k: lab[k] for k in ('score', 'sim', 'check') if k in lab}})
                     for i, lab in enumerate(self.labels) if lab]
             meta = {'tool': 'DTC Label tab', 'source': self.source, 'frames': self.n, 'width': self.src_w, 'height': self.src_h,
                     'fps': round(self.fps, 3), 'tracker': self.model, 'created': self.created,

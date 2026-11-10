@@ -58,9 +58,15 @@ Ground truth for ONE object per frame, from any video file (listed sources, a pa
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
-Space: track / stop · Esc / right click: stop · [ ]: previous / next key frame · N: no object on this frame (Shift+N: up to
-the next key frame) · I: straight line between key frames on unlabeled frames · X: clear tracked frames after this one ·
-Del: remove this frame's label · timeline under the frame: click / drag to go there.
+Space: track / stop · Esc / right click: stop · Shift+drag: a key frame without tracking · K: this box is right, make it a
+key frame · I: straight line between the key frames around (replaces tracked frames - occlusions, a short drift) · N: no
+object on this frame (Shift+N: up to the next key frame) · X: clear tracked frames after this one · Del: remove this
+frame's label · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) · [ ]: previous / next key frame ·
+, .: previous / next red mark · P: play the labels to review them. Keys go by the physical key (any keyboard layout).
+Besides the app's loss rules the tracker stops, with a red mark on the timeline, where its box jumps away from where it
+was heading (> 0.3 box heights in one frame, > 0.35 over two: swaps to another person) and where a run arrives at a key
+frame far from its box (IoU < 0.3: it followed an occluder on the way). A swap while two people cross slowly is not
+caught: "Same object?" in the panel shows the box of this frame next to the key frame's - check it, or review with P.
 The video is decoded once into `runs/labels/<name>/frames/` (<= 1280 px wide; the frame numbers are cv2's, as in the
 benchmark). Every change is saved to `clips/<name>/` (`video.mp4`, `gt.jsonl` = `{"frame", "box" in source px | null, "src":
 manual|track|interp|absent}`, `label.json`): it is a benchmark sequence (`clip:<name>`) at once; opening the same video again

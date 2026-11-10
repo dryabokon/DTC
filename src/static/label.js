@@ -11,17 +11,16 @@
 
     const cv = $('l_canvas'), g = cv.getContext('2d'), tl = $('l_timeline');
     let S = null, L = [], ver = -1, cur = 0, shown = false, inited = false, pollTimer = null, loadingLabels = false;
-    let drag = null;                                 // {x0, y0, x1, y1} in canvas px while drawing a box
+    let drag = null;                                 // {x0, y0, x1, y1, shift} in canvas px while drawing a box
+    let userStopped = false;                         // the operator stopped tracking: keep the cursor where they are
+    let playTimer = null;                            // P: review playback of the labels
     const imgs = new Map();                          // frame index -> Image (a small cache around the cursor)
 
     //------------------------------------------------------------------------------------------------------------------
     function init() {
         inited = true;
         getJ('/label/sources').then(d => {
-            const sel = $('l_source');
-            sel.innerHTML = '';
-            const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '— pick a video —'; sel.appendChild(o0);
-            d.sources.forEach(s => { const o = document.createElement('option'); o.value = s.name; o.textContent = s.label; sel.appendChild(o); });
+            fillSources(d.sources, d.state);
             const m = $('l_model'); m.innerHTML = '';
             d.models.forEach(x => { const o = document.createElement('option'); o.value = x.name; o.textContent = x.label; m.appendChild(o); });
             m.value = d.state ? d.state.model : d.default_model;
@@ -33,15 +32,36 @@
                 sp.appendChild(b);
             });
             markSpeed(d.state ? d.state.speed : 1);
-            if (d.state) { setState(d.state); sel.value = d.state.name; }
+            if (d.state) setState(d.state);
             poll();
         });
     }
+    // the list shows what is open: a label project is listed under its own name (refetched after opening a new video)
+    function fillSources(list, st) {
+        const sel = $('l_source');
+        sel.innerHTML = '';
+        const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '— pick a video —'; sel.appendChild(o0);
+        list.forEach(s => { const o = document.createElement('option'); o.value = s.name; o.textContent = s.label; sel.appendChild(o); });
+        sel.value = st && [...sel.options].some(o => o.value === st.name) ? st.name : '';
+        typedInList = false;
+    }
+    function refreshSources() { getJ('/label/sources').then(d => fillSources(d.sources, d.state)); }
+    // typing while the list has the focus (a click that missed the path field) must not open another video:
+    // a pick by keyboard opens on Enter only, a pick by mouse at once
+    let typedInList = false;
+    $('l_source').addEventListener('keydown', e => {
+        if (e.key === 'Enter') { e.preventDefault(); typedInList = false; openVideo(e.target.value); e.target.blur(); }
+        else typedInList = true;
+    });
     function markSpeed(v) { document.querySelectorAll('#l_speed button').forEach(b => b.classList.toggle('on', +b.dataset.v === +v)); }
     function setSpeed(v) { markSpeed(v); if (S) postJ('/label/speed', {speed: v}); else pendingSpeed = v; }
     let pendingSpeed = null;
 
-    function status(text, bad) { $('l_status').textContent = text || ''; $('l_status').style.color = bad ? 'var(--bad)' : ''; }
+    const refreshedFor = {};                          // a new project shows up in the list once it has labels
+    function status(text, bad) {
+        $('l_status').textContent = text || ''; $('l_status').style.color = bad ? 'var(--bad)' : '';
+        if (bad) $('l_status').dataset.err = 1; else delete $('l_status').dataset.err;
+    }
 
     function openVideo(spec) {
         spec = (spec || '').trim(); if (!spec) return;
@@ -49,12 +69,15 @@
         postJ('/label/open', {source: spec, model: $('l_model').value}).then(d => {
             if (!d.ok) { status('Error: ' + d.error, true); return; }
             imgs.clear(); ver = -1; L = []; cur = 0;
-            setState(d.state); status('');
+            setState(d.state); status(''); refreshSources();
             if (pendingSpeed !== null) { setSpeed(pendingSpeed); pendingSpeed = null; }
             poll();
         });
     }
-    $('l_source').addEventListener('change', e => { openVideo(e.target.value); e.target.blur(); });
+    $('l_source').addEventListener('change', e => {
+        if (typedInList) { status('Enter: open ' + e.target.value); return; }
+        openVideo(e.target.value); e.target.blur();
+    });
     $('l_path').addEventListener('keydown', e => { if (e.key === 'Enter') { openVideo(e.target.value); e.target.blur(); } });
     $('l_upload').addEventListener('change', e => {
         const f = e.target.files[0]; if (!f) return;
@@ -62,7 +85,7 @@
         status(`uploading ${f.name} (${(f.size / 1e6).toFixed(1)} MB) …`);
         fetch('/label/upload', {method: 'POST', body: fd}).then(r => r.json()).then(d => {
             if (!d.ok) { status('Error: ' + d.error, true); return; }
-            imgs.clear(); ver = -1; L = []; cur = 0; setState(d.state); status(''); poll();
+            imgs.clear(); ver = -1; L = []; cur = 0; setState(d.state); status(''); refreshSources(); poll();
         }).catch(err => status('Error: ' + err, true));
         e.target.value = '';
     });
@@ -70,10 +93,12 @@
 
     //------------------------------------------------------------------------------------------------------------------
     function setState(st) {
-        const first = !S || S.name !== st.name;
+        const first = !S || S.name !== st.name, wasTracking = S && S.tracking;
         S = st;
         if (first) { cur = 0; fit(); }
         if (S.tracking && S.track_pos !== null) cur = S.track_pos;          // follow the tracker
+        if (wasTracking && !S.tracking && S.track_pos !== null && !userStopped) cur = S.track_pos;   // land on the frame where it stopped
+        if (!S.tracking) userStopped = false;
         if (S.version !== ver && !loadingLabels) loadLabels();
         else if (S.decoding || first) drawTimeline();         // the grey "not decoded yet" part shrinks
         info(); draw();
@@ -145,6 +170,38 @@
         if (drag) { g.strokeStyle = '#00e5ff'; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
         prefetch();
         drawCursorOnTimeline();
+        drawLoupe();
+    }
+
+    //------------------------------------------------------------------------------------------------------------------
+    // loupe: the box of this frame, enlarged, next to the box of the key frame it came from - is it still the same object?
+    //------------------------------------------------------------------------------------------------------------------
+    function keyBefore(i) {                           // nearest key frame with a box at or before i (else the first one after)
+        for (let j = Math.min(i, L.length - 1); j >= 0; j--) { const l = L[j]; if (l && l[0] === 'm') return j; }
+        for (let j = i + 1; j < L.length; j++) { const l = L[j]; if (l && l[0] === 'm') return j; }
+        return -1;
+    }
+    function crop(canvas, i, box, col) {
+        const c = canvas.getContext('2d'), W = canvas.width, H = canvas.height;
+        c.fillStyle = cssVar('--field'); c.fillRect(0, 0, W, H);
+        const im = i >= 0 && box ? frameImg(i) : null;
+        if (!im || !im.complete || !im.naturalWidth) return;
+        const s = k(), bw = (box[2] - box[0]) * s, bh = (box[3] - box[1]) * s, cx = (box[0] + box[2]) / 2 * s, cy = (box[1] + box[3]) / 2 * s;
+        const z = Math.min(W / (bw * 2.0), H / (bh * 1.6));            // the box plus as much context again around it
+        const sw = W / z, sh = H / z;
+        c.imageSmoothingEnabled = true;
+        c.drawImage(im, cx - sw / 2, cy - sh / 2, sw, sh, 0, 0, W, H);
+        c.strokeStyle = col; c.lineWidth = 2;
+        c.strokeRect(W / 2 - bw * z / 2, H / 2 - bh * z / 2, bw * z, bh * z);
+    }
+    function drawLoupe() {
+        if (!S) return;
+        const l = L[cur], kf = keyBefore(cur), kl = kf >= 0 ? L[kf] : null;
+        const nowBox = l && l.length >= 5 ? l.slice(1, 5) : (prevBox(cur) || []).slice(1, 5);
+        crop($('l_ref'), kf, kl ? kl.slice(1, 5) : null, '#00e5ff');
+        crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? ({m: '#00e5ff', t: '#30d158', i: '#ff9f0a'}[l[0]]) : 'rgba(255,255,255,.6)');
+        $('l_ref_t').textContent = kf >= 0 ? `key frame ${kf}` : 'no key frame yet';
+        $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · no object' : ' · not labeled');
     }
 
     function info() {
@@ -152,7 +209,8 @@
         $('l_frame').textContent = S.decoding ? `frame ${cur}  (decoding: ${S.decoded} frames so far)` : `frame ${cur} / ${S.frames - 1}`;
         const l = L[cur];
         let kind = l ? SRC[l[0]] : 'not labeled';
-        if (l && l[0] === 't' && l.length > 5) kind += `  · appearance ${l[5]}`;
+        if (l && l[0] === 't' && l[5] !== null && l[5] !== undefined) kind += `  · appearance ${l[5]}`;
+        if (l && l[6]) kind += '  · check this frame';
         if (S.tracking) kind = `tracking ${S.model} …  ` + kind;
         $('l_kind').textContent = kind;
         $('l_why').textContent = !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : (S.decode_error ? S.decode_error : '');
@@ -165,6 +223,8 @@
             a.appendChild(document.createTextNode(name)); b.textContent = v; d.append(a, b); $('l_counts').appendChild(d);
         });
         $('l_out').textContent = 'saved to ' + S.out_dir.replace(/\\/g, '/');
+        if (!$('l_status').dataset.err) $('l_status').textContent = 'open: ' + S.source.split(/[\\/]/).slice(-2).join('/');
+        if (S.counts.labeled && $('l_source').value !== S.name && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
         markSpeed(S.speed);
     }
@@ -186,6 +246,8 @@
             for (let i = a; i < b && i < L.length; i++) { const l = L[i]; if (!l) continue; if (l[0] === 'm') { best = 'm'; break; } if (!best || l[0] === 't') best = l[0]; }
             if (best) { x.fillStyle = col[best]; x.fillRect(px, best === 'm' ? 0 : 6, 1, best === 'm' ? H : H - 12); }
         }
+        x.fillStyle = '#ff453a';                      // where the tracker stopped by itself or jumped: look here (, .)
+        for (let i = 0; i < L.length; i++) { const l = L[i]; if (l && l[6]) x.fillRect(Math.min(W - 3, Math.floor(i * W / n)) - 1, 0, 3, H); }
         if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(W * S.decoded / n, 0, W, H); }
         tlBase = x.getImageData(0, 0, W, H);
         drawCursorOnTimeline();
@@ -218,11 +280,38 @@
             return d;
         });
     }
-    function stopIfTracking() { if (S && S.tracking) { S.tracking = false; postJ('/label/stop').then(d => d.state && setState(d.state)); } }
+    function stopIfTracking() {
+        stopPlay();
+        if (S && S.tracking) { userStopped = true; S.tracking = false; postJ('/label/stop').then(d => d.state && setState(d.state)); }
+    }
     function toggleTrack() {
         if (!S) return;
-        if (S.tracking) { act('/label/stop'); return; }
+        stopPlay();
+        if (S.tracking) { userStopped = true; act('/label/stop'); return; }
         act('/label/track', {i: cur});
+    }
+    function check(dir) {                             // previous / next frame marked "check" (a jump, or where the tracker stopped)
+        for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && l[6]) { go(j); return; } }
+    }
+    function undo() {                                 // back one step; the cursor goes to the last label that is left at or before it
+        stopPlay();
+        act('/label/undo', {}, () => getJ('/label/labels').then(d => {
+            L = d.labels || []; ver = d.version;
+            let j = Math.min(cur, L.length - 1); while (j > 0 && !L[j]) j--;
+            go(Math.max(0, j)); drawTimeline();
+        }));
+    }
+    function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; info(); } }
+    function togglePlay() {                           // P: play the labels for review (no tracking), at the speed buttons' pace
+        if (playTimer) { stopPlay(); return; }
+        stopIfTracking();
+        const fps = S.fps * (S.speed || 4);
+        playTimer = setInterval(() => {
+            if (cur >= Math.min(S.frames, S.decoded) - 1) { stopPlay(); return; }
+            const im = frameImg(cur + 1);
+            if (im && im.complete) go(cur + 1);      // never runs ahead of the frames it can show
+        }, 1000 / fps);
+        $('l_kind').textContent = 'reviewing (P / Space: stop) …';
     }
     function key(dir) {                               // previous / next key frame (manual or absent)
         for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && (l[0] === 'm' || l[0] === 'a')) { go(j); return; } }
@@ -235,7 +324,7 @@
         e.preventDefault();
         if (document.activeElement && document.activeElement !== document.body) document.activeElement.blur();
         stopIfTracking();
-        const [x, y] = canvasPt(e); drag = {x0: x, y0: y, x1: x, y1: y};
+        const [x, y] = canvasPt(e); drag = {x0: x, y0: y, x1: x, y1: y, shift: e.shiftKey};
     });
     document.addEventListener('mousemove', e => { if (!drag) return; const [x, y] = canvasPt(e); drag.x1 = x; drag.y1 = y; draw(); });
     document.addEventListener('mouseup', e => {
@@ -245,7 +334,7 @@
         if (Math.abs(d.x1 - d.x0) < 3 || Math.abs(d.y1 - d.y0) < 3) { draw(); return; }
         const i = cur;
         L[i] = ['m', ...box]; draw();                 // at once on screen; the server confirms
-        act('/label/box', {i, box}, () => act('/label/track', {i}));
+        act('/label/box', {i, box}, () => { if (!d.shift) act('/label/track', {i}); });     // Shift+drag: key frame only
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
 
@@ -259,22 +348,33 @@
         if (t.tagName === 'BUTTON' && e.key === 'Enter') return;
         const step = e.shiftKey ? 10 : 1;
         let handled = true;
-        switch (e.key) {
+        // e.code = the physical key: the letters work with any keyboard layout (Russian: N is 'т', [ is 'х', ...)
+        if ((e.ctrlKey || e.metaKey) && e.code !== 'KeyZ') return;          // leave the browser's own shortcuts alone
+        switch (e.code) {
             case 'ArrowRight': stopIfTracking(); go(cur + step); break;
             case 'ArrowLeft': stopIfTracking(); go(cur - step); break;
             case 'Home': stopIfTracking(); go(0); break;
             case 'End': stopIfTracking(); go(S.frames - 1); break;
-            case '[': stopIfTracking(); key(-1); break;
-            case ']': stopIfTracking(); key(+1); break;
-            case ' ': toggleTrack(); break;
+            case 'BracketLeft': stopIfTracking(); key(-1); break;
+            case 'BracketRight': stopIfTracking(); key(+1); break;
+            case 'Space': if (playTimer) stopPlay(); else toggleTrack(); break;
+            case 'Comma': stopIfTracking(); check(-1); break;
+            case 'Period': stopIfTracking(); check(+1); break;
+            case 'KeyP': togglePlay(); break;
+            case 'KeyZ': if (e.ctrlKey || e.metaKey) undo(); else handled = false; break;
             case 'Escape': stopIfTracking(); break;
-            case 'n': case 'N': {
+            case 'KeyN': {
                 const i = cur;
                 act('/label/absent', {i, to_next_key: e.shiftKey}, () => { if (!e.shiftKey) go(i + 1); });
                 break;
             }
-            case 'i': case 'I': act('/label/interp', {i: cur}); break;
-            case 'x': case 'X': act('/label/clear', {i: cur}); break;
+            case 'KeyI': act('/label/interp', {i: cur}); break;
+            case 'KeyK': {                            // this box is right: make it a key frame (no tracking)
+                const l = L[cur];
+                if (l && l.length >= 5 && l[0] !== 'm') act('/label/box', {i: cur, box: l.slice(1, 5)});
+                break;
+            }
+            case 'KeyX': act('/label/clear', {i: cur}); break;
             case 'Delete': case 'Backspace': act('/label/delete', {i: cur}); break;
             default: handled = false;
         }
