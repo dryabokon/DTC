@@ -83,6 +83,9 @@ class TestLabel(unittest.TestCase):
         np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=1.1)   # halfway from the +2 box at 20 to 40
         self.assertEqual(S.set_absent(50, to_next_key=True), N - 50)
         self.assertIsNone(S.labels[N - 1]['box'])
+        S.labels[45] = {'src': 'track', 'box': truth(45)}; S.labels[46] = {'src': 'track', 'box': truth(46)}
+        S.delete(45)                                           # delete from here on a tracked frame: no hole, the rest goes too
+        self.assertIsNone(S.labels[45]); self.assertIsNone(S.labels[46]); self.assertEqual(S.labels[40]['src'], 'manual')
         S.delete(20)                                           # a key frame removed: what hung on it goes too
         self.assertIsNone(S.labels[20]); self.assertIsNone(S.labels[30]); self.assertEqual(S.labels[40]['src'], 'manual')
         with self.assertRaises(ValueError):

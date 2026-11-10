@@ -278,6 +278,7 @@ class LabelSession:
         """Before an operator action: what Ctrl+Z goes back to (dicts are replaced, never changed in place)."""
         self.undo_stack.append(list(self.labels))
         del self.undo_stack[:-UNDO_DEPTH]
+        self.stop_reason = None             # the operator acts on it: the stop message is done (its red marks stay)
     # ----------------------------------------------------------------------------------------------------------------------
     def undo(self):
         """Back to the labels before the last action (a whole tracking run is one action). Returns how many are left."""
@@ -328,15 +329,15 @@ class LabelSession:
         return end - i
     # ----------------------------------------------------------------------------------------------------------------------
     def delete(self, i):
-        """Remove the label of frame i (a key frame too); tracked frames after it no longer have a start: cleared as well."""
+        """Delete from here: the label of frame i and what the tracker / interpolation put after it, up to the next key frame.
+        Always the same, on a key frame or a tracked one: removing a single tracked frame left a hole, and a frame without
+        a label reads as "no object" in the benchmark."""
         self.stop_tracking('label deleted')
         with self.lock:
             i = self._check(i)
             self._snapshot()
-            was_key = bool(self.labels[i] and self.labels[i]['src'] in MANUAL)
             self.labels[i] = None
-            if was_key:
-                self._clear_after(i)
+            self._clear_after(i)
             self._changed()
     # ----------------------------------------------------------------------------------------------------------------------
     def clear_after(self, i):
