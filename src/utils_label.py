@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 CACHE_DIR = os.path.join(REPO, 'runs', 'labels')
 CLIPS_DIR = os.path.join(REPO, 'clips')
-UPLOAD_DIR = os.path.join(CACHE_DIR, '_uploads')
+UPLOAD_DIR = os.path.join(REPO, 'datasets', 'videos', 'uploads')    # <name>/<name>.mp4, like any dataset sequence
 CACHE_WIDTH = 1280                  # frames wider than this are cached (and tracked) downscaled, like the benchmark's max_width
 JPEG_Q = 92
 SAVE_EVERY = 100
@@ -63,12 +63,13 @@ def _write_json(path, value, **kw):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(value, f, **kw)
 # ----------------------------------------------------------------------------------------------------------------------
-def projects():
+def projects(clips_dir=None):
     """Label projects already in clips/ (folders with label.json): [{name, source, frames, labeled}]."""
+    clips_dir = clips_dir or CLIPS_DIR
     out = []
-    if os.path.isdir(CLIPS_DIR):
-        for n in sorted(os.listdir(CLIPS_DIR)):
-            p = os.path.join(CLIPS_DIR, n, 'label.json')
+    if os.path.isdir(clips_dir):
+        for n in sorted(os.listdir(clips_dir)):
+            p = os.path.join(clips_dir, n, 'label.json')
             if os.path.isfile(p):
                 try:
                     m = _read_json(p)
@@ -505,7 +506,9 @@ def open_session(source, model='NANO', **kw):
     """Opens a video for labeling (the previous session is saved and closed). source: a file path, a listed source name, or
     the name of an existing label project in clips/."""
     global _SESSION
-    path = resolve(source)
+    path, name = resolve(source)
+    if name and not kw.get('name'):
+        kw['name'] = name
     with _SESSION_LOCK:
         if _SESSION is not None:
             _SESSION.close()
@@ -520,39 +523,52 @@ def close_session(save=True):
             _SESSION.close(save=save)
         _SESSION = None
 # ----------------------------------------------------------------------------------------------------------------------
-def resolve(spec):
+def resolve(spec, clips_dir=None):
+    """spec -> (video path, project name or None). A label project whose source video is gone (moved, deleted) opens from
+    its own copy clips/<name>/video.mp4 - the same frames, so the labels still fit."""
+    clips_dir = clips_dir or CLIPS_DIR
     spec = str(spec or '').strip().strip('"')
     if not spec:
         raise ValueError('no video given')
-    for p in projects():
-        if spec == p['name'] and p.get('source') and os.path.isfile(p['source']):
-            return p['source']
+    for p in projects(clips_dir):
+        if spec == p['name']:
+            if p.get('source') and os.path.isfile(p['source']):
+                return p['source'], p['name']
+            own = os.path.join(clips_dir, p['name'], 'video.mp4')
+            if os.path.isfile(own):
+                return own, p['name']
+            raise ValueError(f"label project {p['name']}: its video is gone ({p.get('source')}) and there is no clips/{p['name']}/video.mp4")
     if os.path.isfile(spec):
-        return spec
+        return spec, None
     import utils_sources
     name, source, gt = utils_sources.resolve_source(spec)
     if not os.path.isfile(source):
         raise ValueError(f'labeling needs a video file, not {source} (record a camera / stream to a file first)')
-    return source
+    return source, None
 # ----------------------------------------------------------------------------------------------------------------------
 def video_sources():
-    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/), uploads."""
+    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too)."""
     import utils_sources
     out = [{'name': p['name'], 'label': f"{p['name']} (label project, {p['labeled'] or 0} / {p['frames'] or '?'} frames)"} for p in projects()]
     for s in utils_sources.list_sources():
         if os.path.isfile(str(s['source'])):
             out.append({'name': s['name'], 'label': s['label']})
-    if os.path.isdir(UPLOAD_DIR):
-        for f in sorted(os.listdir(UPLOAD_DIR)):
-            out.append({'name': os.path.join(UPLOAD_DIR, f).replace('\\', '/'), 'label': f'{f} (uploaded)'})
     return out
 # ----------------------------------------------------------------------------------------------------------------------
-def save_upload(file_storage):
-    """A video sent from the browser -> runs/labels/_uploads/<name>; returns its path."""
-    os.makedirs(UPLOAD_DIR, exist_ok=True)
+def save_upload(file_storage, upload_dir=None):
+    """A video sent from the browser -> datasets/videos/uploads/<name>/<name>.<ext> (the dataset layout, so it is listed as
+    a source 'uploads/<name>' everywhere, and kept outside runs/, which gets cleaned). A name already there is never
+    overwritten: <name>_2, <name>_3, ... Returns the path."""
+    upload_dir = upload_dir or UPLOAD_DIR
     base, ext = os.path.splitext(os.path.basename(file_storage.filename or 'video.mp4'))
-    name = safe_name(base) + (ext.lower() if re.fullmatch(r'\.[A-Za-z0-9]{1,5}', ext or '') else '.mp4')
-    path = os.path.join(UPLOAD_DIR, name)
+    ext = ext.lower() if re.fullmatch(r'\.[A-Za-z0-9]{1,5}', ext or '') else '.mp4'
+    base = safe_name(base)
+    name, i = base, 1
+    while os.path.exists(os.path.join(upload_dir, name)):
+        i += 1
+        name = f'{base}_{i}'
+    os.makedirs(os.path.join(upload_dir, name))
+    path = os.path.join(upload_dir, name, name + ext)
     file_storage.save(path)
     return path
 # ----------------------------------------------------------------------------------------------------------------------

@@ -124,6 +124,34 @@ class TestLabel(unittest.TestCase):
         S.clips_dir = os.path.join(self.tmp, 'clips2')
         self.assertEqual(S._free_name('other'), 'other_2')
 
+    def test_40_upload_never_overwrites(self):
+        class FS:                                              # what Flask hands over: .filename, .save(path)
+            def __init__(self, name, data): self.filename, self.data = name, data
+            def save(self, path):
+                with open(path, 'wb') as f: f.write(self.data)
+        up = os.path.join(self.tmp, 'uploads')
+        a = UL.save_upload(FS('My Drone.MP4', b'one'), up)
+        b = UL.save_upload(FS('My Drone.MP4', b'two'), up)
+        self.assertEqual(a, os.path.join(up, 'My_Drone', 'My_Drone.mp4'))     # dataset layout: <set>/<name>/<name>.mp4
+        self.assertEqual(b, os.path.join(up, 'My_Drone_2', 'My_Drone_2.mp4'))
+        self.assertEqual(open(a, 'rb').read(), b'one')
+
+    def test_50_project_opens_from_its_clip_when_the_source_is_gone(self):
+        clips = os.path.join(self.tmp, 'clips5')
+        src = os.path.join(self.tmp, 'gone.mp4'); shutil.copyfile(self.video, src)
+        S = UL.LabelSession(src, clips_dir=clips, cache_dir=os.path.join(self.tmp, 'cache5'))
+        t0 = time.time()
+        while S.total is None and time.time() - t0 < 30:
+            time.sleep(0.05)
+        S.set_box(5, truth(5)); S.close()
+        self.assertEqual(UL.resolve('gone', clips), (src, 'gone'))
+        os.remove(src)
+        path, name = UL.resolve('gone', clips)
+        self.assertEqual((path, name), (os.path.join(clips, 'gone', 'video.mp4'), 'gone'))
+        R = UL.LabelSession(path, name=name, clips_dir=clips, cache_dir=os.path.join(self.tmp, 'cache5'))
+        self.addCleanup(R.close)
+        self.assertEqual(R.labels[5]['src'], 'manual')
+
     @staticmethod
     def _iou(a, b):
         ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))

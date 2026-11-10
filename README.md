@@ -53,7 +53,8 @@ Behind a full-tunnel VPN (Windows blocked, WSL not) the harness reaches the Pi t
 http://localhost:8509.
 
 ## Labeling (Label tab)
-Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload): draw a box -> the
+Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload - it lands in
+`datasets/videos/uploads/<name>/`, never overwriting; copying a file to `datasets/videos/<set>/<name>/` by hand works too): draw a box -> the
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
@@ -63,7 +64,7 @@ Del: remove this frame's label · timeline under the frame: click / drag to go t
 The video is decoded once into `runs/labels/<name>/frames/` (<= 1280 px wide; the frame numbers are cv2's, as in the
 benchmark). Every change is saved to `clips/<name>/` (`video.mp4`, `gt.jsonl` = `{"frame", "box" in source px | null, "src":
 manual|track|interp|absent}`, `label.json`): it is a benchmark sequence (`clip:<name>`) at once; opening the same video again
-resumes it. Frames never labeled are not written (= no object). Code: `src/utils_label.py`, `src/static/label.js`.
+resumes it (if the source video is gone, from the clip's own `video.mp4`). Frames never labeled are not written (= no object). Code: `src/utils_label.py`, `src/static/label.js`.
 
 ## Tests
 ```
