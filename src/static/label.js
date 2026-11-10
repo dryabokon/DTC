@@ -146,7 +146,11 @@
         }
         return im;
     }
-    function prefetch() { if (!S) return; for (let d = 1; d <= 6; d++) { frameImg(cur + d); if (d <= 3) frameImg(cur - d); } }
+    function prefetch() {                             // review playback reads ahead further: it is not held up by loading
+        if (!S) return;
+        const ahead = playTimer ? 30 : 6;
+        for (let d = 1; d <= ahead; d++) { if (cur + d < S.decoded) frameImg(cur + d); if (d <= 3 && cur - d >= 0) frameImg(cur - d); }
+    }
 
     function fit() {                                  // canvas = the cache frame size, shown as large as the stage allows
         if (!S) return;
@@ -296,11 +300,16 @@
         stopPlay();
         if (S && S.tracking) { userStopped = true; S.tracking = false; postJ('/label/stop').then(d => d.state && setState(d.state)); }
     }
+    let trackReq = Promise.resolve();
     function toggleTrack() {
         if (!S) return;
         stopPlay();
-        if (S.tracking) { userStopped = true; act('/label/stop'); return; }
-        act('/label/track', {i: cur});
+        if (S.tracking) {                             // after the start request, so a quick Stop cannot overtake it
+            userStopped = true; S.tracking = false; updateBar();
+            trackReq.then(() => act('/label/stop')); return;
+        }
+        S.tracking = true; updateBar();                 // Track turns into Stop at once: a quick second click stops it
+        trackReq = act('/label/track', {i: cur});
     }
     function check(dir) {                             // previous / next frame marked "check" (a jump, or where the tracker stopped)
         for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && l[6]) { go(j); return; } }
@@ -360,11 +369,17 @@
         e.preventDefault();
         const px = e.deltaMode === 1 ? e.deltaY * 34 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
         const d = px || (e.shiftKey ? e.deltaX : 0);              // Shift+wheel turns into deltaX in some browsers
-        if (d * wheelAcc < 0) wheelAcc = 0;                       // turned the other way: the first notch counts at once
-        wheelAcc += d;
-        const notch = 100, n = Math.trunc(wheelAcc / notch);      // a wheel notch: 100 px in Chrome / Edge, 3 lines in Firefox
+        let n;
+        if (Math.abs(d) >= 50) {                                  // a mouse wheel: one event per notch, 100-125 px (by browser,
+            wheelAcc = 0;                                          // screen scale); a fast spin can merge notches into one event
+            n = Math.sign(d) * Math.max(1, Math.round(Math.abs(d) / 110));
+        } else {                                                  // a touchpad: many small deltas, about 100 px per frame
+            if (d * wheelAcc < 0) wheelAcc = 0;                   // turned the other way: count from zero
+            wheelAcc += d;
+            n = Math.trunc(wheelAcc / 100);
+            wheelAcc -= n * 100;
+        }
         if (!n) return;
-        wheelAcc -= n * notch;
         stopIfTracking();
         go(cur + n * (e.shiftKey ? 10 : 1));
     }

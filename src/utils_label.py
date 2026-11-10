@@ -27,6 +27,7 @@ import time
 import cv2
 import numpy as np
 
+import utils_platform
 import utils_tracker_sot
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -542,7 +543,7 @@ class LabelSession:
         tmp = os.path.join(self.out_dir, 'gt.jsonl.tmp')
         with open(tmp, 'w', encoding='utf-8') as f:
             f.write('\n'.join(rows) + ('\n' if rows else ''))
-        os.replace(tmp, os.path.join(self.out_dir, 'gt.jsonl'))
+        utils_platform.replace_file(tmp, os.path.join(self.out_dir, 'gt.jsonl'))     # the benchmark may be reading it
         _write_json(os.path.join(self.out_dir, 'label.json'), meta, indent=1)
         self._ensure_video()
     # ----------------------------------------------------------------------------------------------------------------------

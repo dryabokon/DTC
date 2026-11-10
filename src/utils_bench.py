@@ -243,7 +243,7 @@ def write_json(path, value):
     tmp = path + '.tmp'
     with open(tmp, 'w', encoding='utf-8') as f:
         json.dump(value, f, indent=2)
-    os.replace(tmp, path)
+    utils_platform.replace_file(tmp, path)
 # ----------------------------------------------------------------------------------------------------------------------
 def _alive(pid):
     return utils_platform.pid_alive(pid)
