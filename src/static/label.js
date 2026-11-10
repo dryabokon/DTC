@@ -351,6 +351,25 @@
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
 
+    // mouse wheel over the frame or the timeline: down = next frame, up = previous (Shift: 10). The deltas add up, so a
+    // touchpad (many small deltas) steps about one frame per notch-sized move instead of racing ahead
+    let wheelAcc = 0;
+    function onWheel(e) {
+        if (!S || drag) return;
+        e.preventDefault();
+        const px = e.deltaMode === 1 ? e.deltaY * 34 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
+        const d = px || (e.shiftKey ? e.deltaX : 0);              // Shift+wheel turns into deltaX in some browsers
+        if (d * wheelAcc < 0) wheelAcc = 0;                       // turned the other way: the first notch counts at once
+        wheelAcc += d;
+        const notch = 100, n = Math.trunc(wheelAcc / notch);      // a wheel notch: 100 px in Chrome / Edge, 3 lines in Firefox
+        if (!n) return;
+        wheelAcc -= n * notch;
+        stopIfTracking();
+        go(cur + n * (e.shiftKey ? 10 : 1));
+    }
+    cv.addEventListener('wheel', onWheel, {passive: false});
+    tl.addEventListener('wheel', onWheel, {passive: false});
+
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------

@@ -56,7 +56,7 @@ http://localhost:8509.
 Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload - it lands in
 `datasets/videos/uploads/<name>/`, never overwriting; copying a file to `datasets/videos/<set>/<name>/` by hand works too): draw a box -> the
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
-stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, Shift: 10 frames),
+stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, or the mouse wheel over the frame / timeline; Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
 Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
 cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
