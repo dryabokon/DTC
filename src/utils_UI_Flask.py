@@ -163,6 +163,123 @@ class WebApp:
             s = utils_bench.task_series(request.args.get('id', ''), request.args.get('task', '0'))
             return s if s is not None else ({'error': 'no per-frame data (run made by an older version)'}, 404)
 # ----------------------------------------------------------------------------------------------------------------------
+        # Label tab (utils_label): one object per frame, boxes by the operator + the click-to-track tracker
+        def _label_reply(fn):
+            import utils_label
+            S = utils_label.current()
+            if S is None:
+                return {'ok': False, 'error': 'no video open for labeling'}, 409
+            try:
+                r = fn(S, request.get_json(silent=True) or {})
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'result': r, 'state': S.state()}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/sources', methods=['GET'])
+        def label_sources():
+            import utils_label, utils_tracker_sot
+            S = utils_label.current()
+            return {'sources': utils_label.video_sources(), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
+                    'default_model': getattr(self.config, 'sot_tracking_model', 'NANO'), 'speeds': list(utils_label.SPEEDS),
+                    'state': S.state() if S else None}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/open', methods=['POST'])
+        def label_open():
+            import utils_label
+            d = request.get_json(silent=True) or {}
+            try:
+                S = utils_label.open_session(d.get('source'), model=d.get('model') or getattr(self.config, 'sot_tracking_model', 'NANO'),
+                                             name=utils_label.safe_name(d['name']) if d.get('name') else None)     # name: tests only
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'state': S.state()}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/close', methods=['POST'])
+        def label_close():
+            import utils_label
+            utils_label.close_session(save=not (request.get_json(silent=True) or {}).get('discard'))
+            return {'ok': True}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/upload', methods=['POST'])
+        def label_upload():
+            import utils_label
+            f = request.files.get('file')
+            if f is None or not f.filename:
+                return {'ok': False, 'error': 'no file'}, 400
+            path = utils_label.save_upload(f)
+            try:
+                S = utils_label.open_session(path, model=request.form.get('model') or getattr(self.config, 'sot_tracking_model', 'NANO'))
+            except ValueError as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'state': S.state()}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/state', methods=['GET'])
+        def label_state():
+            import utils_label
+            S = utils_label.current()
+            return {'state': S.state() if S else None}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/labels', methods=['GET'])
+        def label_labels():
+            import utils_label
+            S = utils_label.current()
+            return S.labels_compact() if S else ({'error': 'no video open for labeling'}, 409)
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/frame', methods=['GET'])
+        def label_frame():
+            import utils_label
+            from flask import send_file
+            S = utils_label.current()
+            p = S.frame_file(int(request.args.get('i', -1))) if S else None
+            if p is None:
+                return {'error': 'frame not decoded (yet)'}, 404
+            r = send_file(p, mimetype='image/jpeg')
+            r.headers['Cache-Control'] = 'no-store'          # a reopened project may reuse a name with other frames
+            return r
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/box', methods=['POST'])
+        def label_box():
+            return _label_reply(lambda S, d: S.set_box(d.get('i'), d.get('box') or []))
+
+        @self.app.route('/label/absent', methods=['POST'])
+        def label_absent():
+            return _label_reply(lambda S, d: S.set_absent(d.get('i'), bool(d.get('to_next_key'))))
+
+        @self.app.route('/label/delete', methods=['POST'])
+        def label_delete():
+            return _label_reply(lambda S, d: S.delete(d.get('i')))
+
+        @self.app.route('/label/clear', methods=['POST'])
+        def label_clear():
+            return _label_reply(lambda S, d: S.clear_after(d.get('i')))
+
+        @self.app.route('/label/interp', methods=['POST'])
+        def label_interp():
+            return _label_reply(lambda S, d: S.interpolate(d.get('i')))
+
+        @self.app.route('/label/track', methods=['POST'])
+        def label_track():
+            return _label_reply(lambda S, d: S.start_tracking(d.get('i'), d.get('speed')))
+
+        @self.app.route('/label/stop', methods=['POST'])
+        def label_stop():
+            return _label_reply(lambda S, d: S.stop_tracking('stopped by user'))
+
+        @self.app.route('/label/model', methods=['POST'])
+        def label_model():
+            return _label_reply(lambda S, d: S.set_model(d.get('model', '')))
+
+        @self.app.route('/label/speed', methods=['POST'])
+        def label_speed():
+            import utils_label
+            def f(S, d):
+                v = int(d.get('speed', 1))
+                if v not in utils_label.SPEEDS:
+                    raise ValueError(f'speed one of {utils_label.SPEEDS}')
+                S.speed = v
+                return v
+            return _label_reply(f)
+# ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():
             if self.P is not None:
@@ -343,6 +460,8 @@ class WebApp:
     # ----------------------------------------------------------------------------------------------------------------------
     def stop(self):
         self.stop_event.set()  # stops gen_frames loop
+        if 'utils_label' in sys.modules and sys.modules['utils_label'].current() is not None:
+            sys.modules['utils_label'].current().close()      # stops a running track, saves the labels
         if hasattr(self, "_server"):
             self._server.shutdown()  # stops the HTTP server
 # ----------------------------------------------------------------------------------------------------------------------

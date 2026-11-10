@@ -52,6 +52,19 @@ Live video holds while nobody watches it (`--idle_pause_s`, default 5 s) and whi
 Behind a full-tunnel VPN (Windows blocked, WSL not) the harness reaches the Pi through WSL; `dtc pi open` gives the UI on
 http://localhost:8509.
 
+## Labeling (Label tab)
+Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload): draw a box -> the
+click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
+stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, Shift: 10 frames),
+draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
+Space: track / stop · Esc / right click: stop · [ ]: previous / next key frame · N: no object on this frame (Shift+N: up to
+the next key frame) · I: straight line between key frames on unlabeled frames · X: clear tracked frames after this one ·
+Del: remove this frame's label · timeline under the frame: click / drag to go there.
+The video is decoded once into `runs/labels/<name>/frames/` (<= 1280 px wide; the frame numbers are cv2's, as in the
+benchmark). Every change is saved to `clips/<name>/` (`video.mp4`, `gt.jsonl` = `{"frame", "box" in source px | null, "src":
+manual|track|interp|absent}`, `label.json`): it is a benchmark sequence (`clip:<name>`) at once; opening the same video again
+resumes it. Frames never labeled are not written (= no object). Code: `src/utils_label.py`, `src/static/label.js`.
+
 ## Tests
 ```
 dtc test unit          tests/unit on the Pi (unittest, seconds)

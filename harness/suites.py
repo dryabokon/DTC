@@ -173,10 +173,45 @@ def _pause_check(R, pi):
             f'{(b["frames"] - a["frames"]) / 2 if a and b else 0:.0f} fps, SOT {"on" if b and b["sot_active"] else "off"}')
     pi.key('Escape'); pi.wait_for(lambda s: not s['sot_active'], 3)
     time.sleep(1)
-    pos = (pi.status() or {}).get('video_pos') or 0
+    st = pi.wait_for(lambda s: (s.get('video_pos') or 0) > 30, 3)      # the video may just have looped to its start
+    pos = (st or pi.status() or {}).get('video_pos') or 0
     pi.key('r')
     st = pi.wait_for(lambda s: (s.get('video_pos') or 999) < 15, 3)
     R.check('R: video from the start', bool(st and pos > 15 and st['video_pos'] < 15), f'frame {pos} -> {st and st["video_pos"]}')
+# ----------------------------------------------------------------------------------------------------------------------
+def _label_check(R, pi):
+    """Label tab through the web API: open campus as a throw-away project, a box on frame 0, the tracker follows it, the clip
+    is saved for the benchmark; the project (clips/smoke_label, runs/labels/smoke_label) is removed afterwards."""
+    name = 'smoke_label'
+    code, r = pi.post('/label/open', js={'source': 'campus', 'name': name, 'model': 'NANO'})
+    if not R.check('label: opens a video', code == 200 and isinstance(r, dict) and r.get('ok'), f'HTTP {code} {r}'):
+        return
+    for _ in range(40):
+        _, st = pi.get('/label/state')
+        if ((st or {}).get('state') or {}).get('decoded', 0) >= 60:
+            break
+        time.sleep(0.25)
+    pi.post('/label/speed', js={'speed': 0})
+    code, r = pi.post('/label/box', js={'i': 0, 'box': list(CAMPUS_STATIC_TARGET)})
+    R.check('label: a box on frame 0 is a key frame', code == 200 and r.get('ok') and r['state']['counts']['manual'] == 1, f'HTTP {code} {r}')
+    code, r = pi.post('/label/track', js={'i': 0})
+    time.sleep(2.0)
+    pi.post('/label/stop', js={})
+    _, st = pi.get('/label/state')
+    st = (st or {}).get('state') or {}
+    n = (st.get('counts') or {}).get('track', 0)
+    R.check('label: the tracker follows the box', n >= 30, f'{n} tracked frames in 2 s, stopped: {st.get("stop_reason")}')
+    seqs = []
+    for _ in range(20):                            # video.mp4 is written once the whole video is decoded
+        _, opts = pi.get('/bench/options')
+        seqs = [s['id'] for s in ((opts or {}).get('sequences') or [])] if isinstance(opts, dict) else []
+        if 'clip:' + name in seqs:
+            break
+        time.sleep(0.5)
+    R.check('label: the clip is a benchmark sequence', 'clip:' + name in seqs)
+    pi.post('/label/close', js={'discard': True})
+    pi.rm(f'{pi.repo}/clips/{name}')
+    pi.rm(f'{pi.repo}/runs/labels/{name}')
 # ----------------------------------------------------------------------------------------------------------------------
 def unit(R, pi=None, sync=True, local=False):
     standalone = pi is None
@@ -209,6 +244,8 @@ def smoke(R, sync=True, local=False):
     _sot_models_check(R, pi)
     R.section('click-to-track benchmark (web API)')
     _bench_check(R, pi)
+    R.section('labeling (Label tab, web API)')
+    _label_check(R, pi)
     R.section('pause (video file)')
     _pause_check(R, pi)
     R.section('detection + tracking on (YOLO NCNN + DeepSORT)' if pi.name == 'pi' else 'detection + tracking on (YOLO .pt + DeepSORT)')

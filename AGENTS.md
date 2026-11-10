@@ -8,7 +8,7 @@ file named below before doing that task).
 ## What this is
 
 DTC = detection, tracking, classification. The app (`src/main.py`) grabs a source (video file, camera, RTSP), runs YOLO
-detection / DeepSORT / click-to-track (SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs**.
+detection / DeepSORT / click-to-track (SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs · Label**.
 The laptop (Windows) is where code is edited and where the harness (`dtc`) drives the app. Two platforms, one code base:
 
 | | ARM: Raspberry Pi 5 (8 GB, CPU only) | x86: this laptop (Windows, CUDA if present) |
@@ -29,6 +29,7 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 - `src/configs/config_common.py` — every app setting; each one is also a CLI flag (`--name value`).
 - `src/utils_tracker_sot.py` — click-to-track models (`SOT_MODELS`: NANO default, VIT, SIAMBAN, SIAMFC, MIL), loss rules.
 - `src/utils_bench.py`, `src/bench_worker.py`, `src/bench_render.py` — the SOT benchmark (method in their docstrings).
+- `src/utils_label.py`, `src/static/label.js` — the Label tab: one object per frame, operator + tracker -> `clips/<name>/gt.jsonl`.
 - `src/utils_sources.py` — what `--source` accepts (aliases, `images/`, `datasets/videos/`, cameras, URLs).
 - `harness/` — `pi_app.py` (Pi control), `suites.py` (tests and `LIMITS`), `bench.py`, `datasets.py`; `infrastructure/pi.py`
   (find / sync / run on the Pi).
