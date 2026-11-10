@@ -67,14 +67,20 @@ class TestLabel(unittest.TestCase):
         for j in range(11, 30):                                # pretend the tracker ran
             S.labels[j] = {'src': 'track', 'box': truth(j)}
         S.set_box(40, truth(40))
-        S.set_box(20, truth(20))                               # a correction: tracked 21..29 are gone, 40 stays
+        S.set_box(15, S.labels[15]['box'])                     # K: the tracked box made a key frame - 16..29 stay
+        self.assertEqual(S.labels[15]['src'], 'manual'); self.assertEqual(S.labels[29]['src'], 'track')
+        S.undo()
+        S.set_box(20, [v + 2 for v in truth(20)])              # a correction (another box): tracked 21..29 are gone, 40 stays
         self.assertTrue(all(S.labels[j] is None for j in range(21, 30)))
         self.assertEqual(S.labels[40]['src'], 'manual')
         self.assertEqual(S.labels[15]['src'], 'track')
-        S.labels[35] = {'src': 'track', 'box': truth(35)}
-        self.assertEqual(S.interpolate(25), 18)                # 21..39 without the tracked 35
-        self.assertEqual(S.labels[35]['src'], 'track')
-        np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=0.6)
+        S.labels[35] = {'src': 'track', 'box': [0, 0, 5, 5]}
+        self.assertEqual(S.interpolate(25), 19)                # 21..39, the tracked 35 replaced too
+        self.assertEqual(S.labels[35]['src'], 'interp')
+        S.undo()                                               # Ctrl+Z: the tracked frame is back
+        self.assertEqual(S.labels[35]['src'], 'track'); self.assertIsNone(S.labels[30])
+        S.interpolate(25)
+        np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=1.1)   # halfway from the +2 box at 20 to 40
         self.assertEqual(S.set_absent(50, to_next_key=True), N - 50)
         self.assertIsNone(S.labels[N - 1]['box'])
         S.delete(20)                                           # a key frame removed: what hung on it goes too
@@ -151,6 +157,29 @@ class TestLabel(unittest.TestCase):
         R = UL.LabelSession(path, name=name, clips_dir=clips, cache_dir=os.path.join(self.tmp, 'cache5'))
         self.addCleanup(R.close)
         self.assertEqual(R.labels[5]['src'], 'manual')
+
+    def test_60_jump_and_meet_rules(self):
+        J = UL.LabelSession._jump
+        B = lambda cx, cy: [cx - 10, cy - 20, cx + 10, cy + 20]                 # 20 x 40 box around a centre
+        steady = [B(20 + 4 * t, 70) for t in range(5)]                          # 4 px / frame to the right
+        self.assertEqual(J(steady, B(40, 70)), 0.0)                              # on course
+        self.assertGreater(J(steady, B(70, 70)), UL.JUMP_REL)                    # 30 px off in one frame
+        f5 = B(40, 64)                                                           # a swap sliding up over two frames:
+        self.assertEqual(J(steady, f5), 0.0)                                     # each step is small ...
+        self.assertGreater(J(steady[1:] + [f5], B(44, 54)), UL.JUMP2_REL)        # ... two of them are not
+
+    def test_70_run_that_misses_the_key_frame_is_marked(self):
+        S = self.session(model='NANO')
+        for i in range(len(S.labels)):
+            S.labels[i] = None
+        S.set_box(0, truth(0))
+        far = [200, 150, 240, 190]                                                # a key frame somewhere else
+        S.set_box(20, far)
+        S.speed = 0
+        S.start_tracking(0)
+        self.wait_tracking(S)
+        self.assertIn('does not meet the key frame 20', S.stop_reason)
+        self.assertTrue(S.labels[19].get('check'))
 
     @staticmethod
     def _iou(a, b):

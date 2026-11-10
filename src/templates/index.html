@@ -98,16 +98,17 @@
   table.grid { font-size: 13.5px; margin-top: 12px; } table.grid td, table.grid th { padding: 6px 14px; } table.grid td.n { text-align: right; } table.grid th { text-align: left; }
   .helpable { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
   /* Label tab: one object per frame, operator + tracker */
-  #labelView { min-height: 0; display: flex; }
+  #labelView { min-height: 0; min-width: 0; display: flex; }          /* min-width: a long stop message must not widen the page */
   #l_main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--video-bg); }
   #l_stage { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; padding: 10px; overflow: hidden; }
   #l_canvas { display: block; cursor: crosshair; border-radius: 4px; background: #000; }
   #l_bar { padding: 6px 12px 10px; background: var(--surface); border-top: 1px solid var(--line); }
   #l_info { display: flex; gap: 14px; align-items: baseline; margin-bottom: 5px; white-space: nowrap; overflow: hidden; }
-  #l_info .why { color: var(--warn); overflow: hidden; text-overflow: ellipsis; }
+  #l_info .why { color: var(--warn); flex: 1; min-width: 0; white-space: normal; }   /* the stop reason wraps, never cut */
   #l_timeline { width: 100%; height: 26px; display: block; cursor: pointer; border-radius: 3px; }
   .keys { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; color: var(--muted); }
   .keys kbd { align-self: start; font: 11px ui-monospace, Consolas, monospace; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; white-space: nowrap; justify-self: start; }
+  .loupe { display: flex; gap: 8px; } .loupe figure { margin: 0; } .loupe canvas { display: block; border-radius: 4px; border: 1px solid var(--line); } .loupe figcaption { margin-top: 2px; font-size: 11px; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #l_counts div { display: flex; justify-content: space-between; }
   .ganttHead { display: flex; align-items: center; gap: 6px; } .ganttHead select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
@@ -218,6 +219,12 @@
     <div class="row"><label>speed</label></div>
     <div class="seg" id="l_speed"></div>
 
+    <div class="group">Same object?</div>
+    <div class="loupe">
+      <figure><canvas id="l_ref" width="112" height="140"></canvas><figcaption id="l_ref_t" class="hint"></figcaption></figure>
+      <figure><canvas id="l_now" width="112" height="140"></canvas><figcaption id="l_now_t" class="hint"></figcaption></figure>
+    </div>
+
     <div class="group">Labels</div>
     <div id="l_counts" class="hint"></div>
     <div id="l_out" class="hint" style="margin-top:6px;word-break:break-all"></div>
@@ -225,15 +232,20 @@
     <div class="group">Keys</div>
     <div class="keys">
       <kbd>drag</kbd><span>box on this frame → tracking from it</span>
+      <kbd>Shift+drag</kbd><span>box only, no tracking (occlusions: then I)</span>
       <kbd>Space</kbd><span>track from this frame / stop</span>
       <kbd>← →</kbd><span>frame back / forward (Shift: 10)</span>
-      <kbd>Home End</kbd><span>first / last frame</span>
+      <kbd>, .</kbd><span>previous / next red mark: the tracker stopped or jumped there</span>
       <kbd>[ ]</kbd><span>previous / next key frame</span>
+      <kbd>P</kbd><span>play the labels to review them / stop</span>
       <kbd>N</kbd><span>no object on this frame, next frame</span>
       <kbd>Shift+N</kbd><span>no object up to the next key frame</span>
-      <kbd>I</kbd><span>straight line between key frames, on unlabeled frames</span>
+      <kbd>K</kbd><span>this box is right: make it a key frame</span>
+      <kbd>I</kbd><span>straight line between the key frames around (replaces tracked frames)</span>
       <kbd>X</kbd><span>clear tracked frames after this one</span>
       <kbd>Del</kbd><span>remove this frame's label</span>
+      <kbd>Ctrl+Z</kbd><span>undo (a whole tracking run is one step)</span>
+      <kbd>Home End</kbd><span>first / last frame</span>
       <kbd>Esc</kbd><span>stop tracking (right click too)</span>
     </div>
   </aside>

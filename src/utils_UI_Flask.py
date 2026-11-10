@@ -261,6 +261,10 @@ class WebApp:
         def label_track():
             return _label_reply(lambda S, d: S.start_tracking(d.get('i'), d.get('speed')))
 
+        @self.app.route('/label/undo', methods=['POST'])
+        def label_undo():
+            return _label_reply(lambda S, d: S.undo())
+
         @self.app.route('/label/stop', methods=['POST'])
         def label_stop():
             return _label_reply(lambda S, d: S.stop_tracking('stopped by user'))
