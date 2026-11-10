@@ -19,6 +19,7 @@ class WebApp:
         self.stop_event  = threading.Event()
         self.folder_out = './output/'
         self.config = config
+        self.port = int(getattr(config, 'ui_port', 8509) or 8509)
         self.is_config_updated = False
 
         self.app = Flask(__name__)
@@ -315,11 +316,11 @@ class WebApp:
             yield b'--frame\r\nContent-Type: image/jpeg\r\nContent-Length: ' + str(len(jpg)).encode() + b'\r\n\r\n' + jpg + b'\r\n'
     # ----------------------------------------------------------------------------------------------------------------------
     def run_web_server(self):
-        self._server = make_server('0.0.0.0', 8509, self.app,threaded=True)
+        self._server = make_server('0.0.0.0', self.port, self.app,threaded=True)
         self._server.serve_forever()
     # ----------------------------------------------------------------------------------------------------------------------
     def run_web_server_old(self):
-        self.app.run(host='0.0.0.0', port=8509, debug=False)
+        self.app.run(host='0.0.0.0', port=self.port, debug=False)
         return
     # ----------------------------------------------------------------------------------------------------------------------
     def get_local_ip(self):
@@ -333,7 +334,7 @@ class WebApp:
         return ip
     # ----------------------------------------------------------------------------------------------------------------------
     def get_connection_string(self):
-        return f'http://{self.get_local_ip()}:8509/'
+        return f'http://{self.get_local_ip()}:{self.port}/'
     # ----------------------------------------------------------------------------------------------------------------------
     def set_image(self,image):
         self.image = image

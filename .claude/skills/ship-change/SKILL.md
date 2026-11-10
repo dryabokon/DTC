@@ -9,9 +9,11 @@ description: The DTC change loop - edit on the laptop, test locally, commit on a
 2. **Edit locally** (never on the Pi). Keep the file's line endings (CRLF in the working tree).
 3. **Local checks**
    ```
-   python -m unittest discover -s tests/unit -t .        # some tests skip on Windows (no torch / PyAV) - fine
+   python -m unittest discover -s tests/unit -t .        # some tests skip without torch / PyAV - fine
+   dtc test smoke --local                                 # the app on this x86 laptop (working tree, no commit needed)
    node --check src/static/bench.js                       # after JS edits
    ```
+   x86-only changes (laptop launcher, Windows cameras, local harness) end here: `dtc test ... --local` is their test.
 4. **Commit + push** (message: what and why; end with the attribution line the session asks for), then
    ```
    dtc pi sync

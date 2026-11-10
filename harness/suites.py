@@ -1,11 +1,13 @@
-"""Test suites run from this laptop against the Raspberry Pi. Each run -> runs/<suite>/NNNN (see runs.py).
+"""Test suites run from this laptop against a target: the Raspberry Pi (ARM, default) or this x86 laptop itself
+(--local: harness/local_app.Local, the working tree in the x86 venv). Each run -> runs/<suite>/NNNN, local runs ->
+runs/<suite>_x86/NNNN (metrics are compared with the previous run on the same platform only). See runs.py.
 
     unit         tests/unit on the Pi (unittest, seconds)
     smoke        ~2 min, before every push: unit + app start, frames, SOT click/Esc, detection on, clean shutdown
     integration  ~5 min: CLI, source switching (file, 1080p, dead URL, camera), SOT loss at the edge, Esc quits;
                  with --sim also the PC simulator stream and the drone detector + DeepSORT on it
     quality      metrics with limits, compared with the previous run: SOT loss detection (PETS ground truth),
-                 SOT on reference sim clips (clips/), app FPS per mode
+                 SOT on reference sim clips (clips/), app FPS per mode - Pi only (limits are Pi baselines)
 """
 import json
 import os
@@ -16,7 +18,7 @@ from harness import pi_app, runs
 # ----------------------------------------------------------------------------------------------------------------------
 ROOT = runs.ROOT
 PI_REPO = pi_app.REPO
-PI_VENV = 'source ~/venv/p311_dtc/bin/activate'
+PI_VENV = pi_app.VENV
 LIMITS = {                     # one place for every threshold
     'video_fps': 20.0, 'detect_fps': 3.0, 'mot_fps': 4.5, 'drone_mot_fps': 4.0,
     'pets_caught_pct': 50.0, 'pets_false_cancel': 3,
@@ -25,8 +27,29 @@ LIMITS = {                     # one place for every threshold
     'clip_on_target_pct': 88.0, 'clip_drift_gone': 35, 'clip_drift_visible': 30,
 }
 # ----------------------------------------------------------------------------------------------------------------------
+def target(local=False):
+    """The Pi (ARM, over SSH) or this laptop (x86) - the same interface (pi_app.AppClient + file helpers)."""
+    if local:
+        from harness import local_app
+        return local_app.Local()
+    return pi_app.Pi()
+# ----------------------------------------------------------------------------------------------------------------------
+def suite_name(suite, local=False):
+    return f'{suite}_x86' if local else suite
+# ----------------------------------------------------------------------------------------------------------------------
 def _prepare(R, pi, sync=True):
+    if pi.name == 'local':
+        R.section('this PC (x86)')
+        c = pi.commit()
+        R.manifest['target'] = 'local'
+        R.manifest['local'] = {'python': pi.python, 'commit': c[0], 'branch': c[1], 'tools_commit': c[2], 'working_tree': True}
+        R.log(f'   app python {pi.python} - runs the working tree (uncommitted changes included)')
+        if pi.app_pid():
+            R.log('   stopping the DTC session that was running here')
+            pi.stop()
+        return
     R.section('Pi')
+    R.manifest['target'] = 'pi'
     if sync:
         R.check('code synced to the Pi', pi.sync(), f'laptop {R.manifest["laptop"]["branch"]} @ {R.manifest["laptop"]["commit"]}')
     c = pi.commit()
@@ -35,12 +58,12 @@ def _prepare(R, pi, sync=True):
         R.log('   stopping the DTC session that was running on the Pi')
         pi.stop()
 # ----------------------------------------------------------------------------------------------------------------------
-def _app_folder(R):
-    return f'{PI_REPO}/runs/harness/{R.suite}-{R.number:04d}/'
+def _app_folder(R, pi):
+    return f'{pi.repo}/runs/harness/{R.suite}-{R.number:04d}/'
 # ----------------------------------------------------------------------------------------------------------------------
 def _start(R, pi, args, name='app'):
     t0 = time.time()
-    st = pi.start(f'{args} --folder_runs {_app_folder(R)}{name}/')
+    st = pi.start(f'{args} --folder_runs {_app_folder(R, pi)}{name}/')
     R.check(f'{name}: starts and answers /status', st is not None, f'{time.time() - t0:.0f} s' if st else pi.logs(15), seconds=time.time() - t0)
     return st
 # ----------------------------------------------------------------------------------------------------------------------
@@ -56,13 +79,13 @@ def _frames_flow(R, pi, name, seconds=4, min_fps=None):
 def _stop_and_collect(R, pi, name='app', expect_exit=0, files=('df_time.csv', 'df_track.csv', 'config.py', 'video_large.avi'), already_stopping=False):
     code = pi.exit_code() if already_stopping else pi.stop()
     R.check(f'{name}: exits cleanly', code == expect_exit, f'exit code {code}')
-    folder = f'{_app_folder(R)}{name}/0001'
-    rc, out, _ = pi.sh(f'ls {folder} 2>/dev/null')
-    have = out.split()
+    folder = f'{_app_folder(R, pi)}{name}/0001'
+    files = tuple(pi.video_name if f == 'video_large.avi' else f for f in files)
+    have = pi.ls(folder)
     missing = [f for f in files if f not in have]
     R.check(f'{name}: report written', not missing, f'{folder}' + (f' missing {missing}' if missing else ''))
-    pi.sh(f'cp {pi_app.APP_LOG} {folder}/app.log 2>/dev/null')
-    dst = R.path('pi', name)
+    pi.save_log(f'{folder}/app.log')
+    dst = R.path(pi.name, name)
     os.makedirs(dst, exist_ok=True)
     pi.pull(folder + '/*', dst, recursive=True)
     return folder
@@ -128,7 +151,7 @@ def _bench_check(R, pi):
             f'run {rid}: {done and done["state"]} in {done and done.get("elapsed_s")} s, NANO F1 {models.get("NANO", {}).get("f1")}')
     a = pi.wait_for(lambda s: not s.get('bench_hold'), 5); time.sleep(1.5); b = pi.status()
     R.check('bench: live resumes afterwards', bool(a and b and b['frames'] > a['frames']), f'{(b["frames"] - a["frames"]) if a and b else "?"} frames in 1.5 s')
-    pi.sh(f'rm -rf {PI_REPO}/runs/bench/{rid}')
+    pi.rm(f'{pi.repo}/runs/{pi.bench_folder}/{rid}')
 # ----------------------------------------------------------------------------------------------------------------------
 def _pause_check(R, pi):
     """Space pauses a video file, a click while paused starts SOT on the frame on screen, -> steps one frame, Space resumes."""
@@ -155,13 +178,14 @@ def _pause_check(R, pi):
     st = pi.wait_for(lambda s: (s.get('video_pos') or 999) < 15, 3)
     R.check('R: video from the start', bool(st and pos > 15 and st['video_pos'] < 15), f'frame {pos} -> {st and st["video_pos"]}')
 # ----------------------------------------------------------------------------------------------------------------------
-def unit(R, pi=None, sync=True):
-    pi = pi or pi_app.Pi()
-    if R.suite == 'unit':
+def unit(R, pi=None, sync=True, local=False):
+    standalone = pi is None
+    pi = pi or target(local)
+    if standalone:
         _prepare(R, pi, sync)
-    R.section('unit tests (on the Pi)')
+    R.section('unit tests (on the Pi)' if pi.name == 'pi' else 'unit tests (on this PC)')
     t0 = time.time()
-    rc, out, err = pi.sh(f'cd {PI_REPO} && {PI_VENV} && python -m unittest discover -s tests/unit -t . -v 2>&1 | grep -v "SOT trk"', timeout=600)
+    rc, out = pi.unit_tests(timeout=600)
     open(R.path('unit.txt'), 'w', encoding='utf-8').write(out)
     m = re.search(r'Ran (\d+) tests', out)
     failed = re.search(r'FAILED \((.*)\)', out)
@@ -172,8 +196,8 @@ def unit(R, pi=None, sync=True):
             R.log('      ' + line)
     return pi
 # ----------------------------------------------------------------------------------------------------------------------
-def smoke(R, sync=True):
-    pi = pi_app.Pi()
+def smoke(R, sync=True, local=False):
+    pi = target(local)
     _prepare(R, pi, sync)
     unit(R, pi, sync=False)
     R.section('app on campus')
@@ -187,7 +211,7 @@ def smoke(R, sync=True):
     _bench_check(R, pi)
     R.section('pause (video file)')
     _pause_check(R, pi)
-    R.section('detection + tracking on (YOLO NCNN + DeepSORT)')
+    R.section('detection + tracking on (YOLO NCNN + DeepSORT)' if pi.name == 'pi' else 'detection + tracking on (YOLO .pt + DeepSORT)')
     pi.post('update_do_detection', js={'enabled': True}); pi.post('update_do_tracking', js={'enabled': True})
     time.sleep(6)
     _frames_flow(R, pi, 'detect', seconds=8, min_fps=LIMITS['detect_fps'])
@@ -195,13 +219,13 @@ def smoke(R, sync=True):
     R.check('app alive with detection on', st is not None and pi.app_pid() is not None, pi.logs(8) if st is None else '')
     _stop_and_collect(R, pi)
 # ----------------------------------------------------------------------------------------------------------------------
-def integration(R, sync=True, with_sim=False):
-    pi = pi_app.Pi()
+def integration(R, sync=True, with_sim=False, local=False):
+    pi = target(local)
     _prepare(R, pi, sync)
     R.section('command line')
-    rc, out, _ = pi.sh(f'cd {PI_REPO} && {pi_app.APP_SCRIPT} --list-sources', timeout=60)
+    rc, out = pi.app_cli('--list-sources', timeout=60)
     R.check('--list-sources lists the presets', 'campus' in out and 'oxford' in out, ', '.join(l.split()[0] for l in out.splitlines() if l.strip())[:120])
-    rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 60 {pi_app.APP_SCRIPT} --source no-such-source', timeout=90)
+    rc, out = pi.app_cli('--source no-such-source', timeout=60)
     R.check('unknown --source: clear error, exit 2', rc == 2 and 'unknown source' in out, f'exit {rc}')
 
     R.section('sources (web UI)')
@@ -244,7 +268,9 @@ def integration(R, sync=True, with_sim=False):
         time.sleep(1)
     _stop_and_collect(R, pi, already_stopping=True)
 
-    if with_sim:
+    if with_sim and pi.name == 'local':
+        R.check('PC simulator stream', True, 'Pi only (drone NCNN detector on the Pi)', skip=True)
+    elif with_sim:
         _integration_sim(R, pi)
     else:
         R.check('PC simulator stream', True, 'not requested (dtc test integration --sim)', skip=True)
@@ -291,7 +317,7 @@ def _sync_clips(R, pi):
 # ----------------------------------------------------------------------------------------------------------------------
 def _app_fps(R, pi, name, args):
     """Processing capacity: every frame of a file once (--realtime false), --max_frames frames."""
-    folder = f'{_app_folder(R)}{name}/'
+    folder = f'{_app_folder(R, pi)}{name}/'
     t0 = time.time()
     rc, out, _ = pi.sh(f'cd {PI_REPO} && timeout 600 {pi_app.APP_SCRIPT} {args} --realtime false --max_frames 300 --folder_runs {folder} > /tmp/dtc_{name}.log 2>&1; '
                        f'echo rc=$?; grep "| TOTAL" {folder}0001/df_time.csv', timeout=700)

@@ -18,6 +18,7 @@ import utils_video_saver
 import utils_UI_Flask
 import utils_DTC_pipeline
 import utils_grabber_av
+import utils_platform
 import utils_sources
 #----------------------------------------------------------------------------------------------------------------------
 class Experimentor():
@@ -86,7 +87,8 @@ class Experimentor():
     def create_grabber(self, source):
         # realtime (default): files and URLs via PyAV - paced to the source FPS, files looped, wide frames downscaled.
         # --realtime false: files are read frame by frame as fast as possible, once, by tools_grabber (offline runs).
-        # V4L2 cameras (/dev/videoN) via PyAV as MJPEG; webcam indices, image folders etc. go to tools_grabber.
+        # V4L2 cameras (/dev/videoN, Linux) and DirectShow cameras (dshow://<name>, Windows) via PyAV as MJPEG;
+        # other webcam indices, image folders etc. go to tools_grabber.
         # Cameras (V4L2 devices and webcam indices) are mirrored left-right when config.camera_mirror (selfie view).
         # Embedded Pi camera (csi://N, Camera Module) via picamera2 at camera_size / camera_fps, never mirrored.
         src = str(source)
@@ -268,7 +270,7 @@ class Experimentor():
         P = getattr(self, 'Perceptioner', None)
         t0 = getattr(self, 't_start', None)
         return {'run_folder': os.path.abspath(self.folder_output_current_experiment) if self.folder_output_current_experiment else None,
-                'source': str(self.config.source), 'source_name': self.current_source_name(),
+                'platform': utils_platform.name(), 'source': str(self.config.source), 'source_name': self.current_source_name(),
                 'frame_size': [self.W, self.H] if self.W else None,
                 'frames': getattr(self, 'frames_processed', 0), 'uptime_s': round(time.time() - t0, 1) if t0 else 0.0,
                 'fps': round(float(self.HB.get_fps()), 2) if getattr(self, 'frames_processed', 0) else 0.0,

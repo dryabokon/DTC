@@ -1,6 +1,7 @@
 import os
 import sys
 import glob
+import time
 # ----------------------------------------------------------------------------------------------------------------------
 # Video source registry shared by the CLI (--source) and the web UI dropdown.
 # A source spec can be: a preset alias, a listed name (e.g. 'v10/boats10b'), a file path, or a URL (rtsp://, http://, ...).
@@ -25,9 +26,32 @@ def _gt_for(video_path):
     videos = [f for f in os.listdir(folder) if f.lower().endswith(VIDEO_EXT)]
     return gt if (os.path.isfile(gt) and len(videos) == 1) else None
 # ----------------------------------------------------------------------------------------------------------------------
+_win_cameras = {'t': -1e9, 'value': []}
+def _list_cameras_windows(max_age=60.0):
+    """Windows: camera devices (PnP class Camera / Image) as [('dshow://<name>', name)] - opened by name through DirectShow
+    (utils_grabber_av, like /dev/videoN on the Pi). Asking takes ~1 s, so the answer is cached."""
+    import subprocess
+    if time.time() - _win_cameras['t'] < max_age:
+        return _win_cameras['value']
+    titles = []
+    try:
+        out = subprocess.run(['powershell', '-NoProfile', '-Command',
+                              "Get-CimInstance Win32_PnPEntity -Filter \"PNPClass='Camera' OR PNPClass='Image'\" | "
+                              "Where-Object { $_.Status -eq 'OK' } | ForEach-Object { $_.Name }"],
+                             capture_output=True, text=True, timeout=10, stdin=subprocess.DEVNULL,
+                             creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0)).stdout
+        titles = [l.strip() for l in out.splitlines() if l.strip()]
+    except Exception:
+        pass
+    _win_cameras.update(t=time.time(), value=[('dshow://' + t, t) for t in titles])
+    return _win_cameras['value']
+# ----------------------------------------------------------------------------------------------------------------------
 def list_cameras():
-    """USB/V4L2 cameras on Linux: [(name, device, title)], e.g. ('camera', '/dev/video0', 'HD Pro Webcam C920').
-    Only the capture node of each camera is listed (/dev/v4l/by-id/*-video-index0); re-scanned on every call (hot-plug)."""
+    """Cameras: [(name, device, title)], e.g. ('camera', '/dev/video0', 'HD Pro Webcam C920').
+    Linux (Pi): USB/V4L2, only the capture node of each camera (/dev/v4l/by-id/*-video-index0), re-scanned on every call (hot-plug).
+    Windows (x86 laptop): DirectShow devices by name, e.g. ('camera', 'dshow://Integrated Camera', 'Integrated Camera')."""
+    if sys.platform == 'win32':
+        return [('camera' if i == 0 else f'camera{i}', device, title) for i, (device, title) in enumerate(_list_cameras_windows())]
     result = []
     for link in sorted(glob.glob('/dev/v4l/by-id/*-video-index0')):
         device = os.path.realpath(link)
@@ -84,7 +108,8 @@ def csi_number(spec):
     return int(str(spec).split('://', 1)[1] or 0)
 # ----------------------------------------------------------------------------------------------------------------------
 def is_device(spec):
-    return str(spec).startswith('/dev/video')
+    """A local camera read by utils_grabber_av: V4L2 node (Linux / Pi) or DirectShow device (Windows)."""
+    return str(spec).startswith(('/dev/video', 'dshow://'))
 # ----------------------------------------------------------------------------------------------------------------------
 def list_sources(images_dir=IMAGES_DIR):
     """Ordered list of dicts {name, label, source, gt}: embedded (CSI) and USB cameras first, then every video file under images_dir."""
@@ -125,12 +150,15 @@ def resolve_source(spec, images_dir=IMAGES_DIR):
     if is_url(spec):
         return spec, spec, None
 
-    if is_device(spec) and os.path.exists(spec):
+    if is_device(spec) and (os.path.exists(spec) or spec.startswith('dshow://')):
         return next((n for n, d, t in list_cameras() if d == spec), os.path.basename(spec)), spec, None
 
-    if spec.isdigit():                       # webcam index: /dev/videoN on Linux (PyAV), else tools_grabber (e.g. DirectShow on Windows)
+    if spec.isdigit():                       # webcam index: /dev/videoN on Linux, the Nth camera on Windows (both PyAV), else tools_grabber
         if os.path.exists(f'/dev/video{spec}'):
             return resolve_source(f'/dev/video{spec}', images_dir)
+        cams = list_cameras() if sys.platform == 'win32' else []
+        if int(spec) < len(cams):
+            return cams[int(spec)][0], cams[int(spec)][1], None
         return f'webcam {spec}', spec, None
 
     if os.path.isdir(spec):                  # folder of images, read by tools_grabber

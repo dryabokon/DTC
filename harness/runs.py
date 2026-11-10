@@ -66,7 +66,7 @@ class Run:
         }
         self.log(f'== {suite} run {self.number:04d} -> {self.folder}')
         if self.manifest['laptop']['dirty']:
-            self.log('   note: uncommitted local changes - the Pi runs the last COMMIT, not your working tree')
+            self.log('   note: uncommitted local changes - the Pi runs the last COMMIT, not your working tree (--local runs use it)')
 
     # ------------------------------------------------------------------------------------------------------------------
     def log(self, *a):

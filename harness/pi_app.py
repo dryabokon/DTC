@@ -1,5 +1,5 @@
-"""Control the DTC app on the Raspberry Pi: start / stop / status / logs / HTTP calls / pull artifacts.
-Built on infrastructure/pi.py (finding the Pi, SSH, sync)."""
+"""Control the DTC app on the Raspberry Pi (ARM): start / stop / status / logs / HTTP calls / pull artifacts.
+Built on infrastructure/pi.py (finding the Pi, SSH, sync). The same interface for this x86 laptop: harness/local_app.py."""
 import atexit
 import json
 import os
@@ -19,10 +19,73 @@ PORT = 8509
 HARNESS_PORT = 18509                      # local end of the harness tunnel when the Pi is only reachable through WSL
 APP_LOG = '/tmp/dtc_app.log'
 REPO = '/home/pi/sources/DTC'
+VENV = 'source ~/venv/p311_dtc/bin/activate'      # infrastructure/build_me_arm.sh
 # the app's launcher on the Pi; a Pi still on a commit before the rename (2026-11-05) only has run_me_arm.sh
 APP_SCRIPT = '$( [ -x ./app_run_pi.sh ] && echo ./app_run_pi.sh || echo ./run_me_arm.sh )'
 # ----------------------------------------------------------------------------------------------------------------------
-class Pi:
+class AppClient:
+    """The app's HTTP API (/status, keys, clicks, ...) - the same for the Pi and for this laptop (harness/local_app.Local).
+    Subclasses set self.base and implement app_pid / start / stop / logs and the file helpers the suites use."""
+    name = '?'
+    def url(self, path=''):
+        return f'{self.base}/{path.lstrip("/")}'
+
+    def get(self, path, timeout=5):
+        try:
+            with urllib.request.urlopen(self.url(path), timeout=timeout) as r:
+                body = r.read()
+                return r.status, (json.loads(body) if body[:1] in (b'{', b'[') else body.decode(errors='replace'))
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode(errors='replace')
+        except Exception as e:
+            return None, str(e)
+
+    def post(self, path, form=None, js=None, timeout=5):
+        if js is not None:
+            data, ctype = json.dumps(js).encode(), 'application/json'
+        else:
+            data, ctype = urllib.parse.urlencode(form or {}).encode(), 'application/x-www-form-urlencoded'
+        req = urllib.request.Request(self.url(path), data=data, headers={'Content-Type': ctype})
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                body = r.read()
+                return r.status, (json.loads(body) if body[:1] in (b'{', b'[') else body.decode(errors='replace'))
+        except urllib.error.HTTPError as e:
+            body = e.read()
+            return e.code, (json.loads(body) if body[:1] == b'{' else body.decode(errors='replace'))
+        except Exception as e:
+            return None, str(e)
+
+    def status(self):
+        code, st = self.get('status', timeout=3)
+        return st if code == 200 and isinstance(st, dict) else None
+
+    def key(self, k):
+        return self.post('key_press', {'key': k})[0] == 200
+
+    def click(self, x, y, box=None):
+        form = {'x': int(x), 'y': int(y)}
+        if box is not None:
+            form.update(x1=int(box[0]), y1=int(box[1]), x2=int(box[2]), y2=int(box[3]))
+        return self.post('mouse_click', form)[0] == 200
+
+    def wait_for(self, cond, timeout=10, every=0.3):
+        """Poll /status until cond(status) is true; returns the last status (or None)."""
+        t0, st = time.time(), None
+        while time.time() - t0 < timeout:
+            st = self.status()
+            if st is not None and cond(st):
+                return st
+            time.sleep(every)
+        return st
+# ----------------------------------------------------------------------------------------------------------------------
+class Pi(AppClient):
+    """DTC on the Raspberry Pi (ARM), over SSH."""
+    name = 'pi'
+    repo = REPO
+    bench_folder = 'bench'                  # runs/<bench_folder>/NNNN (utils_bench.RUNS_DIR on ARM)
+    video_name = 'video_large.avi'          # utils_video_saver keeps the MJPG temp file on Linux
+
     def __init__(self, verbose=True):
         self.host = pi_ssh.find(verbose=verbose)
         if self.host is None:
@@ -84,54 +147,37 @@ class Pi:
     def push(self, local, remote):
         return pi_ssh.copy(self.host, local, remote)
 
+    def ls(self, folder):
+        return self.sh(f'ls {folder} 2>/dev/null')[1].split()
+
+    def rm(self, path):
+        self.sh(f'rm -rf {path}')
+
+    def read_text(self, path):
+        return self.sh(f'cat {path} 2>/dev/null')[1]
+
+    def save_log(self, dst):
+        """The app log next to its run folder on the target."""
+        self.sh(f'cp {APP_LOG} {dst} 2>/dev/null')
+
+    def app_cli(self, args, timeout=90):
+        """The launcher in the foreground (--list-sources, a bad --source, ...) -> (rc, output)."""
+        rc, out, err = self.sh(f'cd {REPO} && timeout {timeout} {APP_SCRIPT} {args}', timeout=timeout + 30)
+        return rc, out + err
+
+    def unit_tests(self, timeout=600):
+        return self.sh(f'cd {REPO} && {VENV} && python -m unittest discover -s tests/unit -t . -v 2>&1 | grep -v "SOT trk"', timeout=timeout)[:2]
+
+    def python_src(self, code, *args, timeout=120):
+        """python -c code in src/ of the app's venv -> (rc, out, err)."""
+        import shlex
+        return self.sh(f'cd {REPO}/src && {VENV} && python -c {shlex.quote(code)} ' + ' '.join(shlex.quote(a) for a in args), timeout=timeout)
+
     def laptop_ip(self):
         """This laptop's address as the Pi sees it (the interface that routes to the Pi)."""
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect((self.host, 9)); ip = s.getsockname()[0]; s.close()
         return ip
-
-    # --------------------------------------------------------------------------------------------------------- http
-    def url(self, path=''):
-        return f'{self.base}/{path.lstrip("/")}'
-
-    def get(self, path, timeout=5):
-        try:
-            with urllib.request.urlopen(self.url(path), timeout=timeout) as r:
-                body = r.read()
-                return r.status, (json.loads(body) if body[:1] in (b'{', b'[') else body.decode(errors='replace'))
-        except urllib.error.HTTPError as e:
-            return e.code, e.read().decode(errors='replace')
-        except Exception as e:
-            return None, str(e)
-
-    def post(self, path, form=None, js=None, timeout=5):
-        if js is not None:
-            data, ctype = json.dumps(js).encode(), 'application/json'
-        else:
-            data, ctype = urllib.parse.urlencode(form or {}).encode(), 'application/x-www-form-urlencoded'
-        req = urllib.request.Request(self.url(path), data=data, headers={'Content-Type': ctype})
-        try:
-            with urllib.request.urlopen(req, timeout=timeout) as r:
-                body = r.read()
-                return r.status, (json.loads(body) if body[:1] in (b'{', b'[') else body.decode(errors='replace'))
-        except urllib.error.HTTPError as e:
-            body = e.read()
-            return e.code, (json.loads(body) if body[:1] == b'{' else body.decode(errors='replace'))
-        except Exception as e:
-            return None, str(e)
-
-    def status(self):
-        code, st = self.get('status', timeout=3)
-        return st if code == 200 and isinstance(st, dict) else None
-
-    def key(self, k):
-        return self.post('key_press', {'key': k})[0] == 200
-
-    def click(self, x, y, box=None):
-        form = {'x': int(x), 'y': int(y)}
-        if box is not None:
-            form.update(x1=int(box[0]), y1=int(box[1]), x2=int(box[2]), y2=int(box[3]))
-        return self.post('mouse_click', form)[0] == 200
 
     # ------------------------------------------------------------------------------------------------------ app life
     def app_pid(self):
@@ -184,13 +230,3 @@ class Pi:
         flt = '' if raw else (" | tr '\\r' '\\n' | sed -E 's/(\\[ *[A-Za-z]{2,7} *[A-Za-z]* *\\])/\\n\\1/g'"
                               " | grep -av '^|' | grep -av 'it/s\\]' | grep -av '^\\s*$'")
         return self.sh(f'cat {log} 2>/dev/null{flt} | tail -{n}')[1]
-
-    def wait_for(self, cond, timeout=10, every=0.3):
-        """Poll /status until cond(status) is true; returns the last status (or None)."""
-        t0, st = time.time(), None
-        while time.time() - t0 < timeout:
-            st = self.status()
-            if st is not None and cond(st):
-                return st
-            time.sleep(every)
-        return st

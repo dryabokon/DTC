@@ -20,7 +20,8 @@ class utils_video_saver:
         self.frame_count = 0
         self.skipped_frames = 0
         self.stop_event = threading.Event()
-        threading.Thread(target=self.thread_video_saver).start()
+        self.thread = threading.Thread(target=self.thread_video_saver)
+        self.thread.start()
 
         if self.width is not None and self.height is not None:
             self.initialize_writer(self.width, self.height)
@@ -96,7 +97,9 @@ class utils_video_saver:
     # ----------------------------------------------------------------------------------------------------------------------
     def save_captured_video(self):
         self.stop()
-        self.q.join()
+        # wait for the writer thread itself (it drains the queue and releases the writer in its finally): releasing from
+        # here while it still holds the file left it open on Windows -> the rename below failed (WinError 32)
+        self.thread.join(timeout=60)
 
         if self.writer is not None and self.writer.isOpened():
             self.writer.release()

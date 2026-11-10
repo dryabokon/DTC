@@ -76,6 +76,17 @@ class Worker:
     def _on_term(self, *_):
         self.cancelled = True
 
+    @property
+    def cancelled(self):
+        """SIGTERM (Linux) or the cancel flag file in the run folder (any OS: on Windows SIGTERM kills without cleanup)."""
+        if not self._cancelled and os.path.exists(os.path.join(self.d, B.CANCEL_FLAG)):
+            self._cancelled = True
+        return self._cancelled
+
+    @cancelled.setter
+    def cancelled(self, value):
+        self._cancelled = value
+
     def write_progress(self, force=False):
         if not force and time.time() - self._last_write < 0.5:
             return

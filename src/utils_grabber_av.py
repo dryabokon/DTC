@@ -36,6 +36,16 @@ class Grabber_AV:
             stream = container.streams.video[0]
             stream.thread_type = "AUTO"
             return container, stream
+        if self.url.startswith('dshow://'):             # Windows camera (DirectShow, by name): MJPEG at camera_size / camera_fps
+            name = 'video=' + self.url[len('dshow://'):]
+            try:
+                container = av.open(name, mode="r", format="dshow",
+                                    options={"vcodec": "mjpeg", "video_size": self.camera_size, "framerate": str(self.camera_fps)})
+            except av.error.FFmpegError:                # the camera has no such mode: take its default one
+                container = av.open(name, mode="r", format="dshow")
+            stream = container.streams.video[0]
+            stream.thread_type = "AUTO"
+            return container, stream
         options = {
             "rtsp_transport": "tcp",
             "stimeout": "2000000",

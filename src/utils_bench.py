@@ -9,7 +9,7 @@ Method (written into every report):
   Frames wider than max_width are downscaled like the app's grabber does (boxes scaled with them).
 
 The executor is bench_worker.py (a separate process: the web UI and the CLI only start it, read progress.json and cancel).
-Run folder runs/bench/NNNN/:  config.json  progress.json  results.json  frames.csv  report.md  log.txt
+Run folder runs/bench/NNNN/ (on x86: runs/bench_x86/NNNN/, apart from the Pi runs `dtc bench pull` copies into runs/bench/):  config.json  progress.json  results.json  frames.csv  report.md  log.txt
 """
 import json
 import os
@@ -22,12 +22,14 @@ import time
 
 import numpy as np
 
+import utils_platform
 import utils_sources
 import utils_tracker_sot
 # ----------------------------------------------------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
-RUNS_DIR = os.path.join(REPO, 'runs', 'bench')
+RUNS_DIR = os.path.join(REPO, 'runs', 'bench' if utils_platform.IS_ARM else 'bench_x86')
+CANCEL_FLAG = 'cancel'                       # runs/bench/NNNN/cancel: asks the worker to stop (partial results are kept)
 CLIPS_DIR = os.path.join(REPO, 'clips')
 DECODE_MS = 3.0                                 # per frame, for the estimate (decode + resize on the Pi)
 LOSS_RULES_MS = 3.0                             # extra per update of the full Tracker_SOT (embedding, contrast)
@@ -244,11 +246,7 @@ def write_json(path, value):
     os.replace(tmp, path)
 # ----------------------------------------------------------------------------------------------------------------------
 def _alive(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+    return utils_platform.pid_alive(pid)
 # ----------------------------------------------------------------------------------------------------------------------
 def progress(run_id):
     """progress.json of a run; a RUNNING run whose worker is gone is reported (and stored) as INTERRUPTED."""
@@ -289,7 +287,7 @@ def start(cfg, python=None):
                                                   'estimate_s': p['estimate_s'], 'elapsed_s': 0, 'left_s': p['estimate_s'], 'current': None})
     log = open(os.path.join(d, 'log.txt'), 'w')
     proc = subprocess.Popen([python or sys.executable, os.path.join(HERE, 'bench_worker.py'), d], cwd=HERE, stdin=subprocess.DEVNULL,
-                            stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                            stdout=log, stderr=subprocess.STDOUT, **utils_platform.detached_kwargs())
     pr = read_json(os.path.join(d, 'progress.json'), {})
     if pr.get('pid') is None:
         pr['pid'] = proc.pid
@@ -301,6 +299,9 @@ def cancel(run_id=None):
     p = progress(run_id) if run_id else current(max_age=0)
     if not p or p.get('state') != 'RUNNING':
         return False
+    open(os.path.join(RUNS_DIR, p['id'], CANCEL_FLAG), 'w').close()      # the worker polls it: works on Windows too
+    if utils_platform.IS_WINDOWS:
+        return utils_platform.pid_alive(p.get('pid'))                   # SIGTERM there = TerminateProcess: no partial results
     try:
         os.kill(int(p['pid']), signal.SIGTERM)
     except (OSError, TypeError, ValueError):
@@ -312,7 +313,7 @@ def provenance():
     import platform
     return {'commit': git('rev-parse', '--short', 'HEAD'), 'branch': git('rev-parse', '--abbrev-ref', 'HEAD'),
             'tools_commit': (_cmd(['git', '-C', os.path.join(REPO, 'tools'), 'rev-parse', '--short', 'HEAD']) or '').strip(),
-            'host': platform.node(), 'machine': platform.machine()}
+            'host': platform.node(), 'machine': platform.machine(), 'platform': utils_platform.name()}
 # ----------------------------------------------------------------------------------------------------------------------
 def runs_summary():
     """Newest first: [{id, created, state, models, sequences, tasks, frames, elapsed_s, headline}]"""

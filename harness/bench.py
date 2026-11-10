@@ -7,23 +7,29 @@
     dtc bench list                  the Pi's benchmark runs
     dtc bench pull [NNNN|all]       copy run(s) from the Pi to runs/bench/
     dtc bench cancel                cancel the running benchmark
+    --local (run / list / cancel)   the same on this x86 PC (x86 venv); its runs are written straight into runs/bench_x86/ here
 """
 import json
 import os
-import shlex
 import time
 
 from harness import pi_app
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCAL = os.path.join(ROOT, 'runs', 'bench')
-REMOTE = pi_app.REPO + '/runs/bench'
-VENV = 'source ~/venv/p311_dtc/bin/activate'
+# ----------------------------------------------------------------------------------------------------------------------
+def _target(a):
+    if getattr(a, 'local', False):
+        from harness import local_app
+        return local_app.Local(verbose=False)
+    return pi_app.Pi(verbose=False)
+# ----------------------------------------------------------------------------------------------------------------------
+def _remote(pi):
+    return f'{pi.repo}/runs/{pi.bench_folder}'
 # ----------------------------------------------------------------------------------------------------------------------
 def _py(pi, code, *args, timeout=120):
-    cmd = f'cd {pi_app.REPO}/src && {VENV} && python -c {shlex.quote(code)} ' + ' '.join(shlex.quote(a) for a in args)
-    rc, out, err = pi.sh(cmd, timeout=timeout)
-    return rc, out.strip(), err
+    rc, out, err = pi.python_src(code, *args, timeout=timeout)
+    return rc, (out or '').strip(), err or ''
 # ----------------------------------------------------------------------------------------------------------------------
 def _fmt(s):
     s = int(s or 0)
@@ -32,7 +38,8 @@ def _fmt(s):
 def run(a):
     cfg = {k: v for k, v in {'preset': a.preset, 'models': a.models, 'sequences': a.seqs, 'tracks': a.objects,
                              'min_size': a.min_size}.items() if v is not None}
-    pi = pi_app.Pi(verbose=False)
+    pi = _target(a)
+    where = 'on the Pi' if pi.name == 'pi' else 'on this PC'
     rc, out, err = _py(pi, 'import sys, json, utils_bench as B\n'
                            'c, p = B.readiness(json.loads(sys.argv[1]))\n'
                            'print(json.dumps({"checks": c}))\n'
@@ -44,11 +51,11 @@ def run(a):
     rid = next((l.split()[1] for l in out.splitlines() if l.startswith('ID ')), None)
     if rid is None:
         print('not started' + (f': {err.strip()[-300:]}' if err.strip() else '')); return 1
-    print(f'benchmark {rid} started on the Pi (web UI: Benchmark tab)')
+    print(f'benchmark {rid} started {where} (web UI: Benchmark tab)')
     try:
         while True:
             time.sleep(3)
-            _, txt, _ = pi.sh(f'cat {REMOTE}/{rid}/progress.json 2>/dev/null')
+            txt = pi.read_text(f'{_remote(pi)}/{rid}/progress.json')
             try:
                 p = json.loads(txt)
             except ValueError:
@@ -60,19 +67,22 @@ def run(a):
                 print(f'\n{p["state"]} in {_fmt(p.get("elapsed_s"))}')
                 break
     except KeyboardInterrupt:
-        print('\ncancelling on the Pi ...')
+        print(f'\ncancelling {where} ...')
         _py(pi, 'import utils_bench as B; print(B.cancel())')
         for _ in range(30):
             time.sleep(1)
-            _, txt, _ = pi.sh(f'cat {REMOTE}/{rid}/progress.json 2>/dev/null')
+            txt = pi.read_text(f'{_remote(pi)}/{rid}/progress.json')
             if '"RUNNING"' not in txt:
                 break
     return pull_one(pi, rid, show=True)
 # ----------------------------------------------------------------------------------------------------------------------
 def pull_one(pi, rid, show=False):
-    dst = os.path.join(LOCAL, rid)
-    os.makedirs(dst, exist_ok=True)
-    ok = pi.pull(f'{REMOTE}/{rid}/*', dst, recursive=True)
+    dst = os.path.join(ROOT, 'runs', pi.bench_folder, rid)      # runs/bench (from the Pi) or runs/bench_x86 (written here already)
+    if pi.name == 'local':
+        ok = os.path.isdir(dst)
+    else:
+        os.makedirs(dst, exist_ok=True)
+        ok = pi.pull(f'{_remote(pi)}/{rid}/*', dst, recursive=True)
     rep = os.path.join(dst, 'report.md')
     if show and os.path.isfile(rep):
         txt = open(rep, encoding='utf-8').read()
@@ -84,7 +94,9 @@ def pull_one(pi, rid, show=False):
 def main(a):
     if a.action == 'run':
         return run(a)
-    pi = pi_app.Pi(verbose=False)
+    if a.action == 'pull' and getattr(a, 'local', False):
+        print(f'nothing to pull: local runs are in {LOCAL}_x86'); return 0
+    pi = _target(a)
     if a.action == 'list':
         rc, out, err = _py(pi, 'import json, utils_bench as B; print(json.dumps(B.runs_summary()))')
         try:
@@ -100,8 +112,7 @@ def main(a):
         print('cancelled' if out.endswith('True') else 'nothing running'); return 0
     if a.action == 'pull':
         if a.id in (None, 'all'):
-            _, out, _ = pi.sh(f'ls {REMOTE} 2>/dev/null')
-            ids = [x for x in out.split() if x.isdigit()]
+            ids = [x for x in pi.ls(_remote(pi)) if x.isdigit()]
         else:
             ids = [a.id.zfill(4)]
         return max([pull_one(pi, r) for r in ids] or [0])
@@ -112,4 +123,5 @@ def add_parser(sub):
     s.add_argument('action', choices=['run', 'list', 'pull', 'cancel']); s.add_argument('id', nargs='?')
     s.add_argument('--preset', default='quick'); s.add_argument('--models'); s.add_argument('--seqs')
     s.add_argument('--objects', type=int, help='objects per video, smallest first (0 = all)'); s.add_argument('--min-size', type=int)
+    s.add_argument('--local', action='store_true', help='on this x86 PC instead of the Pi')
     return s

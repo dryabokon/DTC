@@ -10,8 +10,19 @@ change loop, SOT benchmark, datasets, known issues).
 ```
 git clone --recursive https://github.com/dryabokon/DTC      # or, in an existing clone: git submodule update --init
 ```
+DTC runs on two platforms from the same code:
+
+| | Raspberry Pi 5 (ARM, CPU) | x86 laptop / PC (Windows, CUDA if present) |
+|---|---|---|
+| environment | `infrastructure/build_me_arm.sh` → `~/venv/p311_dtc` | `infrastructure\build_me_x86.bat` → `<repo>\.venv` (`DTC_VENV` to move it) |
+| run by hand | `./app_run_pi.sh --source campus` | `app_run_x86.bat --source campus` (or `camera`), UI http://localhost:8509 |
+| from the harness | `dtc pi start / stop / status / logs / open` | `dtc local start / stop / status / logs / open` |
+| tests | `dtc test unit / smoke / integration / quality` | `dtc test unit / smoke / integration --local` → `runs/<suite>_x86/` |
+| code that runs | the last commit (`dtc pi sync`) | the working tree |
+
 Raspberry Pi: `python infrastructure/pi.py sync` puts the Pi's checkout and its `tools/` on this laptop's branch and commits
-(from GitHub, or as git bundles over SSH when the Pi is offline).
+(from GitHub, or as git bundles over SSH when the Pi is offline). On the laptop, 8509 can be taken by the Pi tunnel
+(`dtc pi open` behind a VPN) or by the Fly2 UI: start the local app with `--ui_port 8510` then.
 
 ## Harness: everyday operations
 One command, `dtc` (`dtc.bat` on Windows, or `python dtc.py`). The Pi is found by itself (`.env`: `PI_HOST`, `PI_HOSTKEY`,
@@ -21,6 +32,8 @@ dtc pi status                     where the Pi is, its commit vs the laptop's, i
 dtc pi sync                       Pi -> this laptop's branch and commit
 dtc pi start --source camera      start DTC on the Pi (any app flags), dtc pi stop / logs / open / run "<cmd>"
                                   cameras: camera = first USB camera (/dev/videoN), picam = embedded Camera Module (csi://0, picamera2)
+dtc local start --source camera   the same on this laptop (x86): dtc local stop / status / logs / open
+dtc up local [unreal]             (Unreal game +) DTC on this laptop;  dtc unreal local: DTC here on the running game stream
 dtc sim start                     Fly2 camera simulator on this PC -> rtsp://<PC>:8554/sim (camera moved in the Fly2 UI :8509)
 dtc sim pi                        DTC on the Pi on the simulator stream (drone detector ready)
 dtc clips record NAME --maneuver yaw|yaw_fast|sweep|none --seconds 60     reference clip -> clips/NAME
@@ -44,7 +57,8 @@ http://localhost:8509.
 dtc test unit          tests/unit on the Pi (unittest, seconds)
 dtc test smoke         ~1 min, before every push: unit + start, frames, SOT click/Esc, detection on, clean exit
 dtc test integration   ~2 min: CLI, sources (file, 1080p, dead URL, camera), SOT, Esc; --sim: PC simulator + drone MOT
-dtc test quality       ~6 min: metrics with limits vs the previous run - SOT loss detection (PETS ground truth),
+dtc test smoke --local   the same on this laptop (x86 venv, working tree) -> runs/smoke_x86/ (also unit, integration)
+dtc test quality       ~6 min (Pi only): metrics with limits vs the previous run - SOT loss detection (PETS ground truth),
                        SOT on reference clips (clips/), app FPS per mode
 dtc runs               latest runs and verdicts;   dtc report [suite] [NNNN]
 ```

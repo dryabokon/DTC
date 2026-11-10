@@ -18,7 +18,12 @@ description: Gotchas in the DTC repo and its Windows/WSL/Raspberry Pi setup that
 - **Idle pause**: the app holds live processing 5 s after nobody watches the video (`--idle_pause_s`, 0 = off). Anything
   that reads `/status` without a browser must start the app with `--idle_pause_s 0` (`pi_app.Pi.start` does by default).
 - **Escape** in the UI: the second one quits the app — tests send it only while SOT is active.
-- **Local tests on Windows**: no torch / PyAV here — SiamBAN/SiamFC and grabber tests skip or error; run them on the Pi
-  (`dtc test unit`). One flaky local failure was seen once and not reproduced (2026-11-04).
+- **Local tests on Windows**: the system Python has no torch / PyAV — SiamBAN/SiamFC and grabber tests skip or error there;
+  `dtc test unit --local` runs them in the x86 venv (`.venv`), `dtc test unit` on the Pi. One flaky local failure was seen
+  once and not reproduced (2026-11-04).
+- **Port 8509 on the laptop** is also used by the Pi tunnel (`dtc pi open` behind a VPN) and the Fly2 UI (`dtc sim start`):
+  `dtc local start` refuses to start then - add `--ui_port 8510`.
+- **`os.kill(pid, 0)` on Windows** is not a liveness check (signal 0 = CTRL_C_EVENT to process group pid): use
+  `utils_platform.pid_alive`. SIGTERM there is TerminateProcess (no cleanup) - the benchmark cancels through a flag file.
 - **SiamBAN input is BGR** (checked: RGB is worse, IoU 0.29 vs 0.38). Torch trackers share the network, not the state.
 - **`pi.py find` behind the VPN** tries only the cached address through WSL; with a new address it reports "not found".

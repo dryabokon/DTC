@@ -21,3 +21,6 @@ __pycache__/
 *.torchscript
 *.engine
 models/*_ncnn_model/
+
+# x86 virtual environment (infrastructure/build_me_x86.bat)
+.venv/

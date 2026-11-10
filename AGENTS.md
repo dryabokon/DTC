@@ -7,10 +7,20 @@ file named below before doing that task).
 
 ## What this is
 
-DTC = detection, tracking, classification on a **Raspberry Pi 5** (8 GB, CPU only). The app (`src/main.py`, started by
-`app_run_pi.sh` on the Pi) grabs a source (video file, USB camera, RTSP), runs YOLO detection / DeepSORT / click-to-track
-(SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs**. The laptop (Windows) is where code is edited
-and where the harness (`dtc`) drives the Pi over SSH.
+DTC = detection, tracking, classification. The app (`src/main.py`) grabs a source (video file, camera, RTSP), runs YOLO
+detection / DeepSORT / click-to-track (SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs**.
+The laptop (Windows) is where code is edited and where the harness (`dtc`) drives the app. Two platforms, one code base:
+
+| | ARM: Raspberry Pi 5 (8 GB, CPU only) | x86: this laptop (Windows, CUDA if present) |
+|---|---|---|
+| venv | `~/venv/p311_dtc` ← `infrastructure/build_me_arm.sh` + `requirements_arm.txt` | `<repo>\.venv` (or `DTC_VENV` / `DTC_PYTHON`) ← `infrastructure\build_me_x86.bat` + `requirements_x86.txt` |
+| launcher | `app_run_pi.sh` (detector: `models/yolov8n_ncnn_model`) | `app_run_x86.bat` (detector: `yolov8n.pt`) |
+| harness | `dtc pi …`, `dtc test …`, `dtc bench …` (`harness/pi_app.py`, over SSH) | `dtc local …`, `dtc test … --local`, `dtc bench … --local` (`harness/local_app.py`) |
+| code | the last *commit* (git → `dtc pi sync`) | the working tree as it is |
+| cameras | `/dev/videoN` (PyAV, MJPEG), `csi://N` (picamera2) | webcam indices (`camera` = `0`, DirectShow) |
+
+Run-time differences live in `src/utils_platform.py` (process checks, detached children, platform name in `/status`);
+start-up differences only in the launchers. Don't add `if platform` branches elsewhere in `src/` without need.
 
 ## Where the real docs live
 
@@ -46,13 +56,16 @@ and where the harness (`dtc`) drives the Pi over SSH.
 - Don't change the user's VPN, routes or the Pi's network settings; never reactivate the Pi's only link remotely.
 - Don't change defaults (e.g. the default SOT model) on your own — ask. Say what a measurement really measured.
 - A benchmark or full test makes the Pi's fan loud; stop what you started (`dtc pi stop`, `dtc bench cancel`) when done.
+  Same on the laptop (`dtc local stop`). Numbers from the laptop are not Pi numbers: say which platform measured them.
 
 ## Testing ladder
 
-1. local: `python -m unittest discover -s tests/unit -t .` (some tests skip on Windows: no torch / PyAV) — seconds.
+1. local: `python -m unittest discover -s tests/unit -t .` (some tests skip without torch / PyAV), or `dtc test unit --local`
+   (the x86 venv, nothing skips) — seconds.
 2. `dtc test unit` — the same on the Pi.
-3. `dtc test smoke` — before every push that touches `src/`: app start, frames, SOT models, benchmark API, pause, detection.
-4. `dtc test integration [--sim]`, `dtc test quality` — when sources, grabbers or SOT loss rules change.
+3. `dtc test smoke --local` (x86, working tree, no commit needed) while iterating; `dtc test smoke` (Pi) before every push
+   that touches `src/`: app start, frames, SOT models, benchmark API, pause, detection. Local runs → `runs/<suite>_x86/`.
+4. `dtc test integration [--sim] [--local]`, `dtc test quality` (Pi only) — when sources, grabbers or SOT loss rules change.
 5. UI changes: open the page in Chrome and look (a syntax check misses runtime errors); `node --check src/static/bench.js`.
 
 ## Conventions
