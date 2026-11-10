@@ -61,17 +61,20 @@ draw it again - a new key frame; what was tracked after it (up to the next key f
 Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
 cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
 Space: track / stop · Esc / right click: stop · Shift+drag (or the Box only button): a key frame without tracking · K: this box is right, make it a
-key frame (the tracked frames after it stay) · I: straight line between the key frames around (replaces tracked frames - occlusions, a short drift) · N: no
-object on this frame (Shift+N: up to the next key frame) · X: clear tracked frames after this one · Del: remove this
-frame's label · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) · [ ]: previous / next key frame ·
-, .: previous / next red mark · P: play the labels to review them. Keys go by the physical key (any keyboard layout).
+key frame (the tracked frames after it stay) · N: no object on this frame (Shift+N: up to the next key frame) ·
+Del: delete from here - this frame's box and what the tracker made after it, up to your next key frame (a frame without
+a label reads as "no object" in the benchmark, so no single holes) · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) · [ ]: previous / next key frame ·
+, .: previous / next red mark · P: play the labels to review them. Keys go by the physical key (any keyboard layout). An occlusion: delete from the
+first bad frame, draw the box again where the object is back (the frames between stay empty = "no object").
 Besides the app's loss rules the tracker stops, with a red mark on the timeline, where its box jumps away from where it
 was heading (> 0.3 box heights in one frame, > 0.35 over two: swaps to another person) and where a run arrives at a key
 frame far from its box (IoU < 0.3: it followed an occluder on the way). A swap while two people cross slowly is not
-caught, nor a box that slowly grows over two or three people (seen on a drone video of a basketball court): "Same
+caught, nor a box that slowly grows over two or three people (seen on a drone video of a basketball court), nor a box
+that stays on something still (a sign) while the object walks on: "Same
 object?" in the panel shows the box of this frame next to the key frame's - check it, or review with P. A jump can be
 the box coming back after a passer-by: the frames before it are marked too. A reopened project continues at its last
-labeled frame.
+labeled frame. The jump rule fits people and cars seen from a steady camera; on a small target with a jerky camera (the
+thermal drone sequence `drone_ir`) it also stops on true motion - press Track to go on.
 The video is decoded once into `runs/labels/<name>/frames/` (<= 1280 px wide; the frame numbers are cv2's, as in the
 benchmark). Every change is saved to `clips/<name>/` (`video.mp4`, `gt.jsonl` = `{"frame", "box" in source px | null, "src":
 manual|track|interp|absent}`, `label.json`): it is a benchmark sequence (`clip:<name>`) at once; opening the same video again

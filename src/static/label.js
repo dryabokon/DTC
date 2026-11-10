@@ -33,7 +33,7 @@
                 sp.appendChild(b);
             });
             markSpeed(d.state ? d.state.speed : 1);
-            if (d.state) setState(d.state);
+            if (d.state) { resumeAt = -1; setState(d.state); }      // the page reloaded on an open project: continue at its end
             poll();
         });
     }
@@ -176,7 +176,7 @@
             g.fillStyle = '#ff9f0a'; g.font = `${Math.round(18 * cv.width / 1280)}px system-ui, sans-serif`; g.fillText('no object on this frame', 10 * cv.width / 1280, 23 * cv.width / 1280);
         } else {
             const p = prevBox(cur);                   // unlabeled: where it was, as a hint
-            if (p) { g.strokeStyle = 'rgba(255,255,255,.55)'; g.lineWidth = lw / 1.5; g.setLineDash([6, 5]); g.strokeRect(p[1] * s, p[2] * s, (p[3] - p[1]) * s, (p[4] - p[2]) * s); g.setLineDash([]); }
+            if (p) { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = lw / 1.5; g.setLineDash([3, 7]); g.strokeRect(p[1] * s, p[2] * s, (p[3] - p[1]) * s, (p[4] - p[2]) * s); g.setLineDash([]); }   // faint: a hint where it was, not a label
         }
         if (drag) { g.strokeStyle = '#00e5ff'; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
         prefetch();
@@ -228,7 +228,7 @@
         const c = S.counts, pct = v => S.frames ? ` (${(100 * v / S.frames).toFixed(0)}%)` : '';
         $('l_counts').innerHTML = '';
         [['#00e5ff', 'key frames (yours)', c.manual], ['#30d158', 'tracked', c.track], ['#ff9f0a', 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
-         [null, 'labeled', c.labeled + ' / ' + S.frames + pct(c.labeled)]].forEach(([col, name, v]) => {
+         [null, 'labeled', c.labeled + ' / ' + S.frames + pct(c.labeled)]].filter(r => r[1] !== 'interpolated' || r[2]).forEach(([col, name, v]) => {
             const d = document.createElement('div'), a = document.createElement('span'), b = document.createElement('b');
             if (col) { const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col; a.appendChild(sw); }
             a.appendChild(document.createTextNode(name)); b.textContent = v; d.append(a, b); $('l_counts').appendChild(d);
@@ -319,7 +319,8 @@
         stopIfTracking();
         const fps = S.fps * (S.speed || 4);
         playTimer = setInterval(() => {
-            if (cur >= Math.min(S.frames, S.decoded) - 1) { stopPlay(); return; }
+            const lastLabel = L.findLastIndex(l => !!l);           // the review ends where the labels end
+            if (cur >= Math.min(S.frames, S.decoded) - 1 || (lastLabel >= 0 && cur >= lastLabel)) { stopPlay(); return; }
             const im = frameImg(cur + 1);
             if (im && im.complete) go(cur + 1);      // never runs ahead of the frames it can show
         }, 1000 / fps);
@@ -373,7 +374,7 @@
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------
-    const KEY_C = '#00e5ff', MARK_C = '#ff453a', INTERP_C = '#ff9f0a';
+    const KEY_C = '#00e5ff', MARK_C = '#ff453a';
     const ICON = {
         first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
         back10: '<path d="M10 4.5L4.5 10l5.5 5.5 M16 4.5L10.5 10l5.5 5.5"/>',
@@ -389,9 +390,7 @@
         stop: '<rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/>',
         boxOnly: '<rect x="3" y="4" width="14" height="12" rx="1" stroke-dasharray="3 2.2"/>',
         key: `<path d="M10 2.5l7.5 7.5-7.5 7.5-7.5-7.5z" fill="${KEY_C}" stroke="none"/><path d="M6.8 10.2l2.2 2.2 4.2-4.6" stroke="#000"/>`,
-        interp: `<path d="M5.5 13.5l9-7" stroke="${INTERP_C}" stroke-dasharray="2 2.4"/><circle cx="4" cy="15" r="2.3" fill="${KEY_C}" stroke="none"/><circle cx="16" cy="5" r="2.3" fill="${KEY_C}" stroke="none"/>`,
         absent: '<circle cx="10" cy="10" r="7"/><path d="M5 15L15 5"/>',
-        clear: '<path d="M6 3v14" stroke-dasharray="2 2"/><path d="M10 7l6 6 M16 7l-6 6"/>',
         del: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/>',
         undo: '<path d="M7 4L3 8l4 4"/><path d="M3 8h9a4.5 4.5 0 010 9H9"/>',
         review: '<rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M8.5 7l5 3-5 3z" fill="currentColor"/>',
@@ -401,15 +400,6 @@
     const hasBox = l => !!l && l.length >= 5;
     const lastFrame = () => S ? Math.min(S.frames, S.decoded) - 1 : 0;
     function findFrom(i, dir, pred) { for (let j = i + dir; j >= 0 && j < L.length; j += dir) if (pred(L[j])) return j; return -1; }
-    function interpOK() {                             // as the server: the key frames around this frame, both with a box
-        const a = L[cur] && L[cur][0] === 'm' ? cur : findFrom(cur, -1, isKey);
-        const b = a >= 0 ? findFrom(a, +1, isKey) : -1;
-        return a >= 0 && b > a + 1 && L[a][0] === 'm' && L[b][0] === 'm';
-    }
-    function clearOK() {                              // tracked / interpolated frames after this one, up to the next key frame
-        for (let j = cur + 1; j < L.length; j++) { const l = L[j]; if (isKey(l)) return false; if (l) return true; }
-        return false;
-    }
     const nav = f => () => { stopIfTracking(); f(); };
     const ACT = {
         first:   {k: 'Home', text: 'First', tip: 'First frame', run: nav(() => go(0)), on: () => cur > 0},
@@ -425,17 +415,13 @@
         nextMark: {k: '.', text: 'Next mark', tip: 'Next red mark', run: nav(() => check(+1)), on: () => findFrom(cur, +1, l => !!l && !!l[6]) >= 0},
         track:   {k: 'Space', text: 'Track', tip: 'Track from this frame (Esc / right click: stop). Drawing a box starts it too',
                   run: () => { if (playTimer) stopPlay(); else toggleTrack(); }, on: () => S.tracking || hasBox(L[cur])},
-        boxOnly: {k: 'Shift+drag', text: 'Box only', tip: 'On: a box you draw is a key frame and the tracker does not start (occlusions: a box after it, then Interp)',
+        boxOnly: {k: 'Shift+drag', text: 'Box only', tip: 'On: a box you draw is a key frame and the tracker does not start from it',
                   run: () => { boxOnly = !boxOnly; updateBar(); }, active: () => boxOnly},
         key:     {k: 'K', text: 'Key', tip: 'This box is right: make it a key frame (the tracked frames after it stay)',
                   run: () => act('/label/box', {i: cur, box: L[cur].slice(1, 5)}), on: () => hasBox(L[cur]) && L[cur][0] !== 'm'},
-        interp:  {k: 'I', text: 'Interp', tip: 'Straight line between the key frames around this frame - replaces what the tracker put there (occlusions, a short drift)',
-                  run: () => act('/label/interp', {i: cur}), on: interpOK},
         absent:  {k: 'N', text: 'No object', tip: 'No object on this frame, then the next frame. Shift+N / Shift+click: no object up to the next key frame',
                   run: sh => { const i = cur; act('/label/absent', {i, to_next_key: !!sh}, () => { if (!sh) go(i + 1); }); }},
-        clear:   {k: 'X', text: 'Clear after', tip: 'Remove the tracked / interpolated frames after this one (up to the next key frame)',
-                  run: () => act('/label/clear', {i: cur}), on: clearOK},
-        del:     {k: 'Del', text: 'Delete', tip: "Remove this frame's label (a key frame: what was tracked from it goes too)",
+        del:     {k: 'Del', text: 'Delete →', tip: 'Delete from here: the box on this frame and what the tracker made after it, up to your next key frame. To fix a box, just draw it again',
                   run: () => act('/label/delete', {i: cur}), on: () => !!L[cur]},
         undo:    {k: 'Ctrl+Z', text: 'Undo', tip: 'Undo the last step (a whole tracking run is one step; kept until the app restarts)',
                   run: () => undo(), on: () => S.undo > 0},
@@ -444,7 +430,7 @@
         help:    {k: '', text: 'Keys', tip: 'All mouse actions and keys', run: () => showHelp($('l_help').hidden), active: () => !$('l_help').hidden, always: true},
     };
     const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['prevKey', 'nextKey', 'prevMark', 'nextMark'],
-                    ['track', 'SPEED', 'boxOnly'], ['key', 'interp', 'absent', 'clear', 'del', 'undo'], ['review', 'help']];
+                    ['track', 'SPEED', 'boxOnly'], ['key', 'absent', 'del', 'undo'], ['review', 'help']];
     const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
     function buildBar() {
         const bar = $('l_tools');
@@ -498,9 +484,7 @@
             case 'KeyZ': return e.ctrlKey || e.metaKey ? 'undo' : null;
             case 'Escape': if (!$('l_help').hidden) { showHelp(false); return null; } return 'stop';
             case 'KeyN': return 'absent';
-            case 'KeyI': return 'interp';
             case 'KeyK': return 'key';
-            case 'KeyX': return 'clear';
             case 'Delete': case 'Backspace': return 'del';
             default: return null;
         }
