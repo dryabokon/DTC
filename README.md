@@ -64,8 +64,8 @@ draw it again - a new key frame; what was tracked after it (up to the next key f
 Back-tracking: a box drawn on a frame is first tracked backwards over the run before it, down to where both runs agree
 (3 frames in a row); the frames above that, where the run had left the object, get the backward boxes - so draw where the
 error is plain to see (often the frame where it stopped), no need to scroll back to where it began. The line under the
-frame says which frames it fixed. Ctrl+Z undoes it together with the run. Boxes and the labeled part of the timeline are
-orange, a key frame is a dot above it. Delete all (the last tool) asks first in a small pop-up; Ctrl+Z brings the labels back,
+frame says which frames it fixed. Ctrl+Z undoes it together with the run. Tracked boxes and the labeled part of the timeline are
+orange; a key frame is red - its box, and a small red mark above the timeline. Delete all (next to Delete) asks first in a small pop-up; Ctrl+Z brings the labels back,
 and the gt.jsonl as it was stays as `gt.before_delete_all.jsonl` in the clip folder.
 Every action is a button in the toolbar under the frame (icon + caption; hovering it shows its key and what it does; greyed
 out when it cannot act on this frame), so the whole job can be done with the mouse. The keys:

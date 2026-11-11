@@ -7,7 +7,8 @@
         .then(r => r.json()).catch(e => ({ok: false, error: String(e)}));
     const getJ = url => fetch(url).then(r => r.json());
     const SRC = {m: 'manual', t: 'track', i: 'interp', a: 'absent'};
-    const BOX_C = '#ff9500';                         // orange: every box on the frame, the labeled part of the timeline, the key-frame dots
+    const BOX_C = '#ff9500';                         // orange: a tracked box, the labeled part of the timeline
+    const KEYC = '#ff3b30';                          // red: a key frame - its box on the frame, its mark above the timeline
     const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
     const cv = $('l_canvas'), g = cv.getContext('2d'), tl = $('l_timeline');
@@ -219,7 +220,7 @@
         else if (!im) { g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height); }
         const l = L[cur], s = k(), lw = Math.max(2, cv.width / 500);
         if (l && l.length >= 5) {
-            const col = BOX_C;
+            const col = l[0] === 'm' ? KEYC : BOX_C;
             g.strokeStyle = col; g.lineWidth = lw; g.setLineDash([]);
             g.strokeRect(l[1] * s, l[2] * s, (l[3] - l[1]) * s, (l[4] - l[2]) * s);
         } else if (l && l[0] === 'a') {
@@ -229,7 +230,7 @@
             const p = prevBox(cur);                   // unlabeled: where it was, as a hint
             if (p) { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = lw / 1.5; g.setLineDash([3, 7]); g.strokeRect(p[1] * s, p[2] * s, (p[3] - p[1]) * s, (p[4] - p[2]) * s); g.setLineDash([]); }   // faint: a hint where it was, not a label
         }
-        if (drag) { g.strokeStyle = BOX_C; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
+        if (drag) { g.strokeStyle = KEYC; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
         if (!S.counts.labeled && !drag) {            // a new project: what to do first (the tools explain themselves on hover)
             const fs = Math.round(16 * cv.width / 1280), t = 'draw a box around the object to label it';
             g.font = `${fs}px system-ui, sans-serif`; const w = g.measureText(t).width;
@@ -266,8 +267,8 @@
         if (!S) return;
         const l = L[cur], kf = keyBefore(cur), kl = kf >= 0 ? L[kf] : null;
         const nowBox = l && l.length >= 5 ? l.slice(1, 5) : (prevBox(cur) || []).slice(1, 5);
-        crop($('l_ref'), kf, kl ? kl.slice(1, 5) : null, BOX_C);
-        crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? BOX_C : 'rgba(255,255,255,.6)');
+        crop($('l_ref'), kf, kl ? kl.slice(1, 5) : null, KEYC);
+        crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? (l[0] === 'm' ? KEYC : BOX_C) : 'rgba(255,255,255,.6)');
         $('l_ref_t').textContent = kf >= 0 ? `key frame ${kf}` : 'no key frame yet';
         $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · no object' : ' · not labeled');
     }
@@ -283,7 +284,7 @@
         $('l_why').textContent = [S.back_note, !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : '', S.decode_error || ''].filter(Boolean).join('  ·  ');
         const c = S.counts, pct = v => S.frames ? ` (${(100 * v / S.frames).toFixed(0)}%)` : '';
         $('l_counts').innerHTML = '';
-        [[BOX_C, 'key frames (yours, the dots)', c.manual], [BOX_C, 'tracked', c.track], [BOX_C, 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
+        [[KEYC, 'key frames (yours, red)', c.manual], [BOX_C, 'tracked', c.track], [BOX_C, 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
          [null, 'labeled', c.labeled + ' / ' + S.frames + pct(c.labeled)]].filter(r => r[1] !== 'interpolated' || r[2]).forEach(([col, name, v]) => {
             const d = document.createElement('div'), a = document.createElement('span'), b = document.createElement('b');
             if (col) { const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col; if (name.startsWith('key')) sw.style.borderRadius = '50%'; a.appendChild(sw); }
@@ -303,30 +304,35 @@
     let tlBase = null;
     function drawTimeline() {
         if (!S || !shown) return;
-        const W = tl.clientWidth, H = 26, n = Math.max(1, S.frames);
+        // drawn in device pixels (screen scale 125-200 %): crisp marks, nothing smoothed away
+        const dpr = window.devicePixelRatio || 1, W = Math.max(1, Math.round(tl.clientWidth * dpr)), H = Math.round(26 * dpr), n = Math.max(1, S.frames);
         tl.width = W; tl.height = H;
-        const x = tl.getContext('2d');
+        const x = tl.getContext('2d'), u = v => Math.round(v * dpr);
         x.fillStyle = cssVar('--field'); x.fillRect(0, 0, W, H);
-        const col = {m: BOX_C, t: BOX_C, i: BOX_C, a: '#8e8e93'}, keys = [];   // a key frame: on the bar like a tracked
-                                                                                        // one, with a dot above it
-        for (let px = 0; px < W; px++) {              // the most "decided" state in the frames under this pixel
+        const col = {m: BOX_C, t: BOX_C, i: BOX_C, a: '#8e8e93'};
+        for (let px = 0; px < W; px++) {              // the bar: the most "decided" state in the frames under this pixel
             const a = Math.floor(px * n / W), b = Math.max(a + 1, Math.floor((px + 1) * n / W));
             let best = null;
             for (let i = a; i < b && i < L.length; i++) { const l = L[i]; if (!l) continue; if (l[0] === 'm') { best = 'm'; break; } if (!best || l[0] === 't') best = l[0]; }
-            if (best) { x.fillStyle = col[best]; x.fillRect(px, 10, 1, H - 13); }
-            if (best === 'm' && !(keys.length && px - keys[keys.length - 1] < 6)) keys.push(px);
+            if (best) { x.fillStyle = col[best]; x.fillRect(px, u(10), 1, H - u(13)); }
         }
-        x.fillStyle = BOX_C;
-        for (const px of keys) { x.beginPath(); x.arc(Math.max(3, Math.min(W - 3, px)), 4.5, 2.8, 0, 2 * Math.PI); x.fill(); }
-        if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(W * S.decoded / n, 0, W, H); }
+        x.fillStyle = KEYC;                           // every key frame: a small red rectangle above the bar, never merged away
+        const kw = Math.max(2, u(2.5));
+        for (let i = 0; i < L.length; i++) {
+            const l = L[i]; if (!l || l[0] !== 'm') continue;
+            const px = Math.min(W - kw, Math.max(0, Math.floor((i + 0.5) * W / n - kw / 2)));
+            x.fillRect(px, u(2), kw, u(6));
+        }
+        if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(Math.floor(W * S.decoded / n), 0, W, H); }
         tlBase = x.getImageData(0, 0, W, H);
         drawCursorOnTimeline();
     }
     function drawCursorOnTimeline() {
         if (!tlBase || !S) return;
         const x = tl.getContext('2d'); x.putImageData(tlBase, 0, 0);
-        const px = Math.round(cur * tl.width / Math.max(1, S.frames));
-        x.fillStyle = cssVar('--text'); x.fillRect(px - 1, 0, 2, tl.height);
+        const d = Math.max(1, Math.round(window.devicePixelRatio || 1)), px = Math.round((cur + 0.5) * tl.width / Math.max(1, S.frames));
+        const top = Math.round(9 * (window.devicePixelRatio || 1));   // below the key-frame marks: the mark under the cursor stays visible
+        x.fillStyle = cssVar('--text'); x.fillRect(px - d, top, 2 * d, tl.height - top);
     }
     let tlDrag = false;
     const tlFrame = e => { const r = tl.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (S.frames - 1)); };
@@ -438,7 +444,7 @@
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------
     const refreshedFor = {};                          // a new project shows up in the list once it has labels
-    const KEY_C = BOX_C;
+    const KEY_C = KEYC;
     const ICON = {
         first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
         back10: '<path d="M10 4.5L4.5 10l5.5 5.5 M16 4.5L10.5 10l5.5 5.5"/>',
@@ -480,7 +486,7 @@
         review:  {k: 'P', text: 'Review', tip: 'Play the labels at the video\'s speed to check them, no tracking',
                   run: () => togglePlay(), active: () => !!playTimer},
     };
-    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent', 'del', 'undo'], ['review'], ['delAll']];
+    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent'], ['del', 'delAll', 'undo'], ['review']];
     const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
     function buildBar() {
         const bar = $('l_tools');
