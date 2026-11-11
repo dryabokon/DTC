@@ -83,6 +83,9 @@ class TestLabel(unittest.TestCase):
         np.testing.assert_allclose(S.labels[30]['box'], truth(30), atol=1.1)   # halfway from the +2 box at 20 to 40
         self.assertEqual(S.set_absent(50, to_next_key=True), N - 50)
         self.assertIsNone(S.labels[N - 1]['box'])
+        S.labels[60] = {'src': 'track', 'box': truth(60)}; S.labels[61] = {'src': 'track', 'box': truth(61)}
+        S.set_absent(60)                                       # N on a tracked frame: this frame only, the tracked tail stays
+        self.assertEqual(S.labels[60]['src'], 'absent'); self.assertEqual(S.labels[61]['src'], 'track')
         S.labels[45] = {'src': 'track', 'box': truth(45)}; S.labels[46] = {'src': 'track', 'box': truth(46)}
         S.delete(45)                                           # delete from here on a tracked frame: no hole, the rest goes too
         self.assertIsNone(S.labels[45]); self.assertIsNone(S.labels[46]); self.assertEqual(S.labels[40]['src'], 'manual')
@@ -99,7 +102,6 @@ class TestLabel(unittest.TestCase):
             S.labels[i] = None
         S.set_box(0, truth(0))
         S.set_box(60, truth(60))
-        S.speed = 0
         S.start_tracking(0)
         self.wait_tracking(S)
         self.assertFalse(S.tracking)
@@ -178,11 +180,10 @@ class TestLabel(unittest.TestCase):
         S.set_box(0, truth(0))
         far = [200, 150, 240, 190]                                                # a key frame somewhere else
         S.set_box(20, far)
-        S.speed = 0
         S.start_tracking(0)
         self.wait_tracking(S)
         self.assertIn('does not meet the key frame 20', S.stop_reason)
-        self.assertTrue(S.labels[19].get('check'))
+        self.assertNotIn('check', S.labels[19])                                   # no marks: the stop says why, the cursor is there
 
     @staticmethod
     def _iou(a, b):

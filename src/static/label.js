@@ -14,7 +14,6 @@
     let drag = null;                                 // {x0, y0, x1, y1, shift} in canvas px while drawing a box
     let userStopped = false;                         // the operator stopped tracking: keep the cursor where they are
     let playTimer = null;                            // P: review playback of the labels
-    let boxOnly = false;                             // the Box only button: a drawn box is a key frame, no tracking (as Shift+drag)
     const imgs = new Map();                          // frame index -> Image (a small cache around the cursor)
 
     //------------------------------------------------------------------------------------------------------------------
@@ -25,14 +24,6 @@
             const m = $('l_model'); m.innerHTML = '';
             d.models.forEach(x => { const o = document.createElement('option'); o.value = x.name; o.textContent = x.label; m.appendChild(o); });
             m.value = d.state ? d.state.model : d.default_model;
-            const sp = $('l_speed'); sp.innerHTML = '';
-            d.speeds.forEach(v => {
-                const b = document.createElement('button'); b.type = 'button'; b.dataset.v = v; b.textContent = v ? v + '×' : 'max';
-                b.title = v ? `${v} × the video's frame rate, so you can see where it drifts` : 'as fast as the tracker goes';
-                b.onclick = () => { setSpeed(v); b.blur(); };
-                sp.appendChild(b);
-            });
-            markSpeed(d.state ? d.state.speed : 1);
             if (d.state) { resumeAt = -1; setState(d.state); }      // the page reloaded on an open project: continue at its end
             poll();
         });
@@ -54,9 +45,6 @@
         if (e.key === 'Enter') { e.preventDefault(); typedInList = false; openVideo(e.target.value); e.target.blur(); }
         else typedInList = true;
     });
-    function markSpeed(v) { document.querySelectorAll('#l_speed button').forEach(b => b.classList.toggle('on', +b.dataset.v === +v)); }
-    function setSpeed(v) { markSpeed(v); if (S) postJ('/label/speed', {speed: v}); else pendingSpeed = v; }
-    let pendingSpeed = null;
     let resumeAt = null;                             // a reopened project: go to its last labeled frame once it is decoded
 
     const refreshedFor = {};                          // a new project shows up in the list once it has labels
@@ -72,7 +60,6 @@
             if (!d.ok) { status('Error: ' + d.error, true); return; }
             imgs.clear(); ver = -1; L = []; cur = 0; resumeAt = -1;
             setState(d.state); status(''); refreshSources();
-            if (pendingSpeed !== null) { setSpeed(pendingSpeed); pendingSpeed = null; }
             poll();
         });
     }
@@ -146,7 +133,11 @@
         }
         return im;
     }
-    function prefetch() { if (!S) return; for (let d = 1; d <= 6; d++) { frameImg(cur + d); if (d <= 3) frameImg(cur - d); } }
+    function prefetch() {                             // review playback reads ahead further: it is not held up by loading
+        if (!S) return;
+        const ahead = playTimer ? 30 : 6;
+        for (let d = 1; d <= ahead; d++) { if (cur + d < S.decoded) frameImg(cur + d); if (d <= 3 && cur - d >= 0) frameImg(cur - d); }
+    }
 
     function fit() {                                  // canvas = the cache frame size, shown as large as the stage allows
         if (!S) return;
@@ -221,7 +212,6 @@
         const l = L[cur];
         let kind = l ? SRC[l[0]] : 'not labeled';
         if (l && l[0] === 't' && l[5] !== null && l[5] !== undefined) kind += `  · appearance ${l[5]}`;
-        if (l && l[6]) kind += '  · check this frame';
         if (S.tracking) kind = `tracking ${S.model} …  ` + kind;
         $('l_kind').textContent = kind;
         $('l_why').textContent = !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : (S.decode_error ? S.decode_error : '');
@@ -237,7 +227,6 @@
         if (!$('l_status').dataset.err) $('l_status').textContent = 'open: ' + S.source.split(/[\\/]/).slice(-2).join('/');
         if (S.counts.labeled && $('l_source').value !== S.name && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
-        markSpeed(S.speed);
         updateBar();
     }
 
@@ -258,8 +247,6 @@
             for (let i = a; i < b && i < L.length; i++) { const l = L[i]; if (!l) continue; if (l[0] === 'm') { best = 'm'; break; } if (!best || l[0] === 't') best = l[0]; }
             if (best) { x.fillStyle = col[best]; x.fillRect(px, best === 'm' ? 0 : 6, 1, best === 'm' ? H : H - 12); }
         }
-        x.fillStyle = '#ff453a';                      // where the tracker stopped by itself or jumped: look here (, .)
-        for (let i = 0; i < L.length; i++) { const l = L[i]; if (l && l[6]) x.fillRect(Math.min(W - 3, Math.floor(i * W / n)) - 1, 0, 3, H); }
         if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(W * S.decoded / n, 0, W, H); }
         tlBase = x.getImageData(0, 0, W, H);
         drawCursorOnTimeline();
@@ -296,14 +283,16 @@
         stopPlay();
         if (S && S.tracking) { userStopped = true; S.tracking = false; postJ('/label/stop').then(d => d.state && setState(d.state)); }
     }
+    let trackReq = Promise.resolve();
     function toggleTrack() {
         if (!S) return;
         stopPlay();
-        if (S.tracking) { userStopped = true; act('/label/stop'); return; }
-        act('/label/track', {i: cur});
-    }
-    function check(dir) {                             // previous / next frame marked "check" (a jump, or where the tracker stopped)
-        for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && l[6]) { go(j); return; } }
+        if (S.tracking) {                             // after the start request, so a quick Stop cannot overtake it
+            userStopped = true; S.tracking = false; updateBar();
+            trackReq.then(() => act('/label/stop')); return;
+        }
+        S.tracking = true; updateBar();                 // Track turns into Stop at once: a quick second click stops it
+        trackReq = act('/label/track', {i: cur});
     }
     function undo() {                                 // back one step; the cursor goes to the last label that is left at or before it
         stopPlay();
@@ -314,10 +303,10 @@
         }));
     }
     function stopPlay() { if (playTimer) { clearInterval(playTimer); playTimer = null; info(); updateBar(); } }
-    function togglePlay() {                           // P: play the labels for review (no tracking), at the speed buttons' pace
+    function togglePlay() {                           // P: play the labels for review (no tracking), at the video's own pace
         if (playTimer) { stopPlay(); return; }
         stopIfTracking();
-        const fps = S.fps * (S.speed || 4);
+        const fps = S.fps || 25;
         playTimer = setInterval(() => {
             const lastLabel = L.findLastIndex(l => !!l);           // the review ends where the labels end
             if (cur >= Math.min(S.frames, S.decoded) - 1 || (lastLabel >= 0 && cur >= lastLabel)) { stopPlay(); return; }
@@ -326,9 +315,6 @@
         }, 1000 / fps);
         $('l_kind').textContent = 'reviewing (P / Space: stop) …';
         updateBar();
-    }
-    function key(dir) {                               // previous / next key frame (manual or absent)
-        for (let j = cur + dir; j >= 0 && j < L.length; j += dir) { const l = L[j]; if (l && (l[0] === 'm' || l[0] === 'a')) { go(j); return; } }
     }
 
     // drawing a box on the frame -> key frame -> tracking starts from it
@@ -348,7 +334,7 @@
         if (Math.abs(d.x1 - d.x0) < 3 || Math.abs(d.y1 - d.y0) < 3) { draw(); return; }
         const i = cur;
         L[i] = ['m', ...box]; draw();                 // at once on screen; the server confirms
-        act('/label/box', {i, box}, () => { if (!d.shift && !boxOnly) act('/label/track', {i}); });   // Shift+drag / Box only: key frame only
+        act('/label/box', {i, box}, () => { if (!d.shift) act('/label/track', {i}); });   // Shift+drag: a key frame only, no tracking
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
 
@@ -360,11 +346,17 @@
         e.preventDefault();
         const px = e.deltaMode === 1 ? e.deltaY * 34 : e.deltaMode === 2 ? e.deltaY * 400 : e.deltaY;
         const d = px || (e.shiftKey ? e.deltaX : 0);              // Shift+wheel turns into deltaX in some browsers
-        if (d * wheelAcc < 0) wheelAcc = 0;                       // turned the other way: the first notch counts at once
-        wheelAcc += d;
-        const notch = 100, n = Math.trunc(wheelAcc / notch);      // a wheel notch: 100 px in Chrome / Edge, 3 lines in Firefox
+        let n;
+        if (Math.abs(d) >= 50) {                                  // a mouse wheel: one event per notch, 100-125 px (by browser,
+            wheelAcc = 0;                                          // screen scale); a fast spin can merge notches into one event
+            n = Math.sign(d) * Math.max(1, Math.round(Math.abs(d) / 110));
+        } else {                                                  // a touchpad: many small deltas, about 100 px per frame
+            if (d * wheelAcc < 0) wheelAcc = 0;                   // turned the other way: count from zero
+            wheelAcc += d;
+            n = Math.trunc(wheelAcc / 100);
+            wheelAcc -= n * 100;
+        }
         if (!n) return;
-        wheelAcc -= n * notch;
         stopIfTracking();
         go(cur + n * (e.shiftKey ? 10 : 1));
     }
@@ -374,7 +366,7 @@
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------
-    const KEY_C = '#00e5ff', MARK_C = '#ff453a';
+    const KEY_C = '#00e5ff';
     const ICON = {
         first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
         back10: '<path d="M10 4.5L4.5 10l5.5 5.5 M16 4.5L10.5 10l5.5 5.5"/>',
@@ -382,13 +374,8 @@
         fwd: '<path d="M7.5 4.5L13 10l-5.5 5.5"/>',
         fwd10: '<path d="M4 4.5L9.5 10 4 15.5 M10 4.5l5.5 5.5-5.5 5.5"/>',
         last: '<path d="M15 4v12"/><path d="M4 4l8 6-8 6z" fill="currentColor"/>',
-        prevKey: `<path d="M8 10H2.5 M5 7.5L2.5 10 5 12.5"/><path d="M14 5l5 5-5 5-5-5z" fill="${KEY_C}" stroke="none"/>`,
-        nextKey: `<path d="M6 5l5 5-5 5-5-5z" fill="${KEY_C}" stroke="none"/><path d="M12 10h5.5 M15 7.5l2.5 2.5-2.5 2.5"/>`,
-        prevMark: `<path d="M10 10H2.5 M5 7.5L2.5 10 5 12.5"/><rect x="13" y="3" width="3.5" height="14" rx="1" fill="${MARK_C}" stroke="none"/>`,
-        nextMark: `<rect x="3.5" y="3" width="3.5" height="14" rx="1" fill="${MARK_C}" stroke="none"/><path d="M10 10h7.5 M15 7.5l2.5 2.5-2.5 2.5"/>`,
         track: '<rect x="2.5" y="4.5" width="9" height="11" rx="1"/><path d="M13.5 6l5 4-5 4z" fill="currentColor"/>',
         stop: '<rect x="5" y="5" width="10" height="10" rx="1.5" fill="currentColor"/>',
-        boxOnly: '<rect x="3" y="4" width="14" height="12" rx="1" stroke-dasharray="3 2.2"/>',
         key: `<path d="M10 2.5l7.5 7.5-7.5 7.5-7.5-7.5z" fill="${KEY_C}" stroke="none"/><path d="M6.8 10.2l2.2 2.2 4.2-4.6" stroke="#000"/>`,
         absent: '<circle cx="10" cy="10" r="7"/><path d="M5 15L15 5"/>',
         del: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/>',
@@ -396,10 +383,8 @@
         review: '<rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M8.5 7l5 3-5 3z" fill="currentColor"/>',
         help: '<circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.3 2.3 0 114.1 1.4c-.8.8-1.9 1.2-1.9 2.6"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/>',
     };
-    const isKey = l => !!l && (l[0] === 'm' || l[0] === 'a');
     const hasBox = l => !!l && l.length >= 5;
     const lastFrame = () => S ? Math.min(S.frames, S.decoded) - 1 : 0;
-    function findFrom(i, dir, pred) { for (let j = i + dir; j >= 0 && j < L.length; j += dir) if (pred(L[j])) return j; return -1; }
     const nav = f => () => { stopIfTracking(); f(); };
     const ACT = {
         first:   {k: 'Home', text: 'First', tip: 'First frame', run: nav(() => go(0)), on: () => cur > 0},
@@ -408,39 +393,27 @@
         fwd:     {k: '→', text: '+1', tip: 'Next frame', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
         fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
         last:    {k: 'End', text: 'Last', tip: 'Last frame', run: nav(() => go(S.frames - 1)), on: () => cur < lastFrame()},
-        prevKey: {k: '[', text: 'Prev key', tip: 'Previous key frame (yours: a box or "no object")', run: nav(() => key(-1)), on: () => findFrom(cur, -1, isKey) >= 0},
-        nextKey: {k: ']', text: 'Next key', tip: 'Next key frame', run: nav(() => key(+1)), on: () => findFrom(cur, +1, isKey) >= 0},
-        prevMark: {k: ',', text: 'Prev mark', tip: 'Previous red mark: the tracker stopped or its box jumped there - check it', run: nav(() => check(-1)),
-                   on: () => findFrom(cur, -1, l => !!l && !!l[6]) >= 0},
-        nextMark: {k: '.', text: 'Next mark', tip: 'Next red mark', run: nav(() => check(+1)), on: () => findFrom(cur, +1, l => !!l && !!l[6]) >= 0},
-        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame (Esc / right click: stop). Drawing a box starts it too',
+        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame, as fast as the tracker goes (Esc / right click: stop). Drawing a box starts it too; Shift+drag: a box without tracking',
                   run: () => { if (playTimer) stopPlay(); else toggleTrack(); }, on: () => S.tracking || hasBox(L[cur])},
-        boxOnly: {k: 'Shift+drag', text: 'Box only', tip: 'On: a box you draw is a key frame and the tracker does not start from it',
-                  run: () => { boxOnly = !boxOnly; updateBar(); }, active: () => boxOnly},
         key:     {k: 'K', text: 'Key', tip: 'This box is right: make it a key frame (the tracked frames after it stay)',
                   run: () => act('/label/box', {i: cur, box: L[cur].slice(1, 5)}), on: () => hasBox(L[cur]) && L[cur][0] !== 'm'},
-        absent:  {k: 'N', text: 'No object', tip: 'No object on this frame, then the next frame. Shift+N / Shift+click: no object up to the next key frame',
+        absent:  {k: 'N', text: 'No object', tip: 'No object on this frame only (the frames after it stay), then the next frame. Shift+N / Shift+click: no object up to the next key frame',
                   run: sh => { const i = cur; act('/label/absent', {i, to_next_key: !!sh}, () => { if (!sh) go(i + 1); }); }},
         del:     {k: 'Del', text: 'Delete →', tip: 'Delete from here: the box on this frame and what the tracker made after it, up to your next key frame. To fix a box, just draw it again',
                   run: () => act('/label/delete', {i: cur}), on: () => !!L[cur]},
         undo:    {k: 'Ctrl+Z', text: 'Undo', tip: 'Undo the last step (a whole tracking run is one step; kept until the app restarts)',
                   run: () => undo(), on: () => S.undo > 0},
-        review:  {k: 'P', text: 'Review', tip: 'Play the labels to check them, no tracking (the speed buttons set the pace)',
+        review:  {k: 'P', text: 'Review', tip: 'Play the labels at the video\'s speed to check them, no tracking',
                   run: () => togglePlay(), active: () => !!playTimer},
         help:    {k: '', text: 'Keys', tip: 'All mouse actions and keys', run: () => showHelp($('l_help').hidden), active: () => !$('l_help').hidden, always: true},
     };
-    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['prevKey', 'nextKey', 'prevMark', 'nextMark'],
-                    ['track', 'SPEED', 'boxOnly'], ['key', 'absent', 'del', 'undo'], ['review', 'help']];
+    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent', 'del', 'undo'], ['review', 'help']];
     const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
     function buildBar() {
         const bar = $('l_tools');
         LAYOUT.forEach((grp, gi) => {
             if (gi) { const sp = document.createElement('span'); sp.className = 'sep'; bar.appendChild(sp); }
             grp.forEach(id => {
-                if (id === 'SPEED') {
-                    const sp = document.createElement('div'); sp.className = 'seg'; sp.id = 'l_speed'; sp.title = 'Tracking / review speed';
-                    bar.appendChild(sp); return;
-                }
                 const x = ACT[id], b = document.createElement('button');
                 b.type = 'button'; b.className = 'tb'; b.id = 'lt_' + id;
                 b.innerHTML = svg(id) + (x.text ? `<span class="tx">${x.text}</span>` : '');
@@ -475,10 +448,6 @@
             case 'ArrowLeft': return e.shiftKey ? 'back10' : 'back';
             case 'Home': return 'first';
             case 'End': return 'last';
-            case 'BracketLeft': return 'prevKey';
-            case 'BracketRight': return 'nextKey';
-            case 'Comma': return 'prevMark';
-            case 'Period': return 'nextMark';
             case 'Space': return 'track';
             case 'KeyP': return 'review';
             case 'KeyZ': return e.ctrlKey || e.metaKey ? 'undo' : null;

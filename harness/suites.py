@@ -191,7 +191,6 @@ def _label_check(R, pi):
         if ((st or {}).get('state') or {}).get('decoded', 0) >= 60:
             break
         time.sleep(0.25)
-    pi.post('/label/speed', js={'speed': 0})
     code, r = pi.post('/label/box', js={'i': 0, 'box': list(CAMPUS_STATIC_TARGET)})
     R.check('label: a box on frame 0 is a key frame', code == 200 and r.get('ok') and r['state']['counts']['manual'] == 1, f'HTTP {code} {r}')
     code, r = pi.post('/label/track', js={'i': 0})

@@ -113,10 +113,9 @@
   button.tb.halt { color: var(--bad); border-color: var(--bad); }
   button.tb svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
   button.tb .tx { line-height: 1; white-space: nowrap; color: var(--muted); } button.tb.on .tx, button.tb.halt .tx { color: inherit; }
-  .ltb .seg { margin: 0 3px; } .ltb .seg button { flex: none; padding: 5px 7px; }
   #l_bar { container-type: inline-size; }          /* captions go when the bar itself gets narrow (not the window) */
-  @container (max-width: 1010px) { button.tb .tx { display: none; } button.tb { height: 32px; min-width: 26px; padding: 2px 3px; } .ltb .sep { margin: 0 2px; }
-                                   .ltb .seg button { padding: 5px 5px; } #lt_track { min-width: 26px; } }
+  @container (max-width: 700px) { button.tb .tx { display: none; } button.tb { height: 32px; min-width: 26px; padding: 2px 3px; } .ltb .sep { margin: 0 2px; }
+                                  #lt_track { min-width: 26px; } }
   #l_help { position: absolute; right: 14px; bottom: 14px; max-width: 440px; max-height: calc(100% - 28px); overflow: auto; z-index: 5;
             background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
   #l_help .titleline { justify-content: space-between; margin-bottom: 6px; } #l_help button.tb { height: 24px; font-size: 16px; }
@@ -253,14 +252,12 @@
         <div class="titleline"><b>Mouse and keys</b><button type="button" id="l_help_x" class="tb" title="Close (Esc)">×</button></div>
       <div class="keys">
         <kbd>drag</kbd><span>box on this frame → tracking from it</span>
-        <kbd>Shift+drag</kbd><span>box only, no tracking - or the Box only button</span>
+        <kbd>Shift+drag</kbd><span>a box without tracking (a key frame only)</span>
         <kbd>Space</kbd><span>track from this frame / stop</span>
         <kbd>← →</kbd><span>frame back / forward (Shift: 10)</span>
         <kbd>wheel</kbd><span>over the frame or the timeline: down = next frame, up = previous (Shift: 10)</span>
-        <kbd>, .</kbd><span>previous / next red mark: the tracker stopped or jumped there</span>
-        <kbd>[ ]</kbd><span>previous / next key frame</span>
-        <kbd>P</kbd><span>play the labels to review them / stop</span>
-        <kbd>N</kbd><span>no object on this frame, next frame</span>
+        <kbd>P</kbd><span>play the labels at the video's speed to review them / stop</span>
+        <kbd>N</kbd><span>no object on this frame only, next frame</span>
         <kbd>Shift+N</kbd><span>no object up to the next key frame</span>
         <kbd>K</kbd><span>this box is right: make it a key frame</span>
         <kbd>Del</kbd><span>delete from here: this frame's box and what the tracker made after it, up to your next key frame</span>

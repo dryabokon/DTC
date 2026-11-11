@@ -2,6 +2,7 @@ import os
 import platform
 import subprocess
 import sys
+import time
 # ----------------------------------------------------------------------------------------------------------------------
 # Where the app runs: the Raspberry Pi 5 (ARM, Linux, CPU only) or an x86 laptop / PC (Windows or Linux, CUDA if present).
 # The app is the same code on both; what differs at run time lives here (process checks, detaching a child, the name).
@@ -21,6 +22,18 @@ def is_raspberry_pi():
 def name():
     """'pi' | 'arm' | 'x86' - written into run provenance and /status."""
     return 'pi' if is_raspberry_pi() else ('arm' if IS_ARM else 'x86')
+# ----------------------------------------------------------------------------------------------------------------------
+def replace_file(src, dst, tries=50, wait=0.02):
+    """os.replace that survives a reader: on Windows the rename fails (PermissionError) while another process or thread has
+    dst open - the Runs tab polling progress.json, a test reading it - so it tries again for about a second."""
+    for k in range(tries):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            if not IS_WINDOWS or k == tries - 1:
+                raise
+            time.sleep(wait)
 # ----------------------------------------------------------------------------------------------------------------------
 def pid_alive(pid):
     """Is the process running? Not os.kill(pid, 0): on Windows signal 0 is CTRL_C_EVENT sent to process group pid
