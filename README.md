@@ -53,8 +53,11 @@ Behind a full-tunnel VPN (Windows blocked, WSL not) the harness reaches the Pi t
 http://localhost:8509.
 
 ## Labeling (Label tab)
-Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload - it lands in
-`datasets/videos/uploads/<name>/`, never overwriting; copying a file to `datasets/videos/<set>/<name>/` by hand works too): draw a box -> the
+Ground truth for ONE object per frame, from any video file. The video list (a thumbnail per video - a project shows its
+first key frame with the box; type to filter, or a path + Enter; + Upload - it lands in `datasets/videos/uploads/<name>/`,
+never overwriting; copying a file to `datasets/videos/<set>/<name>/` by hand works too) also deletes: the bin on a row,
+after a question in the row, moves a label project or an uploaded video to `datasets/.trash/<time>_<name>/` (move it back
+to undo) and only hides a video of `images/` or of a dataset (the files stay; "N hidden - show" brings it back). Draw a box -> the
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it as fast as it goes and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, or the mouse wheel over the frame / timeline; Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
@@ -62,10 +65,10 @@ Back-tracking: a box drawn on a frame is first tracked backwards over the run be
 (3 frames in a row); the frames above that, where the run had left the object, get the backward boxes - so draw where the
 error is plain to see (often the frame where it stopped), no need to scroll back to where it began. The line under the
 frame says which frames it fixed. Ctrl+Z undoes it together with the run. Boxes and the labeled part of the timeline are
-orange, a key frame is a dot above it. Delete all labels (under Labels in the panel) asks first; Ctrl+Z brings them back,
+orange, a key frame is a dot above it. Delete all (the last tool) asks first in a small pop-up; Ctrl+Z brings the labels back,
 and the gt.jsonl as it was stays as `gt.before_delete_all.jsonl` in the clip folder.
-Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
-cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
+Every action is a button in the toolbar under the frame (icon + caption; hovering it shows its key and what it does; greyed
+out when it cannot act on this frame), so the whole job can be done with the mouse. The keys:
 Space: track / stop · Esc / right click: stop · Shift+drag: a key frame without tracking · K: this box is right, make it a
 key frame (the tracked frames after it stay) · N: no object on this frame only, the frames after it stay (Shift+N: up to the next key frame) ·
 Del: delete from here - this frame's box and what the tracker made after it, up to your next key frame (a frame without

@@ -21,7 +21,7 @@
     function init() {
         inited = true;
         getJ('/label/sources').then(d => {
-            fillSources(d.sources, d.state);
+            fillSources(d.sources, d.state, d.hidden_count);
             const m = $('l_model'); m.innerHTML = '';
             d.models.forEach(x => { const o = document.createElement('option'); o.value = x.name; o.textContent = x.label; m.appendChild(o); });
             m.value = d.state ? d.state.model : d.default_model;
@@ -29,26 +29,89 @@
             poll();
         });
     }
-    // the list shows what is open: a label project is listed under its own name (refetched after opening a new video)
-    function fillSources(list, st) {
-        const sel = $('l_source');
-        sel.innerHTML = '';
-        const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '— pick a video —'; sel.appendChild(o0);
-        list.forEach(s => { const o = document.createElement('option'); o.value = s.name; o.textContent = s.label; sel.appendChild(o); });
-        sel.value = st && [...sel.options].some(o => o.value === st.name) ? st.name : '';
-        typedInList = false;
+    //------------------------------------------------------------------------------------------------------------------
+    // the video picker: a thumbnail per video (a project: its first key frame with the box), type to filter or a path +
+    // Enter, + Upload; a bin per row deletes a project / an upload (to datasets/.trash) or hides a video of images/ or a
+    // dataset (files stay) - it asks in the row first
+    //------------------------------------------------------------------------------------------------------------------
+    let SOURCES = [], hiddenCount = 0, showHidden = false;
+    const BIN = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/></svg>';
+    const thumbUrl = s => `/label/thumb?name=${encodeURIComponent(s.name)}&v=${encodeURIComponent(s.sub)}`;
+    function fillSources(list, st, hid) { SOURCES = list || []; if (hid !== undefined) hiddenCount = hid; renderPick(st); }
+    function refreshSources() { getJ('/label/sources' + (showHidden ? '?hidden=1' : '')).then(d => fillSources(d.sources, d.state, d.hidden_count)); }
+    function renderPick(st) {
+        const name = st ? st.name : (S ? S.name : null), it = SOURCES.find(s => s.name === name);
+        $('l_pick_name').textContent = it ? it.label : (name || '— pick a video —');
+        $('l_pick_sub').textContent = it ? it.sub : (name ? 'label project' : '');
+        $('l_pick_img').hidden = !it; if (it) $('l_pick_img').src = thumbUrl(it);
+        const q = $('l_path').value.trim().toLowerCase(), box = $('l_pick_list');
+        box.innerHTML = '';
+        SOURCES.filter(s => !q || (s.label + ' ' + s.sub).toLowerCase().includes(q)).forEach(s => {
+            const r = document.createElement('div');
+            r.className = 'vp-row' + (s.name === name ? ' cur' : '') + (s.hidden ? ' hid' : ''); r.setAttribute('role', 'option');
+            r.innerHTML = `<img loading="lazy" alt=""><span class="vp-t"><b></b><span></span></span><button type="button" class="vp-x">${BIN}</button>`;
+            r.querySelector('img').src = thumbUrl(s);
+            r.querySelector('b').textContent = s.label; r.querySelector('.vp-t span').textContent = s.hidden ? 'hidden - click to show it again' : s.sub;
+            r.querySelector('.vp-x').title = s.remove === 'trash' ? 'Delete (to datasets/.trash - asks first)' : 'Hide from this list (the file stays)';
+            r.querySelector('.vp-x').hidden = s.hidden;
+            r.addEventListener('click', e => {
+                if (r.classList.contains('ask')) return;
+                if (e.target.closest('.vp-x')) { e.stopPropagation(); askRemove(r, s); return; }
+                if (s.hidden) { postJ('/label/unhide', {name: s.name}).then(refreshSources); return; }
+                closePick(); openVideo(s.name);
+            });
+            box.appendChild(r);
+        });
+        if (!box.children.length) box.innerHTML = '<div class="hint" style="padding:6px">nothing matches - Enter opens it as a path</div>';
+        if (!hiddenCount && showHidden && !SOURCES.some(s => s.hidden)) showHidden = false;
+        $('l_pick_hid').hidden = !hiddenCount && !showHidden;
+        $('l_pick_hid').textContent = showHidden ? 'hide the hidden' : `${hiddenCount} hidden - show`;
     }
-    function refreshSources() { getJ('/label/sources').then(d => fillSources(d.sources, d.state)); }
-    // typing while the list has the focus (a click that missed the path field) must not open another video:
-    // a pick by keyboard opens on Enter only, a pick by mouse at once
-    let typedInList = false;
-    $('l_source').addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); typedInList = false; openVideo(e.target.value); e.target.blur(); }
-        else typedInList = true;
+    function askRemove(r, s) {
+        r.classList.add('ask');
+        const trash = s.remove === 'trash';
+        r.innerHTML = `<span class="q"></span><span class="row"><button type="button" class="pbtn danger">${trash ? 'Delete' : 'Hide'}</button><button type="button" class="pbtn">Cancel</button></span>`;
+        r.querySelector('.q').textContent = trash
+            ? `Delete "${s.label}"${s.kind === 'project' ? ' with its labels' : ''}? It is moved to datasets/.trash - move it back from there to undo.`
+            : `Hide "${s.label}" from this list? The file stays (it belongs to images/ or a dataset).`;
+        const [yes, no] = r.querySelectorAll('button');
+        no.addEventListener('click', e => { e.stopPropagation(); renderPick(); });
+        yes.addEventListener('click', e => {
+            e.stopPropagation();
+            postJ('/label/remove', {name: s.name}).then(d => {
+                if (!d.ok) { status('Error: ' + d.error, true); renderPick(); return; }
+                status(d.result.action === 'trash' ? `deleted ${s.label} - it is in ${d.result.to.replace(/\\/g, '/')}` : `${s.label} hidden from the list`);
+                getJ('/label/state').then(st => { if (!st.state && S) closedView(); refreshSources(); });
+            });
+        });
+    }
+    function closedView() {                           // the open project was deleted: nothing on screen
+        S = null; L = []; ver = -1; imgs.clear();
+        g.clearRect(0, 0, cv.width, cv.height); tl.getContext('2d').clearRect(0, 0, tl.width, tl.height); tlBase = null;
+        ['l_ref', 'l_now'].forEach(id => $(id).getContext('2d').clearRect(0, 0, $(id).width, $(id).height));
+        ['l_kind', 'l_why', 'l_counts', 'l_out', 'l_ref_t', 'l_now_t'].forEach(id => { $(id).textContent = ''; });
+        $('l_frame').textContent = 'no video'; updateBar();
+    }
+    function openPick() {
+        const r = $('l_pick_btn').getBoundingClientRect(), m = $('l_pick_menu');
+        m.style.left = r.left + 'px'; m.style.top = (r.bottom + 4) + 'px'; m.style.maxHeight = Math.max(200, innerHeight - r.bottom - 14) + 'px';
+        m.hidden = false; $('l_path').value = ''; renderPick(); $('l_path').focus(); refreshSources(); }
+    function closePick() { $('l_pick_menu').hidden = true; $('l_path').blur(); }
+    $('l_pick_btn').addEventListener('click', () => { if ($('l_pick_menu').hidden) openPick(); else closePick(); });
+    document.addEventListener('mousedown', e => { if (!$('l_pick_menu').hidden && !e.target.closest('#l_pick')) closePick(); });
+    $('l_path').addEventListener('input', () => renderPick());
+    document.addEventListener('keydown', e => {      // Esc closes the open list wherever the focus is (and does nothing else)
+        if (e.key === 'Escape' && !$('l_pick_menu').hidden) { e.stopPropagation(); e.preventDefault(); closePick(); }
+    }, true);
+    $('l_path').addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.stopPropagation(); closePick(); return; }
+        if (e.key !== 'Enter') return;
+        const v = e.target.value.trim(); if (!v) return;
+        const rows = SOURCES.filter(s => !s.hidden && (s.label + ' ' + s.sub).toLowerCase().includes(v.toLowerCase()));
+        closePick(); openVideo(rows.length === 1 ? rows[0].name : v);     // one match: that one; else a path / a source name
     });
+    $('l_pick_hid').addEventListener('click', () => { showHidden = !showHidden; refreshSources(); });
     let resumeAt = null;                             // a reopened project: go to its last labeled frame once it is decoded
-
-    const refreshedFor = {};                          // a new project shows up in the list once it has labels
     function status(text, bad) {
         $('l_status').textContent = text || ''; $('l_status').style.color = bad ? 'var(--bad)' : '';
         if (bad) $('l_status').dataset.err = 1; else delete $('l_status').dataset.err;
@@ -64,13 +127,9 @@
             poll();
         });
     }
-    $('l_source').addEventListener('change', e => {
-        if (typedInList) { status('Enter: open ' + e.target.value); return; }
-        openVideo(e.target.value); e.target.blur();
-    });
-    $('l_path').addEventListener('keydown', e => { if (e.key === 'Enter') { openVideo(e.target.value); e.target.blur(); } });
     $('l_upload').addEventListener('change', e => {
         const f = e.target.files[0]; if (!f) return;
+        closePick();
         const fd = new FormData(); fd.append('file', f); fd.append('model', $('l_model').value);
         status(`uploading ${f.name} (${(f.size / 1e6).toFixed(1)} MB) …`);
         fetch('/label/upload', {method: 'POST', body: fd}).then(r => r.json()).then(d => {
@@ -171,6 +230,12 @@
             if (p) { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = lw / 1.5; g.setLineDash([3, 7]); g.strokeRect(p[1] * s, p[2] * s, (p[3] - p[1]) * s, (p[4] - p[2]) * s); g.setLineDash([]); }   // faint: a hint where it was, not a label
         }
         if (drag) { g.strokeStyle = BOX_C; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
+        if (!S.counts.labeled && !drag) {            // a new project: what to do first (the tools explain themselves on hover)
+            const fs = Math.round(16 * cv.width / 1280), t = 'draw a box around the object to label it';
+            g.font = `${fs}px system-ui, sans-serif`; const w = g.measureText(t).width;
+            g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(cv.width / 2 - w / 2 - fs * .6, cv.height - fs * 2.6, w + fs * 1.2, fs * 1.8);
+            g.fillStyle = '#fff'; g.fillText(t, cv.width / 2 - w / 2, cv.height - fs * 1.25);
+        }
         prefetch();
         drawCursorOnTimeline();
         drawLoupe();
@@ -225,9 +290,9 @@
             a.appendChild(document.createTextNode(name)); b.textContent = v; d.append(a, b); $('l_counts').appendChild(d);
         });
         $('l_out').textContent = 'saved to ' + S.out_dir.replace(/\\/g, '/');
-        $('l_delall').disabled = !S.counts.labeled || S.tracking;
         if (!$('l_status').dataset.err) $('l_status').textContent = 'open: ' + S.source.split(/[\\/]/).slice(-2).join('/');
-        if (S.counts.labeled && $('l_source').value !== S.name && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
+        if (!SOURCES.some(s => s.name === S.name) && S.counts.labeled && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
+        $('l_pick_sub').textContent = `label project · ${S.counts.labeled} / ${S.frames} frames`;     // live, the list is fetched on opening
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
         updateBar();
     }
@@ -372,6 +437,7 @@
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------
+    const refreshedFor = {};                          // a new project shows up in the list once it has labels
     const KEY_C = BOX_C;
     const ICON = {
         first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
@@ -387,19 +453,19 @@
         del: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/>',
         undo: '<path d="M7 4L3 8l4 4"/><path d="M3 8h9a4.5 4.5 0 010 9H9"/>',
         review: '<rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M8.5 7l5 3-5 3z" fill="currentColor"/>',
-        help: '<circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.3 2.3 0 114.1 1.4c-.8.8-1.9 1.2-1.9 2.6"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/>',
+        delAll: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/><path d="M8.5 9v4.5 M11.5 9v4.5" stroke-width="1.5"/>',
     };
     const hasBox = l => !!l && l.length >= 5;
     const lastFrame = () => S ? Math.min(S.frames, S.decoded) - 1 : 0;
     const nav = f => () => { stopIfTracking(); f(); };
     const ACT = {
         first:   {k: 'Home', text: 'First', tip: 'First frame', run: nav(() => go(0)), on: () => cur > 0},
-        back10:  {k: 'Shift+←', text: '−10', tip: '10 frames back', run: nav(() => go(cur - 10)), on: () => cur > 0},
-        back:    {k: '←', text: '−1', tip: 'Previous frame', run: nav(() => go(cur - 1)), on: () => cur > 0},
-        fwd:     {k: '→', text: '+1', tip: 'Next frame', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
-        fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
+        back10:  {k: 'Shift+←', text: '−10', tip: '10 frames back (Shift + the mouse wheel too)', run: nav(() => go(cur - 10)), on: () => cur > 0},
+        back:    {k: '←', text: '−1', tip: 'Previous frame - or the mouse wheel up over the frame / the timeline, one frame per notch', run: nav(() => go(cur - 1)), on: () => cur > 0},
+        fwd:     {k: '→', text: '+1', tip: 'Next frame - or the mouse wheel down over the frame / the timeline', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
+        fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward (Shift + the mouse wheel too)', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
         last:    {k: 'End', text: 'Last', tip: 'Last frame', run: nav(() => go(S.frames - 1)), on: () => cur < lastFrame()},
-        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame, as fast as the tracker goes (Esc / right click: stop). Drawing a box starts it too; Shift+drag: a box without tracking',
+        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame. Drawing a box on the frame starts it too: it first checks back and fixes the frames where the run had left the object (Shift+drag: no tracking forward). Esc / right click: stop · Esc Esc: quit the app',
                   run: () => { if (playTimer) stopPlay(); else toggleTrack(); }, on: () => S.tracking || hasBox(L[cur])},
         key:     {k: 'K', text: 'Key', tip: 'This box is right: make it a key frame (the tracked frames after it stay)',
                   run: () => act('/label/box', {i: cur, box: L[cur].slice(1, 5)}), on: () => hasBox(L[cur]) && L[cur][0] !== 'm'},
@@ -407,13 +473,14 @@
                   run: sh => { const i = cur; act('/label/absent', {i, to_next_key: !!sh}, () => { if (!sh) go(i + 1); }); }},
         del:     {k: 'Del', text: 'Delete →', tip: 'Delete from here: the box on this frame and what the tracker made after it, up to your next key frame. To fix a box, just draw it again',
                   run: () => act('/label/delete', {i: cur}), on: () => !!L[cur]},
+        delAll:  {k: '', text: 'Delete all', tip: 'Every label of this project - asks first; Ctrl+Z brings them back',
+                  run: () => askDeleteAll($('l_delall_ask').hidden), on: () => S.counts.labeled > 0 && !S.tracking, active: () => !$('l_delall_ask').hidden},
         undo:    {k: 'Ctrl+Z', text: 'Undo', tip: 'Undo the last step (a whole tracking run is one step; kept until the app restarts)',
                   run: () => undo(), on: () => S.undo > 0},
         review:  {k: 'P', text: 'Review', tip: 'Play the labels at the video\'s speed to check them, no tracking',
                   run: () => togglePlay(), active: () => !!playTimer},
-        help:    {k: '', text: 'Keys', tip: 'All mouse actions and keys', run: () => showHelp($('l_help').hidden), active: () => !$('l_help').hidden, always: true},
     };
-    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent', 'del', 'undo'], ['review', 'help']];
+    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent', 'del', 'undo'], ['review'], ['delAll']];
     const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
     function buildBar() {
         const bar = $('l_tools');
@@ -423,9 +490,10 @@
                 const x = ACT[id], b = document.createElement('button');
                 b.type = 'button'; b.className = 'tb'; b.id = 'lt_' + id;
                 b.innerHTML = svg(id) + (x.text ? `<span class="tx">${x.text}</span>` : '');
-                b.title = x.tip + (x.k ? `  [${x.k}]` : '');
-                b.setAttribute('aria-label', x.text || x.tip);
-                b.addEventListener('click', e => { b.blur(); if (S || x.always) x.run(e.shiftKey); });
+                b.setAttribute('aria-label', (x.text || '') + (x.k ? ` (${x.k})` : ''));
+                b.addEventListener('click', e => { b.blur(); hideTip(); if (S || x.always) x.run(e.shiftKey); });
+                b.addEventListener('mouseenter', () => showTip(id));
+                b.addEventListener('mouseleave', hideTip);
                 bar.appendChild(b);
                 x.btn = b;
             });
@@ -446,24 +514,43 @@
         const r = ACT.review.btn;
         if (r) r.querySelector('.tx').textContent = playTimer ? 'Stop' : 'Review';
     }
-    function showHelp(on) { $('l_help').hidden = !on; updateBar(); }
+    // tooltips: hovering a tool shows its name, its key and what it does (instead of a separate list of keys)
+    let tipTimer = null;
+    const place = (el, b) => {                       // above the button, kept inside the bar
+        const bar = $('l_bar').getBoundingClientRect(), r = b.getBoundingClientRect();
+        el.style.left = Math.max(4, Math.min(bar.width - el.offsetWidth - 4, r.left - bar.left + r.width / 2 - el.offsetWidth / 2)) + 'px';
+    };
+    function showTip(id) {
+        clearTimeout(tipTimer);
+        tipTimer = setTimeout(() => {
+            const x = ACT[id], el = $('l_tip'), stop = id === 'track' && S && S.tracking;
+            if (!$('l_delall_ask').hidden && id === 'delAll') return;
+            el.innerHTML = '<b></b>' + (x.k ? '<kbd></kbd>' : '') + '<div></div>';
+            el.querySelector('b').textContent = stop ? 'Stop' : x.text;
+            if (x.k) el.querySelector('kbd').textContent = stop ? 'Space / Esc' : x.k;
+            el.querySelector('div').textContent = stop ? 'Stop tracking (right click on the frame too)' : x.tip;
+            el.hidden = false; place(el, x.btn);
+        }, 350);
+    }
+    function hideTip() { clearTimeout(tipTimer); $('l_tip').hidden = true; }
 
-    // Delete all: two steps - the button only asks (the count, the project), the red button in the question deletes; the
-    // server checks the project name too. Nothing is focused, so Space / Enter cannot confirm it by accident.
+    // Delete all: a quiet tool; it only asks (the count, the project) in a small pop-up over it - Delete all there deletes;
+    // the server checks the project name too. Nothing is focused, so Space / Enter cannot confirm it by accident.
     function askDeleteAll(on) {
         $('l_delall_ask').hidden = !on;
-        if (on && S) $('l_delall_q').textContent = `Delete all ${S.counts.labeled} labels of "${S.name}"? ` +
-            'Ctrl+Z brings them back; the file as it was stays as gt.before_delete_all.jsonl in the clip folder.';
-        if (on) $('l_delall_ask').scrollIntoView({block: 'nearest'});           // a short window: the question is below the fold
+        if (on && S) {
+            $('l_delall_q').textContent = `Delete all ${S.counts.labeled} labels of "${S.name}"? ` +
+                'Ctrl+Z brings them back; the file as it was stays as gt.before_delete_all.jsonl in the clip folder.';
+            place($('l_delall_ask'), ACT.delAll.btn);
+        }
+        updateBar();
     }
-    $('l_delall').addEventListener('click', e => { e.currentTarget.blur(); if (S && S.counts.labeled) askDeleteAll($('l_delall_ask').hidden); });
     $('l_delall_no').addEventListener('click', e => { e.currentTarget.blur(); askDeleteAll(false); });
     $('l_delall_yes').addEventListener('click', e => {
         e.currentTarget.blur(); askDeleteAll(false); if (!S) return;
         stopPlay();
         act('/label/delete_all', {name: S.name}, () => { go(0); drawTimeline(); });
     });
-    $('l_help_x').addEventListener('click', () => showHelp(false));
     function keyAction(e) {                           // e.code = the physical key: any keyboard layout (Russian: N is 'т', [ is 'х')
         switch (e.code) {
             case 'ArrowRight': return e.shiftKey ? 'fwd10' : 'fwd';
@@ -473,8 +560,7 @@
             case 'Space': return 'track';
             case 'KeyP': return 'review';
             case 'KeyZ': return e.ctrlKey || e.metaKey ? 'undo' : null;
-            case 'Escape': if (!$('l_delall_ask').hidden) { askDeleteAll(false); return null; }
-                           if (!$('l_help').hidden) { showHelp(false); return null; } return 'stop';
+            case 'Escape': if (!$('l_delall_ask').hidden) { askDeleteAll(false); return null; } return 'stop';
             case 'KeyN': return 'absent';
             case 'KeyK': return 'key';
             case 'Delete': case 'Backspace': return 'del';

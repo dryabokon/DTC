@@ -238,6 +238,36 @@ class TestLabel(unittest.TestCase):
         S.undo()                                                                     # Ctrl+Z: all back
         self.assertEqual(S.labels[5]['src'], 'manual'); self.assertEqual(S.labels[50]['src'], 'absent')
 
+    def test_95_list_delete_hide_thumb(self):
+        tmp = os.path.join(self.tmp, 'list')
+        saved = {k: getattr(UL, k) for k in ('CLIPS_DIR', 'CACHE_DIR', 'TRASH_DIR', 'HIDDEN_FILE')}
+        self.addCleanup(lambda: [setattr(UL, k, v) for k, v in saved.items()])
+        UL.CLIPS_DIR, UL.CACHE_DIR, UL.TRASH_DIR = os.path.join(tmp, 'clips'), os.path.join(tmp, 'cache'), os.path.join(tmp, 'trash')
+        UL.HIDDEN_FILE = os.path.join(UL.CLIPS_DIR, '.label_hidden.json')
+        here = os.getcwd(); os.chdir(os.path.join(UL.REPO, 'src')); self.addCleanup(os.chdir, here)   # the app's cwd: images/ is ../images
+        S = UL.LabelSession(self.video, name='proj', clips_dir=UL.CLIPS_DIR, cache_dir=UL.CACHE_DIR)
+        t0 = time.time()
+        while S.total is None and time.time() - t0 < 30:
+            time.sleep(0.05)
+        S.set_box(20, truth(20)); S.close()
+        items = {s['name']: s for s in UL.video_sources()}
+        self.assertEqual((items['proj']['kind'], items['proj']['remove']), ('project', 'trash'))
+        self.assertTrue(os.path.isfile(UL.thumb('proj')))                            # its first key frame, with the box
+        self.assertEqual(UL.remove_source('proj')['action'], 'trash')                # a project: moved, never deleted
+        self.assertNotIn('proj', {s['name'] for s in UL.video_sources()})
+        moved = os.listdir(UL.TRASH_DIR)
+        self.assertEqual(len(moved), 1); self.assertTrue(os.path.isfile(os.path.join(UL.TRASH_DIR, moved[0], 'gt.jsonl')))
+        repo_video = next((s['name'] for s in items.values() if s['kind'] == 'video'), None)
+        self.assertIsNotNone(repo_video)
+        if repo_video:                                                               # a video of images/: hidden, the file stays
+            self.assertEqual(UL.remove_source(repo_video)['action'], 'hide')
+            self.assertNotIn(repo_video, {s['name'] for s in UL.video_sources()})
+            self.assertTrue(any(s['hidden'] for s in UL.video_sources(with_hidden=True) if s['name'] == repo_video))
+            UL.unhide_source(repo_video)
+            self.assertIn(repo_video, {s['name'] for s in UL.video_sources()})
+        with self.assertRaises(ValueError):
+            UL.remove_source('no such video')
+
     @staticmethod
     def _iou(a, b):
         ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))

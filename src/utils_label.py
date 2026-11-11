@@ -41,6 +41,9 @@ REPO = os.path.dirname(HERE)
 CACHE_DIR = os.path.join(REPO, 'runs', 'labels')
 CLIPS_DIR = os.path.join(REPO, 'clips')
 UPLOAD_DIR = os.path.join(REPO, 'datasets', 'videos', 'uploads')    # <name>/<name>.mp4, like any dataset sequence
+TRASH_DIR = os.path.join(REPO, 'datasets', '.trash')                # deleted projects / uploads land here (not scanned, not in git)
+HIDDEN_FILE = os.path.join(CLIPS_DIR, '.label_hidden.json')         # videos of images/ and datasets hidden from the Label list
+THUMB_W = 160
 CACHE_WIDTH = 1280                  # frames wider than this are cached (and tracked) downscaled, like the benchmark's max_width
 JPEG_Q = 92
 SAVE_EVERY = 100
@@ -717,13 +720,116 @@ def resolve(spec, clips_dir=None):
         raise ValueError(f'labeling needs a video file, not {source} (record a camera / stream to a file first)')
     return source, None
 # ----------------------------------------------------------------------------------------------------------------------
-def video_sources():
-    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too)."""
+def _is_upload(path):
+    return os.path.abspath(path).lower().startswith(os.path.abspath(UPLOAD_DIR).lower() + os.sep)
+# ----------------------------------------------------------------------------------------------------------------------
+def _hidden():
+    try:
+        return set(_read_json(HIDDEN_FILE))
+    except (OSError, ValueError, TypeError):
+        return set()
+# ----------------------------------------------------------------------------------------------------------------------
+def _set_hidden(names):
+    os.makedirs(os.path.dirname(HIDDEN_FILE), exist_ok=True)
+    _write_json(HIDDEN_FILE, sorted(names))
+# ----------------------------------------------------------------------------------------------------------------------
+def video_sources(with_hidden=False):
+    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too).
+    Each: {name, label, sub, kind: project | upload | video, remove: trash | hide, hidden}. A project and an upload can be
+    deleted (moved to the trash), a video of images/ or of a dataset only hidden from this list (see remove_source)."""
     import utils_sources
-    out = [{'name': p['name'], 'label': f"{p['name']} (label project, {p['labeled'] or 0} / {p['frames'] or '?'} frames)"} for p in projects()]
+    hidden = _hidden()
+    out = [{'name': p['name'], 'label': p['name'], 'sub': f"label project · {p['labeled'] or 0} / {p['frames'] or '?'} frames",
+            'kind': 'project', 'remove': 'trash', 'hidden': False} for p in projects()]
     for s in utils_sources.list_sources():
-        if os.path.isfile(str(s['source'])):
-            out.append({'name': s['name'], 'label': s['label']})
+        src = str(s['source'])
+        if not os.path.isfile(src):
+            continue
+        up = _is_upload(src)
+        hid = not up and s['name'] in hidden
+        if hid and not with_hidden:
+            continue
+        if up:
+            sub = 'uploaded video'
+        elif '(dataset)' in s['label']:
+            sub = 'dataset'
+        else:
+            sub = os.path.relpath(src, os.path.join(REPO, 'images')).replace('\\', '/')
+        out.append({'name': s['name'], 'label': s['name'], 'sub': sub + (' · ground truth' if s.get('gt') else ''),
+                    'kind': 'upload' if up else 'video', 'remove': 'trash' if up else 'hide', 'hidden': hid})
+    return out
+# ----------------------------------------------------------------------------------------------------------------------
+def _trash(path, name):
+    os.makedirs(TRASH_DIR, exist_ok=True)
+    dst = os.path.join(TRASH_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{safe_name(name)}")
+    shutil.move(path, dst)
+    return dst
+# ----------------------------------------------------------------------------------------------------------------------
+def remove_source(name):
+    """Delete from the Label list - the counterpart of adding (a new project, Upload). A label project or an uploaded
+    video is MOVED to datasets/.trash/<time>_<name>/ (move it back to undo; the frame cache runs/labels/<name> is dropped,
+    it is rebuilt from the video). A video of images/ or of a dataset is only hidden from this list: those files belong to
+    the repo / the benchmark, the Label tab never deletes them. Returns {'action': 'trash' | 'hide', 'to'?}."""
+    import utils_sources
+    name = str(name or '')
+    S = current()
+    for p in projects():
+        if p['name'] == name:
+            if S is not None and S.name == name:
+                close_session()
+            dst = _trash(os.path.join(CLIPS_DIR, name), name)
+            shutil.rmtree(os.path.join(CACHE_DIR, name), ignore_errors=True)
+            return {'action': 'trash', 'to': dst}
+    for s in utils_sources.list_sources():
+        src = str(s['source'])
+        if s['name'] == name and os.path.isfile(src):
+            if _is_upload(src):
+                if S is not None and os.path.abspath(S.source) == os.path.abspath(src):
+                    close_session()
+                return {'action': 'trash', 'to': _trash(os.path.dirname(src), name)}
+            _set_hidden(_hidden() | {name})
+            return {'action': 'hide'}
+    raise ValueError(f'not in the list: {name}')
+# ----------------------------------------------------------------------------------------------------------------------
+def unhide_source(name):
+    _set_hidden(_hidden() - {str(name or '')})
+# ----------------------------------------------------------------------------------------------------------------------
+def thumb(name):
+    """A small JPEG for the list (cached in runs/labels/.thumbs/): a label project shows its first key frame with the box,
+    a video a frame a third of the way in."""
+    import hashlib
+    path, proj = resolve(name)
+    gt = os.path.join(CLIPS_DIR, proj, 'gt.jsonl') if proj else None
+    stamp = os.path.getmtime(gt) if gt and os.path.isfile(gt) else os.path.getmtime(path)
+    cache = os.path.join(CACHE_DIR, '.thumbs')
+    out = os.path.join(cache, f"{hashlib.md5(str(name).encode()).hexdigest()[:12]}_{int(stamp)}.jpg")
+    if os.path.isfile(out):
+        return out
+    i, box = None, None
+    if gt and os.path.isfile(gt):
+        rows = []
+        for line in open(gt, encoding='utf-8'):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+        r = next((r for r in rows if r.get('src') == 'manual' and r.get('box')), None) or next((r for r in rows if r.get('box')), None)
+        if r:
+            i, box = int(r['frame']), r['box']
+    cap = cv2.VideoCapture(path)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, i if i is not None else n // 3)
+    ok, img = cap.read()
+    cap.release()
+    if not ok or img is None:
+        raise ValueError(f'cannot read a frame of {path}')
+    s = THUMB_W / img.shape[1]
+    img = cv2.resize(img, (THUMB_W, max(1, round(img.shape[0] * s))), interpolation=cv2.INTER_AREA)
+    if box:
+        x1, y1, x2, y2 = [round(v * s) for v in box]
+        cv2.rectangle(img, (x1, y1), (max(x1 + 2, x2), max(y1 + 2, y2)), (0, 149, 255), 1)
+    os.makedirs(cache, exist_ok=True)
+    _imwrite(out, img)
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def save_upload(file_storage, upload_dir=None):
