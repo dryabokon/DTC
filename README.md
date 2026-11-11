@@ -40,7 +40,7 @@ dtc clips record NAME --maneuver yaw|yaw_fast|sweep|none --seconds 60     refere
 ```
 
 ## Web UI keys
-Click / drag on the video: track a box (SOT) · right click, Esc, C: stop tracking (Esc again quits) ·
+Click / drag on the video: track a box (SOT) · right click, Esc, C: stop tracking · Esc Esc (twice quickly, any tab): quit the app ·
 Space: pause / resume (video files) · ->: next frame while paused · R / Home / ⏮: video from the start · H: hide the panel.
 Click-to-track model: the "Click-to-track" dropdown in the panel, or `--sot_tracking_model NANO|VIT|SIAMBAN|SIAMFC|MIL`
 (default NANO; `--sot_score_th X` overrides the per-model loss threshold). Details and Pi timings: `utils_tracker_sot.SOT_MODELS`,

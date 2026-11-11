@@ -116,6 +116,8 @@
   #l_bar { container-type: inline-size; }          /* captions go when the bar itself gets narrow (not the window) */
   @container (max-width: 700px) { button.tb .tx { display: none; } button.tb { height: 32px; min-width: 26px; padding: 2px 3px; } .ltb .sep { margin: 0 2px; }
                                   #lt_track { min-width: 26px; } }
+  #quitNote { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; text-align: center;
+               background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--text); font-size: 18px; padding: 16px; }
   #l_help { position: absolute; right: 14px; bottom: 14px; max-width: 440px; max-height: calc(100% - 28px); overflow: auto; z-index: 5;
             background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
   #l_help .titleline { justify-content: space-between; margin-bottom: 6px; } #l_help button.tb { height: 24px; font-size: 16px; }
@@ -264,6 +266,7 @@
         <kbd>Ctrl+Z</kbd><span>undo (a whole tracking run is one step)</span>
         <kbd>Home End</kbd><span>first / last frame</span>
         <kbd>Esc</kbd><span>stop tracking (right click too)</span>
+        <kbd>Esc Esc</kbd><span>quit the app (twice quickly, on any tab; the labels are saved)</span>
       </div>
       </div>
     </div>
@@ -502,9 +505,24 @@
     $('source_custom').addEventListener('keydown', e => { if (e.key === 'Enter') switchSource(e.target.value); });
 
     //------------------------------------------------------------------------------------------------------------------
+    // Esc Esc (twice within 0.6 s, on any tab): quit the app - the graceful stop (video, report, labels saved). One Esc only
+    // stops what runs (click-to-track, a labeling run) or leaves a text field, so a single stray Esc never closes the app.
+    let lastEsc = 0, quitting = false;
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape' || e.repeat || quitting) return;
+        const now = performance.now();
+        if (now - lastEsc > 600) { lastEsc = now; return; }
+        quitting = true; e.preventDefault(); e.stopImmediatePropagation();
+        fetch('/shutdown', {method: 'POST'}).catch(() => {});
+        const d = document.createElement('div'); d.id = 'quitNote';
+        d.textContent = 'DTC is closing (Esc Esc): labels and the report are saved. Start the app again to go on; this tab can be closed.';
+        document.body.appendChild(d);
+    }, true);
+
     document.addEventListener('keydown', function (event) {
         if (window.dtcBenchTab && window.dtcBenchTab() !== 'live') return;                  // keys drive the live video only
-        // only typing must not reach the app (Escape closes it when no SOT is active, 'c' cancels SOT, Space toggles sidebar).
+        if (quitting) return;
+        // only typing must not reach the app ('c' / Esc cancel SOT - Esc Esc quits, above - Space pauses, H toggles the sidebar).
         // Buttons, checkboxes, sliders keep the focus after a click - keys pressed then are meant for the app.
         const t = event.target;
         const typing = t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(t.type));
@@ -518,6 +536,7 @@
             return;
         }
         let key = event.key;
+        if (key === 'Escape') key = 'c';                                                        // one Esc: stop tracking only, never quit
         if (event.code === 'Space') { event.preventDefault(); key = 'Space'; }                 // Space: pause / resume a video file
         if (key === 'ArrowRight' || key === 'Home') event.preventDefault();                     // -> while paused: next frame; Home / R: from the start
         let extra = '';
