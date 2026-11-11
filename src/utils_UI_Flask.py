@@ -261,6 +261,10 @@ class WebApp:
         def label_track():
             return _label_reply(lambda S, d: S.start_tracking(d.get('i')))
 
+        @self.app.route('/label/back', methods=['POST'])
+        def label_back():                                  # a box drawn with Shift: fix the run before it, no tracking forward
+            return _label_reply(lambda S, d: S.start_tracking(d.get('i'), forward=False))
+
         @self.app.route('/label/undo', methods=['POST'])
         def label_undo():
             return _label_reply(lambda S, d: S.undo())

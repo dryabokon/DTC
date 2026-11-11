@@ -58,6 +58,10 @@ Ground truth for ONE object per frame, from any video file (listed sources, a pa
 click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it as fast as it goes and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, or the mouse wheel over the frame / timeline; Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
+Back-tracking: a box drawn on a frame is first tracked backwards over the run before it, down to where both runs agree
+(3 frames in a row); the frames above that, where the run had left the object, get the backward boxes - so draw where the
+error is plain to see (often the frame where it stopped), no need to scroll back to where it began. The line under the
+frame says which frames it fixed. Ctrl+Z undoes it together with the run.
 Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
 cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
 Space: track / stop · Esc / right click: stop · Shift+drag: a key frame without tracking · K: this box is right, make it a

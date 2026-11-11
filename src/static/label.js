@@ -212,9 +212,9 @@
         const l = L[cur];
         let kind = l ? SRC[l[0]] : 'not labeled';
         if (l && l[0] === 't' && l[5] !== null && l[5] !== undefined) kind += `  · appearance ${l[5]}`;
-        if (S.tracking) kind = `tracking ${S.model} …  ` + kind;
+        if (S.tracking) kind = (S.phase === 'back' ? `checking back from this frame (${S.model}) …  ` : `tracking ${S.model} …  `) + kind;
         $('l_kind').textContent = kind;
-        $('l_why').textContent = !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : (S.decode_error ? S.decode_error : '');
+        $('l_why').textContent = [S.back_note, !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : '', S.decode_error || ''].filter(Boolean).join('  ·  ');
         const c = S.counts, pct = v => S.frames ? ` (${(100 * v / S.frames).toFixed(0)}%)` : '';
         $('l_counts').innerHTML = '';
         [['#00e5ff', 'key frames (yours)', c.manual], ['#30d158', 'tracked', c.track], ['#ff9f0a', 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
@@ -334,7 +334,7 @@
         if (Math.abs(d.x1 - d.x0) < 3 || Math.abs(d.y1 - d.y0) < 3) { draw(); return; }
         const i = cur;
         L[i] = ['m', ...box]; draw();                 // at once on screen; the server confirms
-        act('/label/box', {i, box}, () => { if (!d.shift) act('/label/track', {i}); });   // Shift+drag: a key frame only, no tracking
+        act('/label/box', {i, box}, () => act(d.shift ? '/label/back' : '/label/track', {i}));   // Shift+drag: no tracking forward
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
 
