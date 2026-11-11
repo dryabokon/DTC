@@ -89,8 +89,8 @@
     function closedView() {                           // the open project was deleted: nothing on screen
         S = null; L = []; ver = -1; imgs.clear();
         g.clearRect(0, 0, cv.width, cv.height); tl.getContext('2d').clearRect(0, 0, tl.width, tl.height); tlBase = null;
-        ['l_ref', 'l_now'].forEach(id => $(id).getContext('2d').clearRect(0, 0, $(id).width, $(id).height));
-        ['l_kind', 'l_why', 'l_counts', 'l_out', 'l_ref_t', 'l_now_t'].forEach(id => { $(id).textContent = ''; });
+        ['l_ref', 'l_now', 'l_next'].forEach(id => $(id).getContext('2d').clearRect(0, 0, $(id).width, $(id).height));
+        ['l_kind', 'l_why', 'l_counts', 'l_out', 'l_ref_t', 'l_now_t', 'l_next_t'].forEach(id => { $(id).textContent = ''; });
         $('l_frame').textContent = 'no video'; updateBar();
     }
     function openPick() {
@@ -188,7 +188,8 @@
         if (!S || i < 0 || i >= S.decoded) return null;
         let im = imgs.get(i);
         if (!im) {
-            im = new Image(); im.onload = () => { if (i === cur) draw(); }; im.src = `/label/frame?i=${i}&n=${encodeURIComponent(S.name)}`;
+            im = new Image(); im.onload = () => { if (i === cur) draw(); else drawLoupe(); };    // else: a key frame for the loupe
+            im.src = `/label/frame?i=${i}&n=${encodeURIComponent(S.name)}`;
             imgs.set(i, im);
             if (imgs.size > 400) for (const k of imgs.keys()) { if (Math.abs(k - cur) > 60) imgs.delete(k); if (imgs.size <= 300) break; }
         }
@@ -245,8 +246,13 @@
     //------------------------------------------------------------------------------------------------------------------
     // loupe: the box of this frame, enlarged, next to the box of the key frame it came from - is it still the same object?
     //------------------------------------------------------------------------------------------------------------------
-    function keyBefore(i) {                           // nearest key frame with a box at or before i (else the first one after)
+    // loupe: this frame's box between the key frame before it and the one after it - the run comes from the one, must
+    // arrive at the other; a box that left the object looks unlike both
+    function keyBefore(i) {                           // the nearest key frame with a box before i (i itself if it is one)
         for (let j = Math.min(i, L.length - 1); j >= 0; j--) { const l = L[j]; if (l && l[0] === 'm') return j; }
+        return -1;
+    }
+    function keyAfter(i) {
         for (let j = i + 1; j < L.length; j++) { const l = L[j]; if (l && l[0] === 'm') return j; }
         return -1;
     }
@@ -265,12 +271,14 @@
     }
     function drawLoupe() {
         if (!S) return;
-        const l = L[cur], kf = keyBefore(cur), kl = kf >= 0 ? L[kf] : null;
+        const l = L[cur], kf = keyBefore(l && l[0] === 'm' ? cur - 1 : cur), kn = keyAfter(cur);
         const nowBox = l && l.length >= 5 ? l.slice(1, 5) : (prevBox(cur) || []).slice(1, 5);
-        crop($('l_ref'), kf, kl ? kl.slice(1, 5) : null, KEYC);
+        crop($('l_ref'), kf, kf >= 0 ? L[kf].slice(1, 5) : null, KEYC);
         crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? (l[0] === 'm' ? KEYC : BOX_C) : 'rgba(255,255,255,.6)');
-        $('l_ref_t').textContent = kf >= 0 ? `key frame ${kf}` : 'no key frame yet';
-        $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · no object' : ' · not labeled');
+        crop($('l_next'), kn, kn >= 0 ? L[kn].slice(1, 5) : null, KEYC);
+        $('l_ref_t').textContent = kf >= 0 ? `key ${kf}` : 'no key before';
+        $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · none' : ' · empty');
+        $('l_next_t').textContent = kn >= 0 ? `key ${kn}` : 'no key after';
     }
 
     function info() {
@@ -437,8 +445,10 @@
         stopIfTracking();
         go(cur + n * (e.shiftKey ? 10 : 1));
     }
-    cv.addEventListener('wheel', onWheel, {passive: false});
-    tl.addEventListener('wheel', onWheel, {passive: false});
+    $('l_main').addEventListener('wheel', e => {      // anywhere over the frame, the stage around it, the toolbar, the timeline
+        if (e.target.closest('.pop, .tip')) return;
+        onWheel(e);
+    }, {passive: false});
 
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
