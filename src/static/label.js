@@ -98,7 +98,7 @@
         m.style.left = r.left + 'px'; m.style.top = (r.bottom + 4) + 'px'; m.style.maxHeight = Math.max(200, innerHeight - r.bottom - 14) + 'px';
         m.hidden = false; $('l_path').value = ''; renderPick(); $('l_path').focus(); refreshSources(); }
     function closePick() { $('l_pick_menu').hidden = true; $('l_path').blur(); }
-    $('l_pick_btn').addEventListener('click', () => { if ($('l_pick_menu').hidden) openPick(); else closePick(); });
+    $('l_pick_btn').addEventListener('click', e => { e.currentTarget.blur(); if ($('l_pick_menu').hidden) openPick(); else closePick(); });
     document.addEventListener('mousedown', e => { if (!$('l_pick_menu').hidden && !e.target.closest('#l_pick')) closePick(); });
     $('l_path').addEventListener('input', () => renderPick());
     document.addEventListener('keydown', e => {      // Esc closes the open list wherever the focus is (and does nothing else)
@@ -578,11 +578,14 @@
     document.addEventListener('keydown', e => {
         if (!window.dtcBenchTab || window.dtcBenchTab() !== 'label' || !S) return;
         const t = e.target;
-        if (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'file'].includes(t.type))) {
+        if (t.tagName === 'TEXTAREA' || (t.tagName === 'SELECT' && e.code !== 'Space') || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'file'].includes(t.type))) {
             if (e.key === 'Escape') t.blur();
             return;
         }
-        if (t.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
+        if (t.tagName === 'BUTTON' && e.key === 'Enter') return;
+        // Space is Track / Stop wherever the focus was left (the video list's button, the tracker list, a tool): it must
+        // never press that element instead - it opened the video list again and tracking did not start
+        if ((t.tagName === 'BUTTON' || t.tagName === 'SELECT') && e.code === 'Space') t.blur();
         let handled = true;
         // e.code = the physical key: the letters work with any keyboard layout (Russian: N is 'т', [ is 'х', ...)
         if ((e.ctrlKey || e.metaKey) && e.code !== 'KeyZ') return;          // leave the browser's own shortcuts alone
