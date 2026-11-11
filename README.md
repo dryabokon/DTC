@@ -55,24 +55,24 @@ http://localhost:8509.
 ## Labeling (Label tab)
 Ground truth for ONE object per frame, from any video file (listed sources, a path, or Upload - it lands in
 `datasets/videos/uploads/<name>/`, never overwriting; copying a file to `datasets/videos/<set>/<name>/` by hand works too): draw a box -> the
-click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it at 1x / 2x / 4x / max speed and
+click-to-track tracker (model picked in the tab, default = `sot_tracking_model`) follows it as fast as it goes and
 stops by itself when the loss rules fire, at the next key frame or at the end. Wrong box: step back (<- ->, or the mouse wheel over the frame / timeline; Shift: 10 frames),
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
 Every action is a button in the toolbar under the frame (icon + caption, its key in the tooltip; greyed out when it
 cannot act on this frame; Keys opens the list below), so the whole job can be done with the mouse. The keys:
-Space: track / stop · Esc / right click: stop · Shift+drag (or the Box only button): a key frame without tracking · K: this box is right, make it a
-key frame (the tracked frames after it stay) · N: no object on this frame (Shift+N: up to the next key frame) ·
+Space: track / stop · Esc / right click: stop · Shift+drag: a key frame without tracking · K: this box is right, make it a
+key frame (the tracked frames after it stay) · N: no object on this frame only, the frames after it stay (Shift+N: up to the next key frame) ·
 Del: delete from here - this frame's box and what the tracker made after it, up to your next key frame (a frame without
-a label reads as "no object" in the benchmark, so no single holes) · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) · [ ]: previous / next key frame ·
-, .: previous / next red mark · P: play the labels to review them. Keys go by the physical key (any keyboard layout). An occlusion: delete from the
+a label reads as "no object" in the benchmark, so no single holes) · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) ·
+P: play the labels at the video's speed to review them. Keys go by the physical key (any keyboard layout). An occlusion: delete from the
 first bad frame, draw the box again where the object is back (the frames between stay empty = "no object").
-Besides the app's loss rules the tracker stops, with a red mark on the timeline, where its box jumps away from where it
+Besides the app's loss rules the tracker stops (the line under the frame says why; the cursor lands there) where its box jumps away from where it
 was heading (> 0.3 box heights in one frame, > 0.35 over two: swaps to another person) and where a run arrives at a key
 frame far from its box (IoU < 0.3: it followed an occluder on the way). A swap while two people cross slowly is not
 caught, nor a box that slowly grows over two or three people (seen on a drone video of a basketball court), nor a box
 that stays on something still (a sign) while the object walks on: "Same
 object?" in the panel shows the box of this frame next to the key frame's - check it, or review with P. A jump can be
-the box coming back after a passer-by: the frames before it are marked too. A reopened project continues at its last
+the box coming back after a passer-by: look a frame or two back too. A reopened project continues at its last
 labeled frame. The jump rule fits people and cars seen from a steady camera; on a small target with a jerky camera (the
 thermal drone sequence `drone_ir`) it also stops on true motion - press Track to go on.
 The video is decoded once into `runs/labels/<name>/frames/` (<= 1280 px wide; the frame numbers are cv2's, as in the

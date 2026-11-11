@@ -38,7 +38,6 @@ UPLOAD_DIR = os.path.join(REPO, 'datasets', 'videos', 'uploads')    # <name>/<na
 CACHE_WIDTH = 1280                  # frames wider than this are cached (and tracked) downscaled, like the benchmark's max_width
 JPEG_Q = 92
 SAVE_EVERY = 100
-SPEEDS = (1, 2, 4, 0)               # x source fps while tracking (0 = as fast as the tracker goes)
 MANUAL = ('manual', 'absent')
 JUMP_REL = 0.3                      # tracking stops when the box centre lands this many box heights away from where its motion
 JUMP2_REL = 0.35                    # was heading (from the last frame / from two frames back - a swap can slide over 2-3 frames):
@@ -121,7 +120,6 @@ class LabelSession:
         self.tracking = False
         self.track_pos = None
         self.stop_reason = None
-        self.speed = 1
         self.undo_stack = []                                                  # label lists before each operator action
         self._stop = threading.Event()
         self._thread = None
@@ -171,7 +169,7 @@ class LabelSession:
                 self.labels.append(None)
             box = r.get('box')
             src = r.get('src') or ('manual' if box else 'absent')
-            self.labels[i] = {'src': src, 'box': [float(v) for v in box] if box else None, **{k: r[k] for k in ('score', 'sim', 'check') if k in r}}
+            self.labels[i] = {'src': src, 'box': [float(v) for v in box] if box else None, **{k: r[k] for k in ('score', 'sim') if k in r}}
         print(f'[ Label ] resumed {self.name}: {sum(1 for x in self.labels if x)} labeled frames')
     # ----------------------------------------------------------------------------------------------------------------------
     def _decode(self):
@@ -279,7 +277,7 @@ class LabelSession:
         """Before an operator action: what Ctrl+Z goes back to (dicts are replaced, never changed in place)."""
         self.undo_stack.append(list(self.labels))
         del self.undo_stack[:-UNDO_DEPTH]
-        self.stop_reason = None             # the operator acts on it: the stop message is done (its red marks stay)
+        self.stop_reason = None             # the operator acts on it: the stop message is done
     # ----------------------------------------------------------------------------------------------------------------------
     def undo(self):
         """Back to the labels before the last action (a whole tracking run is one action). Returns how many are left."""
@@ -316,14 +314,12 @@ class LabelSession:
         return i
     # ----------------------------------------------------------------------------------------------------------------------
     def set_absent(self, i, to_next_key=False):
-        """No object on frame i (or from i up to the next key frame)."""
+        """No object on frame i only (the tracked frames after it stay), or from i up to the next key frame."""
         self.stop_tracking('marked absent')
         with self.lock:
             i = self._check(i)
             self._snapshot()
             end = self.next_key(i) if to_next_key else i + 1
-            if not to_next_key:
-                self._clear_after(i)
             for j in range(i, end):
                 self.labels[j] = {'src': 'absent', 'box': None}
             self._changed()
@@ -381,17 +377,16 @@ class LabelSession:
         self.model = model
         return model
     # ----------------------------------------------------------------------------------------------------------------------
-    def start_tracking(self, i, speed=None):
+    def start_tracking(self, i):
         """Track forward from frame i (it must have a box) until: stop_tracking, the tracker loses the target (the app's loss
-        rules, and any frame without a confident box), the next key frame, or the end of the decoded video."""
+        rules, and any frame without a confident box), the next key frame, or the end of the decoded video. As fast as the
+        tracker goes: a wrong run is checked with Review and cut with Delete, watching it slowly does not pay."""
         self.stop_tracking('restarted')
         with self.lock:
             i = self._check(i)
             lab = self.labels[i]
             if not (lab and lab['box']):
                 raise ValueError('draw a box on this frame first')
-            if speed is not None:
-                self.speed = int(speed) if int(speed) in SPEEDS else 1
             self._snapshot()
             self._clear_after(i)
             self._changed()
@@ -419,7 +414,6 @@ class LabelSession:
                 return
             self.model = T.model                                          # MIL if the weights are missing
             recent = [box]
-            t_next = time.perf_counter()
             j = i + 1
             while True:
                 if self._stop.is_set():
@@ -436,8 +430,7 @@ class LabelSession:
                     reason = f'reached the key frame {j}'
                     meet = _iou(recent[-1], lab['box']) if lab['box'] and j > i + 1 else 1.0
                     if meet < MEET_IOU:                                   # it followed something else on the way (an occluder)
-                        reason = f'the track does not meet the key frame {j} (IoU {meet:.2f}): it drifted on the way - I = straight line'
-                        self._mark_check(j - 1, reason)
+                        reason = f'the track does not meet the key frame {j} (IoU {meet:.2f}): it drifted on the way'
                     break
                 frame = self.frame(j)
                 if frame is None:
@@ -446,32 +439,22 @@ class LabelSession:
                 b, score = T.update(frame)
                 if b is None:
                     reason = 'tracker: ' + (T.stop_reason or 'low score')
-                    self._mark_check(j - 1, reason)
                     break
                 box_src = self._box([v / k for v in b])
                 jump = self._jump(recent, box_src)
                 with self.lock:
                     self._check(j)
-                    self.labels[j] = {'src': 'track', 'box': box_src, 'score': round(float(score), 3), 'sim': round(float(T.similarity), 3),
-                                      **({'check': 'jump'} if jump else {})}
+                    self.labels[j] = {'src': 'track', 'box': box_src, 'score': round(float(score), 3), 'sim': round(float(T.similarity), 3)}
                     self.track_pos = j
                     self._changed(save=False)
                 if jump:                                                  # either side can be the wrong one: on campus person
-                    reason = (f'the box jumped {jump:.1f} box heights since frame {j - 1}: here or just before, '
-                              f'it is on another object (it can come back after a passer-by)')
-                    self._mark_check(j - 1, reason)                       # 1 drifted to a passer-by at 485-488, jumped back at 489
+                    reason = (f'the box jumped {jump:.1f} box heights since frame {j - 1}: here or just before, '   # 1 drifted to a
+                              f'it is on another object (it can come back after a passer-by)')    # passer-by at 485-488, back at 489
                     break
                 recent = recent[-4:] + [box_src]
                 if j - last_save >= SAVE_EVERY:
                     self.save(); last_save = j
                 j += 1
-                if self.speed:                                            # show it at a pace the operator can follow
-                    t_next += 1.0 / (self.fps * self.speed)
-                    d = t_next - time.perf_counter()
-                    if d > 0:
-                        self._stop.wait(d)
-                    else:
-                        t_next = time.perf_counter()
         except Exception as e:                                            # noqa: BLE001 - the UI must see it, not a dead thread
             reason = f'tracker error: {e}'
         finally:
@@ -496,13 +479,6 @@ class LabelSession:
                 return d2
         return 0.0
     # ----------------------------------------------------------------------------------------------------------------------
-    def _mark_check(self, j, reason):
-        """The last tracked frame before a stop by the loss rules: a 'check here' mark on the timeline."""
-        with self.lock:
-            lab = self.labels[j] if 0 <= j < len(self.labels) else None
-            if lab and lab['src'] == 'track':
-                self.labels[j] = {**lab, 'check': reason}
-    # ----------------------------------------------------------------------------------------------------------------------
     def counts(self):
         c = {'manual': 0, 'track': 0, 'interp': 0, 'absent': 0}
         for lab in self.labels:
@@ -514,7 +490,7 @@ class LabelSession:
     def state(self):
         return {'name': self.name, 'source': self.source, 'out_dir': self.out_dir, 'frames': self.n, 'decoded': self.decoded,
                 'decoding': self.total is None, 'decode_error': self.decode_error, 'width': self.src_w, 'height': self.src_h,
-                'fps': round(self.fps, 3), 'model': self.model, 'speed': self.speed, 'tracking': self.tracking,
+                'fps': round(self.fps, 3), 'model': self.model, 'tracking': self.tracking,
                 'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'version': self.version, 'counts': self.counts(),
                 'undo': len(self.undo_stack)}
     # ----------------------------------------------------------------------------------------------------------------------
@@ -528,13 +504,13 @@ class LabelSession:
                 elif lab['box'] is None:
                     out.append([lab['src'][0]])
                 else:
-                    out.append([lab['src'][0]] + lab['box'] + [lab.get('sim'), 1 if lab.get('check') else 0])
+                    out.append([lab['src'][0]] + lab['box'] + [lab.get('sim')])
             return {'version': self.version, 'labels': out}
     # ----------------------------------------------------------------------------------------------------------------------
     def save(self):
         """clips/<name>/gt.jsonl + label.json (+ video.mp4 once, when the whole video is decoded)."""
         with self.lock:
-            rows = [json.dumps({'frame': i, 'box': lab['box'], 'src': lab['src'], **{k: lab[k] for k in ('score', 'sim', 'check') if k in lab}})
+            rows = [json.dumps({'frame': i, 'box': lab['box'], 'src': lab['src'], **{k: lab[k] for k in ('score', 'sim') if k in lab}})
                     for i, lab in enumerate(self.labels) if lab]
             meta = {'tool': 'DTC Label tab', 'source': self.source, 'frames': self.n, 'width': self.src_w, 'height': self.src_h,
                     'fps': round(self.fps, 3), 'tracker': self.model, 'created': self.created,

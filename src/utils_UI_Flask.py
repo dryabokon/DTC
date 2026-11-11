@@ -180,7 +180,7 @@ class WebApp:
             import utils_label, utils_tracker_sot
             S = utils_label.current()
             return {'sources': utils_label.video_sources(), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
-                    'default_model': getattr(self.config, 'sot_tracking_model', 'NANO'), 'speeds': list(utils_label.SPEEDS),
+                    'default_model': getattr(self.config, 'sot_tracking_model', 'NANO'),
                     'state': S.state() if S else None}
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/label/open', methods=['POST'])
@@ -259,7 +259,7 @@ class WebApp:
 
         @self.app.route('/label/track', methods=['POST'])
         def label_track():
-            return _label_reply(lambda S, d: S.start_tracking(d.get('i'), d.get('speed')))
+            return _label_reply(lambda S, d: S.start_tracking(d.get('i')))
 
         @self.app.route('/label/undo', methods=['POST'])
         def label_undo():
@@ -273,16 +273,6 @@ class WebApp:
         def label_model():
             return _label_reply(lambda S, d: S.set_model(d.get('model', '')))
 
-        @self.app.route('/label/speed', methods=['POST'])
-        def label_speed():
-            import utils_label
-            def f(S, d):
-                v = int(d.get('speed', 1))
-                if v not in utils_label.SPEEDS:
-                    raise ValueError(f'speed one of {utils_label.SPEEDS}')
-                S.speed = v
-                return v
-            return _label_reply(f)
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/cancel_sot', methods=['POST'])
         def cancel_sot():
