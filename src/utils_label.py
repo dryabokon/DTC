@@ -56,6 +56,9 @@ MEET_IOU = 0.3                      # a run that ends on a key frame must arrive
 AGREE_N = 3                         # back-tracking stops after this many frames in a row where it agrees with the forward run:
 AGREE_REL = 0.2                     # IoU >= 0.5, or the centres within this many box heights (two trackers on a small target
                                     # differ in size more than in place)
+ALONE_MAX = 60                      # a backward run that stops (loss, jump) without ever agreeing is applied only up to this
+                                    # many frames: right ones ran 2-51 frames (campus, night drone), the one wrong (a box drawn
+                                    # on a person hidden behind a sign; the backward run followed a passer-by) ran 174
 UNDO_DEPTH = 50       # the operator's decisions: tracking stops there, clearing never removes them
 # ----------------------------------------------------------------------------------------------------------------------
 def safe_name(text):
@@ -492,8 +495,11 @@ class LabelSession:
             j -= 1
         if run >= AGREE_N:                                                # agreed on j .. j+AGREE_N-1: the forward run is right there
             fix = [f for f in back if f >= j + AGREE_N]
-        elif why:                                                         # the backward boxes it made are the operator's object
+        elif why:                                                         # stopped without ever agreeing: which run is on the object?
             fix = list(back)
+            if len(back) > ALONE_MAX:                                     # both runs cannot be right that long: it follows another
+                return (f'back-tracking from {i} went {len(back)} frames without ever meeting the run - is this box on '
+                        f'the object (not on something in front of it)? {_frames(first, i - 1)} unchanged, check them')
         else:                                                             # down to the start of the run (a short run: < AGREE_N)
             meets = run > 0 or (bool(key and key.get('box')) and (_iou(recent[-1], key['box']) >= MEET_IOU or _agree(recent[-1], key['box'])))
             if not meets:
@@ -511,6 +517,7 @@ class LabelSession:
         if why and run < AGREE_N and a > first:
             note += f'; back-tracking {why}: {_frames(first, a - 1)} unchecked'
         return note
+    # ----------------------------------------------------------------------------------------------------------------------
     # ----------------------------------------------------------------------------------------------------------------------
     def _track(self, i, box, back=False, forward=True):
         k = self.k
