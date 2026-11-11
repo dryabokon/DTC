@@ -116,17 +116,46 @@
   #l_bar { container-type: inline-size; }          /* captions go when the bar itself gets narrow (not the window) */
   @container (max-width: 700px) { button.tb .tx { display: none; } button.tb { height: 32px; min-width: 26px; padding: 2px 3px; } .ltb .sep { margin: 0 2px; }
                                   #lt_track { min-width: 26px; } }
-  #l_help { position: absolute; right: 14px; bottom: 14px; max-width: 440px; max-height: calc(100% - 28px); overflow: auto; z-index: 5;
-            background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 14px 12px; box-shadow: 0 8px 24px rgba(0,0,0,.35); }
-  #l_help .titleline { justify-content: space-between; margin-bottom: 6px; } #l_help button.tb { height: 24px; font-size: 16px; }
+  /* small pop-ups over the toolbar: the Delete all question, the tool tooltips */
+  #l_bar { position: relative; }
+  .pop, .tip { position: absolute; bottom: calc(100% - 4px); z-index: 20; background: var(--surface); color: var(--text); border: 1px solid var(--line);
+               border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 12.5px; }
+  .pop { width: 300px; padding: 10px 12px; } .pop .row { display: flex; gap: 6px; margin-top: 8px; justify-content: flex-end; }
+  .pbtn { padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--field); color: var(--text); cursor: pointer; font-size: 12.5px; }
+  .pbtn:hover { filter: brightness(1.15); } .pbtn.danger { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+  .tip { max-width: 320px; padding: 7px 10px; pointer-events: none; line-height: 1.35; }
+  .tip b { font-weight: 600; } .tip kbd { font: 11px ui-monospace, Consolas, monospace; background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; margin-left: 6px; }
+  .tip div { color: var(--muted); margin-top: 3px; }
+  /* the video picker: thumbnail + name + what it is; type to filter, + Upload, a bin per row (delete / hide, asks first) */
+  .vpick { position: relative; }
+  .vp-cur { width: 100%; display: flex; align-items: center; gap: 8px; padding: 5px 6px; border: 1px solid var(--line); border-radius: 6px;
+            background: var(--field); color: var(--text); cursor: pointer; text-align: left; }
+  .vp-cur svg, .vp-x svg { width: 16px; height: 16px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .vp-cur img, .vp-row img { width: 64px; height: 36px; object-fit: cover; border-radius: 3px; flex: none; background: #000; }
+  .vp-t { flex: 1; min-width: 0; display: flex; flex-direction: column; } .vp-t b { font-weight: 600; font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vp-t span { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .vp-menu { position: fixed; z-index: 30; width: 420px; max-width: calc(100vw - 30px); background: var(--surface); display: flex; flex-direction: column;
+             border: 1px solid var(--line); border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.4); padding: 6px; }   /* fixed: over the stage, not cut by the panel */
+  .vp-menu[hidden] { display: none; }
+  .vp-menu input { width: 100%; margin: 0 0 6px; }
+  #l_pick_list { flex: 1; min-height: 0; overflow-y: auto; }
+  .vp-row { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; cursor: pointer; }
+  .vp-row:hover { background: var(--field); } .vp-row.cur { background: color-mix(in srgb, #ff9500 14%, transparent); } .vp-row.hid { opacity: .55; }
+  .vp-x { flex: none; border: 0; background: transparent; color: var(--muted); padding: 4px; border-radius: 5px; cursor: pointer; opacity: 0; }
+  .vp-row:hover .vp-x { opacity: 1; } .vp-x:hover { color: var(--bad); background: var(--bad-soft); }
+  .vp-row.ask { cursor: default; background: var(--field); flex-wrap: wrap; } .vp-row.ask .q { flex: 1; font-size: 12px; min-width: 200px; }
+  .vp-row.ask .row { display: flex; gap: 6px; margin-left: auto; }
+  .vp-foot { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid var(--line); margin-top: 6px; padding: 6px 4px 2px; font-size: 12.5px; }
+  .vp-add { cursor: pointer; color: var(--text); } .vp-add:hover { text-decoration: underline; }
+  .vp-link { border: 0; background: transparent; color: var(--muted); cursor: pointer; font-size: 12px; } .vp-link:hover { color: var(--text); text-decoration: underline; }
+  #quitNote { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; text-align: center;
+               background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--text); font-size: 18px; padding: 16px; }
   #l_canvas { display: block; cursor: crosshair; border-radius: 4px; background: #000; }
   #l_bar { padding: 6px 12px 10px; background: var(--surface); border-top: 1px solid var(--line); }
   #l_info { display: flex; gap: 14px; align-items: baseline; margin-bottom: 5px; white-space: nowrap; overflow: hidden; }
   #l_info .why { color: var(--warn); flex: 1; min-width: 0; white-space: normal; }   /* the stop reason wraps, never cut */
   #l_timeline { width: 100%; height: 26px; display: block; cursor: pointer; border-radius: 3px; }
-  .keys { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; font-size: 12px; color: var(--muted); }
-  .keys kbd { align-self: start; font: 11px ui-monospace, Consolas, monospace; color: var(--text); background: var(--field); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; white-space: nowrap; justify-self: start; }
-  .loupe { display: flex; gap: 8px; } .loupe figure { margin: 0; } .loupe canvas { display: block; border-radius: 4px; border: 1px solid var(--line); } .loupe figcaption { margin-top: 2px; font-size: 11px; }
+  .loupe { display: flex; gap: 6px; } .loupe figure { margin: 0; flex: 1; min-width: 0; } .loupe canvas { display: block; width: 100%; aspect-ratio: 156 / 200; border-radius: 4px; border: 1px solid var(--line); } .loupe figcaption { margin-top: 2px; font-size: 11px; }
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #l_counts div { display: flex; justify-content: space-between; }
   .ganttHead { display: flex; align-items: center; gap: 6px; } .ganttHead select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
@@ -227,18 +256,27 @@
 <section id="labelView" hidden>
   <aside id="l_side" class="sidebarlike">
     <div class="group">Video to label</div>
-    <select id="l_source"></select>
-    <input id="l_path" type="text" placeholder="or a path to a video file, Enter" title="A video file on this computer">
-    <label class="btn" style="display:block;text-align:center;font-weight:500" title="Send a video file from this browser (kept in datasets/videos/uploads/<name>/)">Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
+    <div id="l_pick" class="vpick">
+      <button type="button" id="l_pick_btn" class="vp-cur" aria-haspopup="listbox"><img id="l_pick_img" alt="" hidden><span class="vp-t"><b id="l_pick_name">— pick a video —</b><span id="l_pick_sub"></span></span><svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 8l5 5 5-5"/></svg></button>
+      <div id="l_pick_menu" class="vp-menu" hidden>
+        <input id="l_path" type="text" placeholder="filter - or a path to a video file, Enter" autocomplete="off">
+        <div id="l_pick_list" role="listbox"></div>
+        <div class="vp-foot">
+          <label class="vp-add" title="Send a video file from this browser (kept in datasets/videos/uploads/<name>/)">+ Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
+          <button type="button" id="l_pick_hid" class="vp-link" hidden></button>
+        </div>
+      </div>
+    </div>
     <div id="l_status" class="hint" style="margin-top:6px;word-break:break-all"></div>
 
     <div class="group">Tracker</div>
     <select id="l_model" title="Follows the object from a box you draw"></select>
 
     <div class="group">Same object?</div>
-    <div class="loupe">
-      <figure><canvas id="l_ref" width="112" height="140"></canvas><figcaption id="l_ref_t" class="hint"></figcaption></figure>
-      <figure><canvas id="l_now" width="112" height="140"></canvas><figcaption id="l_now_t" class="hint"></figcaption></figure>
+    <div class="loupe" title="This frame's box (middle) next to the key frame before it and the one after it (red): still the same object?">
+      <figure><canvas id="l_ref" width="156" height="200"></canvas><figcaption id="l_ref_t" class="hint"></figcaption></figure>
+      <figure><canvas id="l_now" width="156" height="200"></canvas><figcaption id="l_now_t" class="hint"></figcaption></figure>
+      <figure><canvas id="l_next" width="156" height="200"></canvas><figcaption id="l_next_t" class="hint"></figcaption></figure>
     </div>
 
     <div class="group">Labels</div>
@@ -248,27 +286,14 @@
   </aside>
   <div id="l_main">
     <div id="l_stage"><canvas id="l_canvas" width="640" height="360"></canvas>
-      <div id="l_help" hidden>
-        <div class="titleline"><b>Mouse and keys</b><button type="button" id="l_help_x" class="tb" title="Close (Esc)">×</button></div>
-      <div class="keys">
-        <kbd>drag</kbd><span>box on this frame → tracking from it</span>
-        <kbd>Shift+drag</kbd><span>a box without tracking (a key frame only)</span>
-        <kbd>Space</kbd><span>track from this frame / stop</span>
-        <kbd>← →</kbd><span>frame back / forward (Shift: 10)</span>
-        <kbd>wheel</kbd><span>over the frame or the timeline: down = next frame, up = previous (Shift: 10)</span>
-        <kbd>P</kbd><span>play the labels at the video's speed to review them / stop</span>
-        <kbd>N</kbd><span>no object on this frame only, next frame</span>
-        <kbd>Shift+N</kbd><span>no object up to the next key frame</span>
-        <kbd>K</kbd><span>this box is right: make it a key frame</span>
-        <kbd>Del</kbd><span>delete from here: this frame's box and what the tracker made after it, up to your next key frame</span>
-        <kbd>Ctrl+Z</kbd><span>undo (a whole tracking run is one step)</span>
-        <kbd>Home End</kbd><span>first / last frame</span>
-        <kbd>Esc</kbd><span>stop tracking (right click too)</span>
-      </div>
-      </div>
     </div>
     <div id="l_bar">
       <div id="l_tools" class="ltb" role="toolbar" aria-label="Labeling tools"></div>
+      <div id="l_delall_ask" class="pop" hidden>
+        <div id="l_delall_q"></div>
+        <div class="row"><button type="button" id="l_delall_yes" class="pbtn danger">Delete all</button><button type="button" id="l_delall_no" class="pbtn">Cancel</button></div>
+      </div>
+      <div id="l_tip" class="tip" hidden></div>
       <div id="l_info"><b id="l_frame">no video</b><span id="l_kind" class="hint"></span><span id="l_why" class="why"></span></div>
       <canvas id="l_timeline" height="26"></canvas>
     </div>
@@ -502,9 +527,24 @@
     $('source_custom').addEventListener('keydown', e => { if (e.key === 'Enter') switchSource(e.target.value); });
 
     //------------------------------------------------------------------------------------------------------------------
+    // Esc Esc (twice within 0.6 s, on any tab): quit the app - the graceful stop (video, report, labels saved). One Esc only
+    // stops what runs (click-to-track, a labeling run) or leaves a text field, so a single stray Esc never closes the app.
+    let lastEsc = 0, quitting = false;
+    document.addEventListener('keydown', e => {
+        if (e.key !== 'Escape' || e.repeat || quitting) return;
+        const now = performance.now();
+        if (now - lastEsc > 600) { lastEsc = now; return; }
+        quitting = true; e.preventDefault(); e.stopImmediatePropagation();
+        fetch('/shutdown', {method: 'POST'}).catch(() => {});
+        const d = document.createElement('div'); d.id = 'quitNote';
+        d.textContent = 'DTC is closing (Esc Esc): labels and the report are saved. Start the app again to go on; this tab can be closed.';
+        document.body.appendChild(d);
+    }, true);
+
     document.addEventListener('keydown', function (event) {
         if (window.dtcBenchTab && window.dtcBenchTab() !== 'live') return;                  // keys drive the live video only
-        // only typing must not reach the app (Escape closes it when no SOT is active, 'c' cancels SOT, Space toggles sidebar).
+        if (quitting) return;
+        // only typing must not reach the app ('c' / Esc cancel SOT - Esc Esc quits, above - Space pauses, H toggles the sidebar).
         // Buttons, checkboxes, sliders keep the focus after a click - keys pressed then are meant for the app.
         const t = event.target;
         const typing = t.tagName === 'TEXTAREA' || t.isContentEditable || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'submit'].includes(t.type));
@@ -518,6 +558,7 @@
             return;
         }
         let key = event.key;
+        if (key === 'Escape') key = 'c';                                                        // one Esc: stop tracking only, never quit
         if (event.code === 'Space') { event.preventDefault(); key = 'Space'; }                 // Space: pause / resume a video file
         if (key === 'ArrowRight' || key === 'Home') event.preventDefault();                     // -> while paused: next frame; Home / R: from the start
         let extra = '';

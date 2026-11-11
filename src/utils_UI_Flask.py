@@ -179,9 +179,35 @@ class WebApp:
         def label_sources():
             import utils_label, utils_tracker_sot
             S = utils_label.current()
-            return {'sources': utils_label.video_sources(), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
+            return {'sources': utils_label.video_sources(with_hidden=request.args.get('hidden') == '1'), 'hidden_count': len(utils_label._hidden()), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
                     'default_model': getattr(self.config, 'sot_tracking_model', 'NANO'),
                     'state': S.state() if S else None}
+# ----------------------------------------------------------------------------------------------------------------------
+        @self.app.route('/label/thumb', methods=['GET'])
+        def label_thumb():
+            import utils_label
+            from flask import send_file
+            try:
+                p = utils_label.thumb(request.args.get('name', ''))
+            except (ValueError, OSError) as e:
+                return {'error': str(e)}, 404
+            return send_file(p, mimetype='image/jpeg')
+
+        @self.app.route('/label/remove', methods=['POST'])
+        def label_remove():                                # delete from the list: a project / an upload to the trash, else hide
+            import utils_label
+            d = request.get_json(silent=True) or {}
+            try:
+                r = utils_label.remove_source(d.get('name'))
+            except (ValueError, OSError) as e:
+                return {'ok': False, 'error': str(e)}, 400
+            return {'ok': True, 'result': r}
+
+        @self.app.route('/label/unhide', methods=['POST'])
+        def label_unhide():
+            import utils_label
+            utils_label.unhide_source((request.get_json(silent=True) or {}).get('name'))
+            return {'ok': True}
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/label/open', methods=['POST'])
         def label_open():
@@ -249,6 +275,10 @@ class WebApp:
         def label_delete():
             return _label_reply(lambda S, d: S.delete(d.get('i')))
 
+        @self.app.route('/label/delete_all', methods=['POST'])
+        def label_delete_all():                            # the body must name the project: a stray call deletes nothing
+            return _label_reply(lambda S, d: S.delete_all(d.get('name')))
+
         @self.app.route('/label/clear', methods=['POST'])
         def label_clear():
             return _label_reply(lambda S, d: S.clear_after(d.get('i')))
@@ -260,6 +290,10 @@ class WebApp:
         @self.app.route('/label/track', methods=['POST'])
         def label_track():
             return _label_reply(lambda S, d: S.start_tracking(d.get('i')))
+
+        @self.app.route('/label/back', methods=['POST'])
+        def label_back():                                  # a box drawn with Shift: fix the run before it, no tracking forward
+            return _label_reply(lambda S, d: S.start_tracking(d.get('i'), forward=False))
 
         @self.app.route('/label/undo', methods=['POST'])
         def label_undo():

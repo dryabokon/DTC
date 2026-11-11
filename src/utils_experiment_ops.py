@@ -285,6 +285,12 @@ class Experimentor():
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
 
+        try:                                            # the Label tab: a tracking run in progress stops, the labels are saved
+            import utils_label
+            utils_label.close_session()
+        except Exception as e:                          # noqa: BLE001 - the video and the report must still be written
+            print('[ Label ] close failed:', e)
+
         if self.UI is not None:
             self.UI.stop()
 

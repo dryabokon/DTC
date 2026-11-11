@@ -2,8 +2,14 @@
 
 The operator draws a box on a frame (a manual key frame); the click-to-track tracker (Tracker_SOT, the app's loss rules)
 follows the object forward and writes a box per frame. When it drops the target, or the operator sees it drift, the
-operator steps back, draws the box again (a new key frame: the tracked frames after it up to the next key frame are
-cleared) and lets it run again. Frames where the object is not visible are marked 'absent'.
+operator draws the box again (a new key frame: the tracked frames after it up to the next key frame are cleared) and
+lets it run again. Frames where the object is not visible are marked 'absent'.
+
+Back-tracking: a run stops (or the operator notices) well after it left the object, and finding the frame where it went
+wrong meant scrolling back frame by frame. So a box drawn on a frame is first tracked BACKWARDS over the tracked run before
+it: where the backward boxes agree with the forward ones for AGREE_N frames, the forward run was right from there on down;
+the frames above that get the backward boxes. The operator draws where the error is plain to see, the tool finds where it
+began.
 
 Why a session of its own and not the Live pipeline: Live is a stream that only goes forward; labeling needs any frame by
 number, back and forth, with exact frame indices. So the video is decoded once, sequentially with cv2 (the same way the
@@ -35,6 +41,9 @@ REPO = os.path.dirname(HERE)
 CACHE_DIR = os.path.join(REPO, 'runs', 'labels')
 CLIPS_DIR = os.path.join(REPO, 'clips')
 UPLOAD_DIR = os.path.join(REPO, 'datasets', 'videos', 'uploads')    # <name>/<name>.mp4, like any dataset sequence
+TRASH_DIR = os.path.join(REPO, 'datasets', '.trash')                # deleted projects / uploads land here (not scanned, not in git)
+HIDDEN_FILE = os.path.join(CLIPS_DIR, '.label_hidden.json')         # videos of images/ and datasets hidden from the Label list
+THUMB_W = 160
 CACHE_WIDTH = 1280                  # frames wider than this are cached (and tracked) downscaled, like the benchmark's max_width
 JPEG_Q = 92
 SAVE_EVERY = 100
@@ -44,6 +53,12 @@ JUMP2_REL = 0.35                    # was heading (from the last frame / from tw
                                     # on campus (PETS09) every such jump was a swap to another person, correct frames stayed
                                     # <= 0.23 (the app's loss rules do not see swaps: the other person looks similar)
 MEET_IOU = 0.3                      # a run that ends on a key frame must arrive near its box, else it drifted on the way
+AGREE_N = 3                         # back-tracking stops after this many frames in a row where it agrees with the forward run:
+AGREE_REL = 0.2                     # IoU >= 0.5, or the centres within this many box heights (two trackers on a small target
+                                    # differ in size more than in place)
+ALONE_MAX = 60                      # a backward run that stops (loss, jump) without ever agreeing is applied only up to this
+                                    # many frames: right ones ran 2-51 frames (campus, night drone), the one wrong (a box drawn
+                                    # on a person hidden behind a sign; the backward run followed a passer-by) ran 174
 UNDO_DEPTH = 50       # the operator's decisions: tracking stops there, clearing never removes them
 # ----------------------------------------------------------------------------------------------------------------------
 def safe_name(text):
@@ -61,6 +76,16 @@ def _iou(a, b):
     ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
     i = ix * iy; u = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - i
     return i / u if u > 0 else 0.0
+# ----------------------------------------------------------------------------------------------------------------------
+def _frames(a, b):
+    return f'frame {a}' if a == b else f'frames {a}–{b}'
+# ----------------------------------------------------------------------------------------------------------------------
+def _agree(a, b):
+    """Two boxes on the same object: they overlap well, or their centres are close for the box size."""
+    if _iou(a, b) >= 0.5:
+        return True
+    h = max(2.0, ((a[3] - a[1]) + (b[3] - b[1])) / 2)
+    return float(np.hypot((a[0] + a[2] - b[0] - b[2]) / 2, (a[1] + a[3] - b[1] - b[3]) / 2)) <= AGREE_REL * h
 # ----------------------------------------------------------------------------------------------------------------------
 def _imread(path):
     data = np.fromfile(path, dtype=np.uint8)
@@ -120,6 +145,8 @@ class LabelSession:
         self.tracking = False
         self.track_pos = None
         self.stop_reason = None
+        self.back_note = None                                                 # what the last back-tracking pass did
+        self.phase = None                                                     # 'back' / 'forward' while tracking
         self.undo_stack = []                                                  # label lists before each operator action
         self._stop = threading.Event()
         self._thread = None
@@ -277,7 +304,7 @@ class LabelSession:
         """Before an operator action: what Ctrl+Z goes back to (dicts are replaced, never changed in place)."""
         self.undo_stack.append(list(self.labels))
         del self.undo_stack[:-UNDO_DEPTH]
-        self.stop_reason = None             # the operator acts on it: the stop message is done
+        self.stop_reason = self.back_note = None    # the operator acts on it: the messages are done
     # ----------------------------------------------------------------------------------------------------------------------
     def undo(self):
         """Back to the labels before the last action (a whole tracking run is one action). Returns how many are left."""
@@ -286,7 +313,7 @@ class LabelSession:
             if not self.undo_stack:
                 raise ValueError('nothing to undo')
             self.labels = self.undo_stack.pop()
-            self.stop_reason = None                                       # it described the run just undone
+            self.stop_reason = self.back_note = None                      # they described the run just undone
             if self.total is not None:
                 self._fit_labels()
             self._changed()
@@ -324,6 +351,26 @@ class LabelSession:
                 self.labels[j] = {'src': 'absent', 'box': None}
             self._changed()
         return end - i
+    # ----------------------------------------------------------------------------------------------------------------------
+    def delete_all(self, name):
+        """Every label of this project (Delete all). Guarded: the caller must name the project (the UI sends it only after
+        the operator confirmed); Ctrl+Z brings the labels back, and the gt.jsonl as it was stays in the clip folder as
+        gt.before_delete_all.jsonl - so even after a restart nothing is lost. Returns how many labels went."""
+        if name != self.name:
+            raise ValueError(f'not deleted: confirm with the project name ({self.name})')
+        self.stop_tracking('deleted all')
+        with self.lock:
+            n = sum(1 for lab in self.labels if lab)
+            if not n:
+                return 0
+            gt = os.path.join(self.out_dir, 'gt.jsonl')
+            if os.path.isfile(gt):
+                shutil.copyfile(gt, os.path.join(self.out_dir, 'gt.before_delete_all.jsonl'))
+            self._snapshot()
+            self.labels = [None] * len(self.labels)
+            self.back_note = f'deleted all {n} labels - Ctrl+Z brings them back'
+            self._changed()
+        return n
     # ----------------------------------------------------------------------------------------------------------------------
     def delete(self, i):
         """Delete from here: the label of frame i and what the tracker / interpolation put after it, up to the next key frame.
@@ -377,23 +424,30 @@ class LabelSession:
         self.model = model
         return model
     # ----------------------------------------------------------------------------------------------------------------------
-    def start_tracking(self, i):
-        """Track forward from frame i (it must have a box) until: stop_tracking, the tracker loses the target (the app's loss
-        rules, and any frame without a confident box), the next key frame, or the end of the decoded video. As fast as the
-        tracker goes: a wrong run is checked with Review and cut with Delete, watching it slowly does not pay."""
+    def start_tracking(self, i, forward=True):
+        """From an operator's box on frame i: first back-track over the tracked run before it (see the module docstring),
+        then track forward until: stop_tracking, the tracker loses the target (the app's loss rules, and any frame without a
+        confident box), the next key frame, or the end of the decoded video. As fast as the tracker goes: a wrong run is
+        checked with Review, watching it slowly does not pay. From a tracked box (Track on a stop frame) there is nothing new
+        to look back with: forward only. forward=False: the back pass only (a box drawn with Shift). One undo step for all."""
         self.stop_tracking('restarted')
         with self.lock:
             i = self._check(i)
             lab = self.labels[i]
             if not (lab and lab['box']):
                 raise ValueError('draw a box on this frame first')
+            back = lab['src'] == 'manual' and i > 0 and bool(self.labels[i - 1]) and self.labels[i - 1]['src'] == 'track'
+            if not (back or forward):
+                return False
             self._snapshot()
-            self._clear_after(i)
+            if forward:
+                self._clear_after(i)
             self._changed()
             self._stop.clear()
             self.tracking, self.track_pos, self.stop_reason = True, i, None
-            self._thread = threading.Thread(target=self._track, args=(i, list(lab['box'])), daemon=True)
+            self._thread = threading.Thread(target=self._track, args=(i, list(lab['box']), back, forward), daemon=True)
             self._thread.start()
+            return True
     # ----------------------------------------------------------------------------------------------------------------------
     def stop_tracking(self, reason='stopped'):
         t = self._thread
@@ -403,10 +457,82 @@ class LabelSession:
             t.join(timeout=5)
         self._thread = None
     # ----------------------------------------------------------------------------------------------------------------------
-    def _track(self, i, box):
+    def _back_track(self, i, box):
+        """Track backwards from the operator's box on frame i over the tracked frames before it, down to where the backward
+        boxes agree with the forward ones AGREE_N frames in a row; above that the forward run had left the object: its boxes
+        are replaced. Returns a note for the operator. Nothing changes if the operator stops it."""
+        with self.lock:
+            fwd, j = {}, i - 1
+            while j >= 0 and self.labels[j] and self.labels[j]['src'] == 'track' and self.labels[j]['box']:
+                fwd[j] = list(self.labels[j]['box']); j -= 1
+            first = j + 1                                                 # the run before i: first .. i-1
+            key = self.labels[j] if j >= 0 else None                      # what it started from (normally a key frame)
+        if not fwd:
+            return None
+        k = self.k
+        T = utils_tracker_sot.Tracker_SOT(model=self.model, models_dir=self.models_dir)
+        frame = self.frame(i)
+        if frame is None or not T.start(frame, [v * k for v in box]):
+            return 'back-tracking cannot start on this box'
+        back, recent, run, why, j = {}, [box], 0, None, i - 1
+        while j >= first:
+            if self._stop.is_set():
+                return None
+            frame = self.frame(j)
+            b, score = T.update(frame) if frame is not None else (None, 0)
+            if b is None:
+                why = f'lost the object at frame {j}'
+                break
+            bs = self._box([v / k for v in b])
+            if self._jump(recent, bs) and not _agree(bs, fwd[j]):          # both runs jumped together: the camera did
+                why = f'jumped at frame {j}'
+                break
+            back[j] = {'src': 'track', 'box': bs, 'score': round(float(score), 3), 'sim': round(float(T.similarity), 3)}
+            recent = recent[-4:] + [bs]
+            run = run + 1 if _agree(bs, fwd[j]) else 0
+            if run >= AGREE_N:
+                break
+            j -= 1
+        if run >= AGREE_N:                                                # agreed on j .. j+AGREE_N-1: the forward run is right there
+            fix = [f for f in back if f >= j + AGREE_N]
+        elif why:                                                         # stopped without ever agreeing: which run is on the object?
+            fix = list(back)
+            if len(back) > ALONE_MAX:                                     # both runs cannot be right that long: it follows another
+                return (f'back-tracking from {i} went {len(back)} frames without ever meeting the run - is this box on '
+                        f'the object (not on something in front of it)? {_frames(first, i - 1)} unchanged, check them')
+        else:                                                             # down to the start of the run (a short run: < AGREE_N)
+            meets = run > 0 or (bool(key and key.get('box')) and (_iou(recent[-1], key['box']) >= MEET_IOU or _agree(recent[-1], key['box'])))
+            if not meets:
+                return (f'back-tracking from {i} disagrees with the run all the way down to frame {first} and misses '
+                        f'its start: {_frames(first, i - 1)} unchanged, check them')
+            fix = [f for f in back if f >= first + run]                   # the frames agreeing at its start keep theirs
+        if not fix:
+            return f'checked back from {i}: the frames before it are right'
+        a, z = min(fix), max(fix)
+        with self.lock:
+            for f in fix:
+                self.labels[f] = back[f]
+            self._changed(save=False)
+        note = f'back-tracked from {i}: {_frames(a, z)} fixed (the run had left the object there)'
+        if why and run < AGREE_N and a > first:
+            note += f'; back-tracking {why}: {_frames(first, a - 1)} unchecked'
+        return note
+    # ----------------------------------------------------------------------------------------------------------------------
+    # ----------------------------------------------------------------------------------------------------------------------
+    def _track(self, i, box, back=False, forward=True):
         k = self.k
         reason, last_save = 'end of the video', i
         try:
+            if back:
+                self.phase = 'back'
+                self.back_note = self._back_track(i, box)
+                if self._stop.is_set():
+                    reason = getattr(self, '_stop_why', 'stopped')
+                    return
+            if not forward:
+                reason = 'box only, no tracking forward'
+                return
+            self.phase = 'forward'
             T = utils_tracker_sot.Tracker_SOT(model=self.model, models_dir=self.models_dir)
             frame = self.frame(i)
             if frame is None or not T.start(frame, [v * k for v in box]):
@@ -458,7 +584,7 @@ class LabelSession:
         except Exception as e:                                            # noqa: BLE001 - the UI must see it, not a dead thread
             reason = f'tracker error: {e}'
         finally:
-            self.tracking, self.stop_reason = False, reason
+            self.tracking, self.stop_reason, self.phase = False, reason, None
             self.version += 1
             self.save()
             print(f'[ Label ] {self.name}: tracking stopped at {self.track_pos}: {reason}')
@@ -491,7 +617,7 @@ class LabelSession:
         return {'name': self.name, 'source': self.source, 'out_dir': self.out_dir, 'frames': self.n, 'decoded': self.decoded,
                 'decoding': self.total is None, 'decode_error': self.decode_error, 'width': self.src_w, 'height': self.src_h,
                 'fps': round(self.fps, 3), 'model': self.model, 'tracking': self.tracking,
-                'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'version': self.version, 'counts': self.counts(),
+                'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'back_note': self.back_note, 'phase': self.phase, 'version': self.version, 'counts': self.counts(),
                 'undo': len(self.undo_stack)}
     # ----------------------------------------------------------------------------------------------------------------------
     def labels_compact(self):
@@ -601,13 +727,116 @@ def resolve(spec, clips_dir=None):
         raise ValueError(f'labeling needs a video file, not {source} (record a camera / stream to a file first)')
     return source, None
 # ----------------------------------------------------------------------------------------------------------------------
-def video_sources():
-    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too)."""
+def _is_upload(path):
+    return os.path.abspath(path).lower().startswith(os.path.abspath(UPLOAD_DIR).lower() + os.sep)
+# ----------------------------------------------------------------------------------------------------------------------
+def _hidden():
+    try:
+        return set(_read_json(HIDDEN_FILE))
+    except (OSError, ValueError, TypeError):
+        return set()
+# ----------------------------------------------------------------------------------------------------------------------
+def _set_hidden(names):
+    os.makedirs(os.path.dirname(HIDDEN_FILE), exist_ok=True)
+    _write_json(HIDDEN_FILE, sorted(names))
+# ----------------------------------------------------------------------------------------------------------------------
+def video_sources(with_hidden=False):
+    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too).
+    Each: {name, label, sub, kind: project | upload | video, remove: trash | hide, hidden}. A project and an upload can be
+    deleted (moved to the trash), a video of images/ or of a dataset only hidden from this list (see remove_source)."""
     import utils_sources
-    out = [{'name': p['name'], 'label': f"{p['name']} (label project, {p['labeled'] or 0} / {p['frames'] or '?'} frames)"} for p in projects()]
+    hidden = _hidden()
+    out = [{'name': p['name'], 'label': p['name'], 'sub': f"label project · {p['labeled'] or 0} / {p['frames'] or '?'} frames",
+            'kind': 'project', 'remove': 'trash', 'hidden': False} for p in projects()]
     for s in utils_sources.list_sources():
-        if os.path.isfile(str(s['source'])):
-            out.append({'name': s['name'], 'label': s['label']})
+        src = str(s['source'])
+        if not os.path.isfile(src):
+            continue
+        up = _is_upload(src)
+        hid = not up and s['name'] in hidden
+        if hid and not with_hidden:
+            continue
+        if up:
+            sub = 'uploaded video'
+        elif '(dataset)' in s['label']:
+            sub = 'dataset'
+        else:
+            sub = os.path.relpath(src, os.path.join(REPO, 'images')).replace('\\', '/')
+        out.append({'name': s['name'], 'label': s['name'], 'sub': sub + (' · ground truth' if s.get('gt') else ''),
+                    'kind': 'upload' if up else 'video', 'remove': 'trash' if up else 'hide', 'hidden': hid})
+    return out
+# ----------------------------------------------------------------------------------------------------------------------
+def _trash(path, name):
+    os.makedirs(TRASH_DIR, exist_ok=True)
+    dst = os.path.join(TRASH_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{safe_name(name)}")
+    shutil.move(path, dst)
+    return dst
+# ----------------------------------------------------------------------------------------------------------------------
+def remove_source(name):
+    """Delete from the Label list - the counterpart of adding (a new project, Upload). A label project or an uploaded
+    video is MOVED to datasets/.trash/<time>_<name>/ (move it back to undo; the frame cache runs/labels/<name> is dropped,
+    it is rebuilt from the video). A video of images/ or of a dataset is only hidden from this list: those files belong to
+    the repo / the benchmark, the Label tab never deletes them. Returns {'action': 'trash' | 'hide', 'to'?}."""
+    import utils_sources
+    name = str(name or '')
+    S = current()
+    for p in projects():
+        if p['name'] == name:
+            if S is not None and S.name == name:
+                close_session()
+            dst = _trash(os.path.join(CLIPS_DIR, name), name)
+            shutil.rmtree(os.path.join(CACHE_DIR, name), ignore_errors=True)
+            return {'action': 'trash', 'to': dst}
+    for s in utils_sources.list_sources():
+        src = str(s['source'])
+        if s['name'] == name and os.path.isfile(src):
+            if _is_upload(src):
+                if S is not None and os.path.abspath(S.source) == os.path.abspath(src):
+                    close_session()
+                return {'action': 'trash', 'to': _trash(os.path.dirname(src), name)}
+            _set_hidden(_hidden() | {name})
+            return {'action': 'hide'}
+    raise ValueError(f'not in the list: {name}')
+# ----------------------------------------------------------------------------------------------------------------------
+def unhide_source(name):
+    _set_hidden(_hidden() - {str(name or '')})
+# ----------------------------------------------------------------------------------------------------------------------
+def thumb(name):
+    """A small JPEG for the list (cached in runs/labels/.thumbs/): a label project shows its first key frame with the box,
+    a video a frame a third of the way in."""
+    import hashlib
+    path, proj = resolve(name)
+    gt = os.path.join(CLIPS_DIR, proj, 'gt.jsonl') if proj else None
+    stamp = os.path.getmtime(gt) if gt and os.path.isfile(gt) else os.path.getmtime(path)
+    cache = os.path.join(CACHE_DIR, '.thumbs')
+    out = os.path.join(cache, f"{hashlib.md5(str(name).encode()).hexdigest()[:12]}_{int(stamp)}.jpg")
+    if os.path.isfile(out):
+        return out
+    i, box = None, None
+    if gt and os.path.isfile(gt):
+        rows = []
+        for line in open(gt, encoding='utf-8'):
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                pass
+        r = next((r for r in rows if r.get('src') == 'manual' and r.get('box')), None) or next((r for r in rows if r.get('box')), None)
+        if r:
+            i, box = int(r['frame']), r['box']
+    cap = cv2.VideoCapture(path)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    cap.set(cv2.CAP_PROP_POS_FRAMES, i if i is not None else n // 3)
+    ok, img = cap.read()
+    cap.release()
+    if not ok or img is None:
+        raise ValueError(f'cannot read a frame of {path}')
+    s = THUMB_W / img.shape[1]
+    img = cv2.resize(img, (THUMB_W, max(1, round(img.shape[0] * s))), interpolation=cv2.INTER_AREA)
+    if box:
+        x1, y1, x2, y2 = [round(v * s) for v in box]
+        cv2.rectangle(img, (x1, y1), (max(x1 + 2, x2), max(y1 + 2, y2)), (0, 149, 255), 1)
+    os.makedirs(cache, exist_ok=True)
+    _imwrite(out, img)
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def save_upload(file_storage, upload_dir=None):

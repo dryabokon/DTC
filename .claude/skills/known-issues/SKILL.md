@@ -17,7 +17,8 @@ description: Gotchas in the DTC repo and its Windows/WSL/Raspberry Pi setup that
 - **Pi clock** ~2 days behind on the cable (no NTP): dates in Pi run folders and benchmark lists are off.
 - **Idle pause**: the app holds live processing 5 s after nobody watches the video (`--idle_pause_s`, 0 = off). Anything
   that reads `/status` without a browser must start the app with `--idle_pause_s 0` (`pi_app.Pi.start` does by default).
-- **Escape** in the UI: the second one quits the app — tests send it only while SOT is active.
+- **Escape**: in the browser one Esc only stops tracking, Esc Esc within 0.6 s quits (`/shutdown`). Through the API
+  (`/key_press` key=Escape) the old rule stays: it quits when no SOT is active — tests send it only while SOT is active.
 - **Local tests on Windows**: the system Python has no torch / PyAV — SiamBAN/SiamFC and grabber tests skip or error there;
   `dtc test unit --local` runs them in the x86 venv (`.venv`), `dtc test unit` on the Pi. One flaky local failure was seen
   once and not reproduced (2026-11-04).

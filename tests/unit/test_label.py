@@ -185,6 +185,89 @@ class TestLabel(unittest.TestCase):
         self.assertIn('does not meet the key frame 20', S.stop_reason)
         self.assertNotIn('check', S.labels[19])                                   # no marks: the stop says why, the cursor is there
 
+    def test_80_back_tracking_fixes_where_the_run_left(self):
+        S = self.session(model='NANO')
+        off = lambda j: [v + 60 * (u % 2 == 0) for u, v in enumerate(truth(j))]      # 60 px to the right: another place
+
+        def setup(bad_from):
+            for i in range(len(S.labels)):
+                S.labels[i] = None
+            S.set_box(10, truth(10))
+            for j in range(11, 30):                                                  # a forward run that left the patch at bad_from
+                S.labels[j] = {'src': 'track', 'box': [float(v) for v in (off(j) if j >= bad_from else truth(j))]}
+            S.set_box(30, truth(30))                                                 # the operator draws where it is plain wrong
+
+        setup(20)
+        self.assertTrue(S.start_tracking(30, forward=False)); self.wait_tracking(S)
+        self.assertIn('frames 20–29 fixed', S.back_note)
+        self.assertTrue(all(self._iou(S.labels[j]['box'], truth(j)) > 0.6 for j in range(20, 30)), S.back_note)
+        self.assertEqual(S.labels[15]['box'], [float(v) for v in truth(15)])         # the right part of the run is kept
+        S.undo()                                                                     # Ctrl+Z: the fix goes, the box stays
+        self.assertEqual(S.labels[25]['box'], [float(v) for v in off(25)]); self.assertEqual(S.labels[30]['src'], 'manual')
+
+        setup(99)                                                                    # the run was right all along
+        S.start_tracking(30, forward=False); self.wait_tracking(S)
+        self.assertIn('right', S.back_note)
+        self.assertEqual(S.labels[25]['box'], [float(v) for v in truth(25)])
+
+        setup(11)                                                                    # wrong from its first frame: fixed down to the key
+        S.start_tracking(30, forward=False); self.wait_tracking(S)
+        self.assertIn('frames 11–29 fixed', S.back_note)
+
+        setup(20)                                                                    # Track from the drawn box: back, then forward
+        S.start_tracking(30); self.wait_tracking(S)
+        self.assertIn('frames 20–29 fixed', S.back_note)
+        self.assertGreater(sum(1 for j in range(31, N) if S.labels[j]), 40, S.stop_reason)
+        S.start_tracking(40)                                                         # from a tracked box: forward only
+        self.wait_tracking(S)
+        self.assertIsNone(S.back_note)
+
+    def test_90_delete_all_is_guarded(self):
+        S = self.session()
+        for i in range(len(S.labels)):
+            S.labels[i] = None
+        S.set_box(5, truth(5)); S.set_absent(50)
+        with self.assertRaises(ValueError):                                          # no / a wrong project name: nothing goes
+            S.delete_all('other')
+        self.assertEqual(S.counts()['labeled'], 2)
+        self.assertEqual(S.delete_all(S.name), 2)
+        self.assertEqual(S.counts()['labeled'], 0)
+        self.assertEqual(open(os.path.join(S.out_dir, 'gt.jsonl')).read(), '')
+        kept = open(os.path.join(S.out_dir, 'gt.before_delete_all.jsonl')).read()      # the file as it was, for after a restart
+        self.assertIn('"frame": 5', kept); self.assertIn('"frame": 50', kept)
+        S.undo()                                                                     # Ctrl+Z: all back
+        self.assertEqual(S.labels[5]['src'], 'manual'); self.assertEqual(S.labels[50]['src'], 'absent')
+
+    def test_95_list_delete_hide_thumb(self):
+        tmp = os.path.join(self.tmp, 'list')
+        saved = {k: getattr(UL, k) for k in ('CLIPS_DIR', 'CACHE_DIR', 'TRASH_DIR', 'HIDDEN_FILE')}
+        self.addCleanup(lambda: [setattr(UL, k, v) for k, v in saved.items()])
+        UL.CLIPS_DIR, UL.CACHE_DIR, UL.TRASH_DIR = os.path.join(tmp, 'clips'), os.path.join(tmp, 'cache'), os.path.join(tmp, 'trash')
+        UL.HIDDEN_FILE = os.path.join(UL.CLIPS_DIR, '.label_hidden.json')
+        here = os.getcwd(); os.chdir(os.path.join(UL.REPO, 'src')); self.addCleanup(os.chdir, here)   # the app's cwd: images/ is ../images
+        S = UL.LabelSession(self.video, name='proj', clips_dir=UL.CLIPS_DIR, cache_dir=UL.CACHE_DIR)
+        t0 = time.time()
+        while S.total is None and time.time() - t0 < 30:
+            time.sleep(0.05)
+        S.set_box(20, truth(20)); S.close()
+        items = {s['name']: s for s in UL.video_sources()}
+        self.assertEqual((items['proj']['kind'], items['proj']['remove']), ('project', 'trash'))
+        self.assertTrue(os.path.isfile(UL.thumb('proj')))                            # its first key frame, with the box
+        self.assertEqual(UL.remove_source('proj')['action'], 'trash')                # a project: moved, never deleted
+        self.assertNotIn('proj', {s['name'] for s in UL.video_sources()})
+        moved = os.listdir(UL.TRASH_DIR)
+        self.assertEqual(len(moved), 1); self.assertTrue(os.path.isfile(os.path.join(UL.TRASH_DIR, moved[0], 'gt.jsonl')))
+        repo_video = next((s['name'] for s in items.values() if s['kind'] == 'video'), None)
+        self.assertIsNotNone(repo_video)
+        if repo_video:                                                               # a video of images/: hidden, the file stays
+            self.assertEqual(UL.remove_source(repo_video)['action'], 'hide')
+            self.assertNotIn(repo_video, {s['name'] for s in UL.video_sources()})
+            self.assertTrue(any(s['hidden'] for s in UL.video_sources(with_hidden=True) if s['name'] == repo_video))
+            UL.unhide_source(repo_video)
+            self.assertIn(repo_video, {s['name'] for s in UL.video_sources()})
+        with self.assertRaises(ValueError):
+            UL.remove_source('no such video')
+
     @staticmethod
     def _iou(a, b):
         ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))

@@ -7,6 +7,8 @@
         .then(r => r.json()).catch(e => ({ok: false, error: String(e)}));
     const getJ = url => fetch(url).then(r => r.json());
     const SRC = {m: 'manual', t: 'track', i: 'interp', a: 'absent'};
+    const BOX_C = '#ff9500';                         // orange: a tracked box, the labeled part of the timeline
+    const KEYC = '#ff3b30';                          // red: a key frame - its box on the frame, its mark above the timeline
     const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 
     const cv = $('l_canvas'), g = cv.getContext('2d'), tl = $('l_timeline');
@@ -20,7 +22,7 @@
     function init() {
         inited = true;
         getJ('/label/sources').then(d => {
-            fillSources(d.sources, d.state);
+            fillSources(d.sources, d.state, d.hidden_count);
             const m = $('l_model'); m.innerHTML = '';
             d.models.forEach(x => { const o = document.createElement('option'); o.value = x.name; o.textContent = x.label; m.appendChild(o); });
             m.value = d.state ? d.state.model : d.default_model;
@@ -28,26 +30,89 @@
             poll();
         });
     }
-    // the list shows what is open: a label project is listed under its own name (refetched after opening a new video)
-    function fillSources(list, st) {
-        const sel = $('l_source');
-        sel.innerHTML = '';
-        const o0 = document.createElement('option'); o0.value = ''; o0.textContent = '— pick a video —'; sel.appendChild(o0);
-        list.forEach(s => { const o = document.createElement('option'); o.value = s.name; o.textContent = s.label; sel.appendChild(o); });
-        sel.value = st && [...sel.options].some(o => o.value === st.name) ? st.name : '';
-        typedInList = false;
+    //------------------------------------------------------------------------------------------------------------------
+    // the video picker: a thumbnail per video (a project: its first key frame with the box), type to filter or a path +
+    // Enter, + Upload; a bin per row deletes a project / an upload (to datasets/.trash) or hides a video of images/ or a
+    // dataset (files stay) - it asks in the row first
+    //------------------------------------------------------------------------------------------------------------------
+    let SOURCES = [], hiddenCount = 0, showHidden = false;
+    const BIN = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/></svg>';
+    const thumbUrl = s => `/label/thumb?name=${encodeURIComponent(s.name)}&v=${encodeURIComponent(s.sub)}`;
+    function fillSources(list, st, hid) { SOURCES = list || []; if (hid !== undefined) hiddenCount = hid; renderPick(st); }
+    function refreshSources() { getJ('/label/sources' + (showHidden ? '?hidden=1' : '')).then(d => fillSources(d.sources, d.state, d.hidden_count)); }
+    function renderPick(st) {
+        const name = st ? st.name : (S ? S.name : null), it = SOURCES.find(s => s.name === name);
+        $('l_pick_name').textContent = it ? it.label : (name || '— pick a video —');
+        $('l_pick_sub').textContent = it ? it.sub : (name ? 'label project' : '');
+        $('l_pick_img').hidden = !it; if (it) $('l_pick_img').src = thumbUrl(it);
+        const q = $('l_path').value.trim().toLowerCase(), box = $('l_pick_list');
+        box.innerHTML = '';
+        SOURCES.filter(s => !q || (s.label + ' ' + s.sub).toLowerCase().includes(q)).forEach(s => {
+            const r = document.createElement('div');
+            r.className = 'vp-row' + (s.name === name ? ' cur' : '') + (s.hidden ? ' hid' : ''); r.setAttribute('role', 'option');
+            r.innerHTML = `<img loading="lazy" alt=""><span class="vp-t"><b></b><span></span></span><button type="button" class="vp-x">${BIN}</button>`;
+            r.querySelector('img').src = thumbUrl(s);
+            r.querySelector('b').textContent = s.label; r.querySelector('.vp-t span').textContent = s.hidden ? 'hidden - click to show it again' : s.sub;
+            r.querySelector('.vp-x').title = s.remove === 'trash' ? 'Delete (to datasets/.trash - asks first)' : 'Hide from this list (the file stays)';
+            r.querySelector('.vp-x').hidden = s.hidden;
+            r.addEventListener('click', e => {
+                if (r.classList.contains('ask')) return;
+                if (e.target.closest('.vp-x')) { e.stopPropagation(); askRemove(r, s); return; }
+                if (s.hidden) { postJ('/label/unhide', {name: s.name}).then(refreshSources); return; }
+                closePick(); openVideo(s.name);
+            });
+            box.appendChild(r);
+        });
+        if (!box.children.length) box.innerHTML = '<div class="hint" style="padding:6px">nothing matches - Enter opens it as a path</div>';
+        if (!hiddenCount && showHidden && !SOURCES.some(s => s.hidden)) showHidden = false;
+        $('l_pick_hid').hidden = !hiddenCount && !showHidden;
+        $('l_pick_hid').textContent = showHidden ? 'hide the hidden' : `${hiddenCount} hidden - show`;
     }
-    function refreshSources() { getJ('/label/sources').then(d => fillSources(d.sources, d.state)); }
-    // typing while the list has the focus (a click that missed the path field) must not open another video:
-    // a pick by keyboard opens on Enter only, a pick by mouse at once
-    let typedInList = false;
-    $('l_source').addEventListener('keydown', e => {
-        if (e.key === 'Enter') { e.preventDefault(); typedInList = false; openVideo(e.target.value); e.target.blur(); }
-        else typedInList = true;
+    function askRemove(r, s) {
+        r.classList.add('ask');
+        const trash = s.remove === 'trash';
+        r.innerHTML = `<span class="q"></span><span class="row"><button type="button" class="pbtn danger">${trash ? 'Delete' : 'Hide'}</button><button type="button" class="pbtn">Cancel</button></span>`;
+        r.querySelector('.q').textContent = trash
+            ? `Delete "${s.label}"${s.kind === 'project' ? ' with its labels' : ''}? It is moved to datasets/.trash - move it back from there to undo.`
+            : `Hide "${s.label}" from this list? The file stays (it belongs to images/ or a dataset).`;
+        const [yes, no] = r.querySelectorAll('button');
+        no.addEventListener('click', e => { e.stopPropagation(); renderPick(); });
+        yes.addEventListener('click', e => {
+            e.stopPropagation();
+            postJ('/label/remove', {name: s.name}).then(d => {
+                if (!d.ok) { status('Error: ' + d.error, true); renderPick(); return; }
+                status(d.result.action === 'trash' ? `deleted ${s.label} - it is in ${d.result.to.replace(/\\/g, '/')}` : `${s.label} hidden from the list`);
+                getJ('/label/state').then(st => { if (!st.state && S) closedView(); refreshSources(); });
+            });
+        });
+    }
+    function closedView() {                           // the open project was deleted: nothing on screen
+        S = null; L = []; ver = -1; imgs.clear();
+        g.clearRect(0, 0, cv.width, cv.height); tl.getContext('2d').clearRect(0, 0, tl.width, tl.height); tlBase = null;
+        ['l_ref', 'l_now', 'l_next'].forEach(id => $(id).getContext('2d').clearRect(0, 0, $(id).width, $(id).height));
+        ['l_kind', 'l_why', 'l_counts', 'l_out', 'l_ref_t', 'l_now_t', 'l_next_t'].forEach(id => { $(id).textContent = ''; });
+        $('l_frame').textContent = 'no video'; updateBar();
+    }
+    function openPick() {
+        const r = $('l_pick_btn').getBoundingClientRect(), m = $('l_pick_menu');
+        m.style.left = r.left + 'px'; m.style.top = (r.bottom + 4) + 'px'; m.style.maxHeight = Math.max(200, innerHeight - r.bottom - 14) + 'px';
+        m.hidden = false; $('l_path').value = ''; renderPick(); $('l_path').focus(); refreshSources(); }
+    function closePick() { $('l_pick_menu').hidden = true; $('l_path').blur(); }
+    $('l_pick_btn').addEventListener('click', e => { e.currentTarget.blur(); if ($('l_pick_menu').hidden) openPick(); else closePick(); });
+    document.addEventListener('mousedown', e => { if (!$('l_pick_menu').hidden && !e.target.closest('#l_pick')) closePick(); });
+    $('l_path').addEventListener('input', () => renderPick());
+    document.addEventListener('keydown', e => {      // Esc closes the open list wherever the focus is (and does nothing else)
+        if (e.key === 'Escape' && !$('l_pick_menu').hidden) { e.stopPropagation(); e.preventDefault(); closePick(); }
+    }, true);
+    $('l_path').addEventListener('keydown', e => {
+        if (e.key === 'Escape') { e.stopPropagation(); closePick(); return; }
+        if (e.key !== 'Enter') return;
+        const v = e.target.value.trim(); if (!v) return;
+        const rows = SOURCES.filter(s => !s.hidden && (s.label + ' ' + s.sub).toLowerCase().includes(v.toLowerCase()));
+        closePick(); openVideo(rows.length === 1 ? rows[0].name : v);     // one match: that one; else a path / a source name
     });
+    $('l_pick_hid').addEventListener('click', () => { showHidden = !showHidden; refreshSources(); });
     let resumeAt = null;                             // a reopened project: go to its last labeled frame once it is decoded
-
-    const refreshedFor = {};                          // a new project shows up in the list once it has labels
     function status(text, bad) {
         $('l_status').textContent = text || ''; $('l_status').style.color = bad ? 'var(--bad)' : '';
         if (bad) $('l_status').dataset.err = 1; else delete $('l_status').dataset.err;
@@ -63,13 +128,9 @@
             poll();
         });
     }
-    $('l_source').addEventListener('change', e => {
-        if (typedInList) { status('Enter: open ' + e.target.value); return; }
-        openVideo(e.target.value); e.target.blur();
-    });
-    $('l_path').addEventListener('keydown', e => { if (e.key === 'Enter') { openVideo(e.target.value); e.target.blur(); } });
     $('l_upload').addEventListener('change', e => {
         const f = e.target.files[0]; if (!f) return;
+        closePick();
         const fd = new FormData(); fd.append('file', f); fd.append('model', $('l_model').value);
         status(`uploading ${f.name} (${(f.size / 1e6).toFixed(1)} MB) …`);
         fetch('/label/upload', {method: 'POST', body: fd}).then(r => r.json()).then(d => {
@@ -84,7 +145,7 @@
     function setState(st) {
         const first = !S || S.name !== st.name, wasTracking = S && S.tracking, decodedBefore = S ? S.decoded : -1;
         S = st;
-        if (first) { cur = 0; fit(); }
+        if (first) { cur = 0; fit(); if (inited) askDeleteAll(false); }
         if (S.tracking && S.track_pos !== null) cur = S.track_pos;          // follow the tracker
         if (wasTracking && !S.tracking && S.track_pos !== null && !userStopped) cur = S.track_pos;   // land on the frame where it stopped
         if (!S.tracking) userStopped = false;
@@ -127,7 +188,8 @@
         if (!S || i < 0 || i >= S.decoded) return null;
         let im = imgs.get(i);
         if (!im) {
-            im = new Image(); im.onload = () => { if (i === cur) draw(); }; im.src = `/label/frame?i=${i}&n=${encodeURIComponent(S.name)}`;
+            im = new Image(); im.onload = () => { if (i === cur) draw(); else drawLoupe(); };    // else: a key frame for the loupe
+            im.src = `/label/frame?i=${i}&n=${encodeURIComponent(S.name)}`;
             imgs.set(i, im);
             if (imgs.size > 400) for (const k of imgs.keys()) { if (Math.abs(k - cur) > 60) imgs.delete(k); if (imgs.size <= 300) break; }
         }
@@ -159,7 +221,7 @@
         else if (!im) { g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height); }
         const l = L[cur], s = k(), lw = Math.max(2, cv.width / 500);
         if (l && l.length >= 5) {
-            const col = {m: '#00e5ff', t: '#30d158', i: '#ff9f0a'}[l[0]] || '#fff';
+            const col = l[0] === 'm' ? KEYC : BOX_C;
             g.strokeStyle = col; g.lineWidth = lw; g.setLineDash([]);
             g.strokeRect(l[1] * s, l[2] * s, (l[3] - l[1]) * s, (l[4] - l[2]) * s);
         } else if (l && l[0] === 'a') {
@@ -169,7 +231,13 @@
             const p = prevBox(cur);                   // unlabeled: where it was, as a hint
             if (p) { g.strokeStyle = 'rgba(255,255,255,.5)'; g.lineWidth = lw / 1.5; g.setLineDash([3, 7]); g.strokeRect(p[1] * s, p[2] * s, (p[3] - p[1]) * s, (p[4] - p[2]) * s); g.setLineDash([]); }   // faint: a hint where it was, not a label
         }
-        if (drag) { g.strokeStyle = '#00e5ff'; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
+        if (drag) { g.strokeStyle = KEYC; g.lineWidth = lw; g.setLineDash([5, 4]); g.strokeRect(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1), Math.abs(drag.x1 - drag.x0), Math.abs(drag.y1 - drag.y0)); g.setLineDash([]); }
+        if (!S.counts.labeled && !drag) {            // a new project: what to do first (the tools explain themselves on hover)
+            const fs = Math.round(16 * cv.width / 1280), t = 'draw a box around the object to label it';
+            g.font = `${fs}px system-ui, sans-serif`; const w = g.measureText(t).width;
+            g.fillStyle = 'rgba(0,0,0,.55)'; g.fillRect(cv.width / 2 - w / 2 - fs * .6, cv.height - fs * 2.6, w + fs * 1.2, fs * 1.8);
+            g.fillStyle = '#fff'; g.fillText(t, cv.width / 2 - w / 2, cv.height - fs * 1.25);
+        }
         prefetch();
         drawCursorOnTimeline();
         drawLoupe();
@@ -178,8 +246,13 @@
     //------------------------------------------------------------------------------------------------------------------
     // loupe: the box of this frame, enlarged, next to the box of the key frame it came from - is it still the same object?
     //------------------------------------------------------------------------------------------------------------------
-    function keyBefore(i) {                           // nearest key frame with a box at or before i (else the first one after)
+    // loupe: this frame's box between the key frame before it and the one after it - the run comes from the one, must
+    // arrive at the other; a box that left the object looks unlike both
+    function keyBefore(i) {                           // the nearest key frame with a box before i (i itself if it is one)
         for (let j = Math.min(i, L.length - 1); j >= 0; j--) { const l = L[j]; if (l && l[0] === 'm') return j; }
+        return -1;
+    }
+    function keyAfter(i) {
         for (let j = i + 1; j < L.length; j++) { const l = L[j]; if (l && l[0] === 'm') return j; }
         return -1;
     }
@@ -198,12 +271,14 @@
     }
     function drawLoupe() {
         if (!S) return;
-        const l = L[cur], kf = keyBefore(cur), kl = kf >= 0 ? L[kf] : null;
+        const l = L[cur], kf = keyBefore(l && l[0] === 'm' ? cur - 1 : cur), kn = keyAfter(cur);
         const nowBox = l && l.length >= 5 ? l.slice(1, 5) : (prevBox(cur) || []).slice(1, 5);
-        crop($('l_ref'), kf, kl ? kl.slice(1, 5) : null, '#00e5ff');
-        crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? ({m: '#00e5ff', t: '#30d158', i: '#ff9f0a'}[l[0]]) : 'rgba(255,255,255,.6)');
-        $('l_ref_t').textContent = kf >= 0 ? `key frame ${kf}` : 'no key frame yet';
-        $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · no object' : ' · not labeled');
+        crop($('l_ref'), kf, kf >= 0 ? L[kf].slice(1, 5) : null, KEYC);
+        crop($('l_now'), cur, nowBox.length ? nowBox : null, l && l.length >= 5 ? (l[0] === 'm' ? KEYC : BOX_C) : 'rgba(255,255,255,.6)');
+        crop($('l_next'), kn, kn >= 0 ? L[kn].slice(1, 5) : null, KEYC);
+        $('l_ref_t').textContent = kf >= 0 ? `key ${kf}` : 'no key before';
+        $('l_now_t').textContent = `frame ${cur}` + (l && l.length >= 5 ? '' : l && l[0] === 'a' ? ' · none' : ' · empty');
+        $('l_next_t').textContent = kn >= 0 ? `key ${kn}` : 'no key after';
     }
 
     function info() {
@@ -212,20 +287,21 @@
         const l = L[cur];
         let kind = l ? SRC[l[0]] : 'not labeled';
         if (l && l[0] === 't' && l[5] !== null && l[5] !== undefined) kind += `  · appearance ${l[5]}`;
-        if (S.tracking) kind = `tracking ${S.model} …  ` + kind;
+        if (S.tracking) kind = (S.phase === 'back' ? `checking back from this frame (${S.model}) …  ` : `tracking ${S.model} …  `) + kind;
         $('l_kind').textContent = kind;
-        $('l_why').textContent = !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : (S.decode_error ? S.decode_error : '');
+        $('l_why').textContent = S.decode_error || '';          // only a real error: tracker / back-tracking notes were noise
         const c = S.counts, pct = v => S.frames ? ` (${(100 * v / S.frames).toFixed(0)}%)` : '';
         $('l_counts').innerHTML = '';
-        [['#00e5ff', 'key frames (yours)', c.manual], ['#30d158', 'tracked', c.track], ['#ff9f0a', 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
+        [[KEYC, 'key frames (yours, red)', c.manual], [BOX_C, 'tracked', c.track], [BOX_C, 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
          [null, 'labeled', c.labeled + ' / ' + S.frames + pct(c.labeled)]].filter(r => r[1] !== 'interpolated' || r[2]).forEach(([col, name, v]) => {
             const d = document.createElement('div'), a = document.createElement('span'), b = document.createElement('b');
-            if (col) { const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col; a.appendChild(sw); }
+            if (col) { const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col; if (name.startsWith('key')) sw.style.borderRadius = '50%'; a.appendChild(sw); }
             a.appendChild(document.createTextNode(name)); b.textContent = v; d.append(a, b); $('l_counts').appendChild(d);
         });
         $('l_out').textContent = 'saved to ' + S.out_dir.replace(/\\/g, '/');
         if (!$('l_status').dataset.err) $('l_status').textContent = 'open: ' + S.source.split(/[\\/]/).slice(-2).join('/');
-        if (S.counts.labeled && $('l_source').value !== S.name && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
+        if (!SOURCES.some(s => s.name === S.name) && S.counts.labeled && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
+        $('l_pick_sub').textContent = `label project · ${S.counts.labeled} / ${S.frames} frames`;     // live, the list is fetched on opening
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
         updateBar();
     }
@@ -236,26 +312,35 @@
     let tlBase = null;
     function drawTimeline() {
         if (!S || !shown) return;
-        const W = tl.clientWidth, H = 26, n = Math.max(1, S.frames);
+        // drawn in device pixels (screen scale 125-200 %): crisp marks, nothing smoothed away
+        const dpr = window.devicePixelRatio || 1, W = Math.max(1, Math.round(tl.clientWidth * dpr)), H = Math.round(26 * dpr), n = Math.max(1, S.frames);
         tl.width = W; tl.height = H;
-        const x = tl.getContext('2d');
+        const x = tl.getContext('2d'), u = v => Math.round(v * dpr);
         x.fillStyle = cssVar('--field'); x.fillRect(0, 0, W, H);
-        const col = {m: '#00e5ff', t: '#30d158', i: '#ff9f0a', a: '#8e8e93'};
-        for (let px = 0; px < W; px++) {              // the most "decided" state in the frames under this pixel
+        const col = {m: BOX_C, t: BOX_C, i: BOX_C, a: '#8e8e93'};
+        for (let px = 0; px < W; px++) {              // the bar: the most "decided" state in the frames under this pixel
             const a = Math.floor(px * n / W), b = Math.max(a + 1, Math.floor((px + 1) * n / W));
             let best = null;
             for (let i = a; i < b && i < L.length; i++) { const l = L[i]; if (!l) continue; if (l[0] === 'm') { best = 'm'; break; } if (!best || l[0] === 't') best = l[0]; }
-            if (best) { x.fillStyle = col[best]; x.fillRect(px, best === 'm' ? 0 : 6, 1, best === 'm' ? H : H - 12); }
+            if (best) { x.fillStyle = col[best]; x.fillRect(px, u(10), 1, H - u(13)); }
         }
-        if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(W * S.decoded / n, 0, W, H); }
+        x.fillStyle = KEYC;                           // every key frame: a small red rectangle above the bar, never merged away
+        const kw = Math.max(2, u(2.5));
+        for (let i = 0; i < L.length; i++) {
+            const l = L[i]; if (!l || l[0] !== 'm') continue;
+            const px = Math.min(W - kw, Math.max(0, Math.floor((i + 0.5) * W / n - kw / 2)));
+            x.fillRect(px, u(2), kw, u(6));
+        }
+        if (S.decoding) { x.fillStyle = 'rgba(128,128,128,.25)'; x.fillRect(Math.floor(W * S.decoded / n), 0, W, H); }
         tlBase = x.getImageData(0, 0, W, H);
         drawCursorOnTimeline();
     }
     function drawCursorOnTimeline() {
         if (!tlBase || !S) return;
         const x = tl.getContext('2d'); x.putImageData(tlBase, 0, 0);
-        const px = Math.round(cur * tl.width / Math.max(1, S.frames));
-        x.fillStyle = cssVar('--text'); x.fillRect(px - 1, 0, 2, tl.height);
+        const d = Math.max(1, Math.round(window.devicePixelRatio || 1)), px = Math.round((cur + 0.5) * tl.width / Math.max(1, S.frames));
+        const top = Math.round(9 * (window.devicePixelRatio || 1));   // below the key-frame marks: the mark under the cursor stays visible
+        x.fillStyle = cssVar('--text'); x.fillRect(px - d, top, 2 * d, tl.height - top);
     }
     let tlDrag = false;
     const tlFrame = e => { const r = tl.getBoundingClientRect(); return Math.round(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)) * (S.frames - 1)); };
@@ -334,7 +419,7 @@
         if (Math.abs(d.x1 - d.x0) < 3 || Math.abs(d.y1 - d.y0) < 3) { draw(); return; }
         const i = cur;
         L[i] = ['m', ...box]; draw();                 // at once on screen; the server confirms
-        act('/label/box', {i, box}, () => { if (!d.shift) act('/label/track', {i}); });   // Shift+drag: a key frame only, no tracking
+        act('/label/box', {i, box}, () => act(d.shift ? '/label/back' : '/label/track', {i}));   // Shift+drag: no tracking forward
     });
     cv.addEventListener('contextmenu', e => { e.preventDefault(); stopIfTracking(); });
 
@@ -360,13 +445,16 @@
         stopIfTracking();
         go(cur + n * (e.shiftKey ? 10 : 1));
     }
-    cv.addEventListener('wheel', onWheel, {passive: false});
-    tl.addEventListener('wheel', onWheel, {passive: false});
+    $('l_main').addEventListener('wheel', e => {      // anywhere over the frame, the stage around it, the toolbar, the timeline
+        if (e.target.closest('.pop, .tip')) return;
+        onWheel(e);
+    }, {passive: false});
 
     //------------------------------------------------------------------------------------------------------------------
     // toolbar: every action as a button (icon, caption, key in the tooltip) and the same table drives the keyboard
     //------------------------------------------------------------------------------------------------------------------
-    const KEY_C = '#00e5ff';
+    const refreshedFor = {};                          // a new project shows up in the list once it has labels
+    const KEY_C = KEYC;
     const ICON = {
         first: '<path d="M5 4v12"/><path d="M16 4l-8 6 8 6z" fill="currentColor"/>',
         back10: '<path d="M10 4.5L4.5 10l5.5 5.5 M16 4.5L10.5 10l5.5 5.5"/>',
@@ -381,19 +469,19 @@
         del: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/>',
         undo: '<path d="M7 4L3 8l4 4"/><path d="M3 8h9a4.5 4.5 0 010 9H9"/>',
         review: '<rect x="2.5" y="3.5" width="15" height="13" rx="2"/><path d="M8.5 7l5 3-5 3z" fill="currentColor"/>',
-        help: '<circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.3 2.3 0 114.1 1.4c-.8.8-1.9 1.2-1.9 2.6"/><circle cx="10" cy="14.6" r=".4" fill="currentColor"/>',
+        delAll: '<path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/><path d="M8.5 9v4.5 M11.5 9v4.5" stroke-width="1.5"/>',
     };
     const hasBox = l => !!l && l.length >= 5;
     const lastFrame = () => S ? Math.min(S.frames, S.decoded) - 1 : 0;
     const nav = f => () => { stopIfTracking(); f(); };
     const ACT = {
         first:   {k: 'Home', text: 'First', tip: 'First frame', run: nav(() => go(0)), on: () => cur > 0},
-        back10:  {k: 'Shift+←', text: '−10', tip: '10 frames back', run: nav(() => go(cur - 10)), on: () => cur > 0},
-        back:    {k: '←', text: '−1', tip: 'Previous frame', run: nav(() => go(cur - 1)), on: () => cur > 0},
-        fwd:     {k: '→', text: '+1', tip: 'Next frame', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
-        fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
+        back10:  {k: 'Shift+←', text: '−10', tip: '10 frames back (Shift + the mouse wheel too)', run: nav(() => go(cur - 10)), on: () => cur > 0},
+        back:    {k: '←', text: '−1', tip: 'Previous frame - or the mouse wheel up over the frame / the timeline, one frame per notch', run: nav(() => go(cur - 1)), on: () => cur > 0},
+        fwd:     {k: '→', text: '+1', tip: 'Next frame - or the mouse wheel down over the frame / the timeline', run: nav(() => go(cur + 1)), on: () => cur < lastFrame()},
+        fwd10:   {k: 'Shift+→', text: '+10', tip: '10 frames forward (Shift + the mouse wheel too)', run: nav(() => go(cur + 10)), on: () => cur < lastFrame()},
         last:    {k: 'End', text: 'Last', tip: 'Last frame', run: nav(() => go(S.frames - 1)), on: () => cur < lastFrame()},
-        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame, as fast as the tracker goes (Esc / right click: stop). Drawing a box starts it too; Shift+drag: a box without tracking',
+        track:   {k: 'Space', text: 'Track', tip: 'Track from this frame. Drawing a box on the frame starts it too: it first checks back and fixes the frames where the run had left the object (Shift+drag: no tracking forward). Esc / right click: stop · Esc Esc: quit the app',
                   run: () => { if (playTimer) stopPlay(); else toggleTrack(); }, on: () => S.tracking || hasBox(L[cur])},
         key:     {k: 'K', text: 'Key', tip: 'This box is right: make it a key frame (the tracked frames after it stay)',
                   run: () => act('/label/box', {i: cur, box: L[cur].slice(1, 5)}), on: () => hasBox(L[cur]) && L[cur][0] !== 'm'},
@@ -401,13 +489,14 @@
                   run: sh => { const i = cur; act('/label/absent', {i, to_next_key: !!sh}, () => { if (!sh) go(i + 1); }); }},
         del:     {k: 'Del', text: 'Delete →', tip: 'Delete from here: the box on this frame and what the tracker made after it, up to your next key frame. To fix a box, just draw it again',
                   run: () => act('/label/delete', {i: cur}), on: () => !!L[cur]},
+        delAll:  {k: '', text: 'Delete all', tip: 'Every label of this project - asks first; Ctrl+Z brings them back',
+                  run: () => askDeleteAll($('l_delall_ask').hidden), on: () => S.counts.labeled > 0 && !S.tracking, active: () => !$('l_delall_ask').hidden},
         undo:    {k: 'Ctrl+Z', text: 'Undo', tip: 'Undo the last step (a whole tracking run is one step; kept until the app restarts)',
                   run: () => undo(), on: () => S.undo > 0},
         review:  {k: 'P', text: 'Review', tip: 'Play the labels at the video\'s speed to check them, no tracking',
                   run: () => togglePlay(), active: () => !!playTimer},
-        help:    {k: '', text: 'Keys', tip: 'All mouse actions and keys', run: () => showHelp($('l_help').hidden), active: () => !$('l_help').hidden, always: true},
     };
-    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent', 'del', 'undo'], ['review', 'help']];
+    const LAYOUT = [['first', 'back10', 'back', 'fwd', 'fwd10', 'last'], ['track'], ['key', 'absent'], ['del', 'delAll', 'undo'], ['review']];
     const svg = n => `<svg viewBox="0 0 20 20" aria-hidden="true">${ICON[n]}</svg>`;
     function buildBar() {
         const bar = $('l_tools');
@@ -417,9 +506,10 @@
                 const x = ACT[id], b = document.createElement('button');
                 b.type = 'button'; b.className = 'tb'; b.id = 'lt_' + id;
                 b.innerHTML = svg(id) + (x.text ? `<span class="tx">${x.text}</span>` : '');
-                b.title = x.tip + (x.k ? `  [${x.k}]` : '');
-                b.setAttribute('aria-label', x.text || x.tip);
-                b.addEventListener('click', e => { b.blur(); if (S || x.always) x.run(e.shiftKey); });
+                b.setAttribute('aria-label', (x.text || '') + (x.k ? ` (${x.k})` : ''));
+                b.addEventListener('click', e => { b.blur(); hideTip(); if (S || x.always) x.run(e.shiftKey); });
+                b.addEventListener('mouseenter', () => showTip(id));
+                b.addEventListener('mouseleave', hideTip);
                 bar.appendChild(b);
                 x.btn = b;
             });
@@ -440,8 +530,43 @@
         const r = ACT.review.btn;
         if (r) r.querySelector('.tx').textContent = playTimer ? 'Stop' : 'Review';
     }
-    function showHelp(on) { $('l_help').hidden = !on; updateBar(); }
-    $('l_help_x').addEventListener('click', () => showHelp(false));
+    // tooltips: hovering a tool shows its name, its key and what it does (instead of a separate list of keys)
+    let tipTimer = null;
+    const place = (el, b) => {                       // above the button, kept inside the bar
+        const bar = $('l_bar').getBoundingClientRect(), r = b.getBoundingClientRect();
+        el.style.left = Math.max(4, Math.min(bar.width - el.offsetWidth - 4, r.left - bar.left + r.width / 2 - el.offsetWidth / 2)) + 'px';
+    };
+    function showTip(id) {
+        clearTimeout(tipTimer);
+        tipTimer = setTimeout(() => {
+            const x = ACT[id], el = $('l_tip'), stop = id === 'track' && S && S.tracking;
+            if (!$('l_delall_ask').hidden && id === 'delAll') return;
+            el.innerHTML = '<b></b>' + (x.k ? '<kbd></kbd>' : '') + '<div></div>';
+            el.querySelector('b').textContent = stop ? 'Stop' : x.text;
+            if (x.k) el.querySelector('kbd').textContent = stop ? 'Space / Esc' : x.k;
+            el.querySelector('div').textContent = stop ? 'Stop tracking (right click on the frame too)' : x.tip;
+            el.hidden = false; place(el, x.btn);
+        }, 350);
+    }
+    function hideTip() { clearTimeout(tipTimer); $('l_tip').hidden = true; }
+
+    // Delete all: a quiet tool; it only asks (the count, the project) in a small pop-up over it - Delete all there deletes;
+    // the server checks the project name too. Nothing is focused, so Space / Enter cannot confirm it by accident.
+    function askDeleteAll(on) {
+        $('l_delall_ask').hidden = !on;
+        if (on && S) {
+            $('l_delall_q').textContent = `Delete all ${S.counts.labeled} labels of "${S.name}"? ` +
+                'Ctrl+Z brings them back; the file as it was stays as gt.before_delete_all.jsonl in the clip folder.';
+            place($('l_delall_ask'), ACT.delAll.btn);
+        }
+        updateBar();
+    }
+    $('l_delall_no').addEventListener('click', e => { e.currentTarget.blur(); askDeleteAll(false); });
+    $('l_delall_yes').addEventListener('click', e => {
+        e.currentTarget.blur(); askDeleteAll(false); if (!S) return;
+        stopPlay();
+        act('/label/delete_all', {name: S.name}, () => { go(0); drawTimeline(); });
+    });
     function keyAction(e) {                           // e.code = the physical key: any keyboard layout (Russian: N is 'т', [ is 'х')
         switch (e.code) {
             case 'ArrowRight': return e.shiftKey ? 'fwd10' : 'fwd';
@@ -451,7 +576,7 @@
             case 'Space': return 'track';
             case 'KeyP': return 'review';
             case 'KeyZ': return e.ctrlKey || e.metaKey ? 'undo' : null;
-            case 'Escape': if (!$('l_help').hidden) { showHelp(false); return null; } return 'stop';
+            case 'Escape': if (!$('l_delall_ask').hidden) { askDeleteAll(false); return null; } return 'stop';
             case 'KeyN': return 'absent';
             case 'KeyK': return 'key';
             case 'Delete': case 'Backspace': return 'del';
@@ -463,11 +588,14 @@
     document.addEventListener('keydown', e => {
         if (!window.dtcBenchTab || window.dtcBenchTab() !== 'label' || !S) return;
         const t = e.target;
-        if (t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'file'].includes(t.type))) {
+        if (t.tagName === 'TEXTAREA' || (t.tagName === 'SELECT' && e.code !== 'Space') || (t.tagName === 'INPUT' && !['checkbox', 'radio', 'range', 'button', 'file'].includes(t.type))) {
             if (e.key === 'Escape') t.blur();
             return;
         }
-        if (t.tagName === 'BUTTON' && (e.key === 'Enter' || e.key === ' ')) return;
+        if (t.tagName === 'BUTTON' && e.key === 'Enter') return;
+        // Space is Track / Stop wherever the focus was left (the video list's button, the tracker list, a tool): it must
+        // never press that element instead - it opened the video list again and tracking did not start
+        if ((t.tagName === 'BUTTON' || t.tagName === 'SELECT') && e.code === 'Space') t.blur();
         let handled = true;
         // e.code = the physical key: the letters work with any keyboard layout (Russian: N is 'т', [ is 'х', ...)
         if ((e.ctrlKey || e.metaKey) && e.code !== 'KeyZ') return;          // leave the browser's own shortcuts alone

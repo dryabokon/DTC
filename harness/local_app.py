@@ -24,6 +24,8 @@ PORT = 8509
 STATE = os.path.join(ROOT, 'runs', 'local')                 # app log + pid file (runs/ is not in git)
 APP_LOG = os.path.join(STATE, 'dtc_app.log')
 PID_FILE = os.path.join(STATE, 'dtc_app.pid')
+PORT_FILE = os.path.join(STATE, 'dtc_app.port')     # the --ui_port it was started with: stop / status talk to THAT app,
+                                                    # never to another one on 8509 (the user's own instance)
 DEFAULT_ARGS = ['--source', 'campus']                       # as app_run_x86.bat / app_run_pi.sh: main.py's own default is an RTSP stream
 # ----------------------------------------------------------------------------------------------------------------------
 def venv_python():
@@ -56,6 +58,13 @@ def _port_busy(port):
     except OSError:
         return False
 # ----------------------------------------------------------------------------------------------------------------------
+def free_port(start=PORT):
+    """8509, or the next free port: the user's own app often holds 8509 while the tests run."""
+    p = start
+    while _port_busy(p) and p < start + 20:
+        p += 1
+    return p
+# ----------------------------------------------------------------------------------------------------------------------
 class Local(AppClient):
     """DTC on this laptop (x86)."""
     name = 'local'
@@ -64,10 +73,17 @@ class Local(AppClient):
     bench_folder = 'bench_x86'                            # utils_bench.RUNS_DIR on x86: apart from the Pi runs pulled into runs/bench
     video_name = 'video.mp4' if utils_platform.IS_WINDOWS else 'video_large.avi'     # utils_video_saver renames it on Windows
 
-    def __init__(self, verbose=True, port=PORT):
+    def __init__(self, verbose=True, port=None):
         self.python = venv_python()
         if self.python is None:
             raise RuntimeError('no x86 venv: run infrastructure\\build_me_x86.bat (or set DTC_PYTHON / DTC_VENV)')
+        if port is None:                                  # the app the harness started, on the port it was started with
+            port = PORT
+            try:
+                if self.app_pid():
+                    port = int(open(PORT_FILE).read().split()[0])
+            except (OSError, ValueError, IndexError):
+                pass
         self.port = port
         self.base = f'http://127.0.0.1:{port}'
         os.makedirs(STATE, exist_ok=True)
@@ -162,6 +178,7 @@ class Local(AppClient):
         for f in (PID_FILE,):
             if os.path.exists(f):
                 os.remove(f)
+        open(PORT_FILE, 'w').write(str(port))
         flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP) if utils_platform.IS_WINDOWS else 0
         subprocess.Popen([sys.executable, os.path.abspath(__file__), '--wrap', self.python, log, PID_FILE, '--'] + argv,
                          cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, close_fds=True,
