@@ -58,6 +58,13 @@ def _port_busy(port):
     except OSError:
         return False
 # ----------------------------------------------------------------------------------------------------------------------
+def free_port(start=PORT):
+    """8509, or the next free port: the user's own app often holds 8509 while the tests run."""
+    p = start
+    while _port_busy(p) and p < start + 20:
+        p += 1
+    return p
+# ----------------------------------------------------------------------------------------------------------------------
 class Local(AppClient):
     """DTC on this laptop (x86)."""
     name = 'local'

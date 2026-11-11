@@ -63,6 +63,11 @@ def _app_folder(R, pi):
 # ----------------------------------------------------------------------------------------------------------------------
 def _start(R, pi, args, name='app'):
     t0 = time.time()
+    if pi.name == 'local' and '--ui_port' not in args:   # 8509 may be the user's own app: never collide with it
+        from harness import local_app
+        port = local_app.free_port()
+        if port != local_app.PORT:
+            args += f' --ui_port {port}'
     st = pi.start(f'{args} --folder_runs {_app_folder(R, pi)}{name}/')
     R.check(f'{name}: starts and answers /status', st is not None, f'{time.time() - t0:.0f} s' if st else pi.logs(15), seconds=time.time() - t0)
     return st
