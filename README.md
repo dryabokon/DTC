@@ -63,8 +63,8 @@ stops by itself when the loss rules fire, at the next key frame or at the end. W
 draw it again - a new key frame; what was tracked after it (up to the next key frame) is dropped and tracking restarts there.
 Back-tracking: a box drawn on a frame is first tracked backwards over the run before it, down to where both runs agree
 (3 frames in a row); the frames above that, where the run had left the object, get the backward boxes - so draw where the
-error is plain to see (often the frame where it stopped), no need to scroll back to where it began. The line under the
-frame says which frames it fixed. Ctrl+Z undoes it together with the run. Tracked boxes and the labeled part of the timeline are
+error is plain to see (often the frame where it stopped), no need to scroll back to where it began.
+Ctrl+Z undoes it together with the run. Tracked boxes and the labeled part of the timeline are
 orange; a key frame is red - its box, and a small red mark above the timeline. Delete all (next to Delete) asks first in a small pop-up; Ctrl+Z brings the labels back,
 and the gt.jsonl as it was stays as `gt.before_delete_all.jsonl` in the clip folder.
 Every action is a button in the toolbar under the frame (icon + caption; hovering it shows its key and what it does; greyed
@@ -75,7 +75,7 @@ Del: delete from here - this frame's box and what the tracker made after it, up 
 a label reads as "no object" in the benchmark, so no single holes) · Ctrl+Z: undo (a tracking run is one step; kept until the app restarts) ·
 P: play the labels at the video's speed to review them. Keys go by the physical key (any keyboard layout). An occlusion: delete from the
 first bad frame, draw the box again where the object is back (the frames between stay empty = "no object").
-Besides the app's loss rules the tracker stops (the line under the frame says why; the cursor lands there) where its box jumps away from where it
+Besides the app's loss rules the tracker stops (the cursor lands there; the reason is only in the app log) where its box jumps away from where it
 was heading (> 0.3 box heights in one frame, > 0.35 over two: swaps to another person) and where a run arrives at a key
 frame far from its box (IoU < 0.3: it followed an occluder on the way). A swap while two people cross slowly is not
 caught, nor a box that slowly grows over two or three people (seen on a drone video of a basketball court), nor a box

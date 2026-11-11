@@ -289,7 +289,7 @@
         if (l && l[0] === 't' && l[5] !== null && l[5] !== undefined) kind += `  · appearance ${l[5]}`;
         if (S.tracking) kind = (S.phase === 'back' ? `checking back from this frame (${S.model}) …  ` : `tracking ${S.model} …  `) + kind;
         $('l_kind').textContent = kind;
-        $('l_why').textContent = [S.back_note, !S.tracking && S.stop_reason ? 'stopped: ' + S.stop_reason : '', S.decode_error || ''].filter(Boolean).join('  ·  ');
+        $('l_why').textContent = S.decode_error || '';          // only a real error: tracker / back-tracking notes were noise
         const c = S.counts, pct = v => S.frames ? ` (${(100 * v / S.frames).toFixed(0)}%)` : '';
         $('l_counts').innerHTML = '';
         [[KEYC, 'key frames (yours, red)', c.manual], [BOX_C, 'tracked', c.track], [BOX_C, 'interpolated', c.interp], ['#8e8e93', 'no object', c.absent],
