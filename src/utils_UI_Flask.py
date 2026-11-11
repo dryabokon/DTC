@@ -249,6 +249,10 @@ class WebApp:
         def label_delete():
             return _label_reply(lambda S, d: S.delete(d.get('i')))
 
+        @self.app.route('/label/delete_all', methods=['POST'])
+        def label_delete_all():                            # the body must name the project: a stray call deletes nothing
+            return _label_reply(lambda S, d: S.delete_all(d.get('name')))
+
         @self.app.route('/label/clear', methods=['POST'])
         def label_clear():
             return _label_reply(lambda S, d: S.clear_after(d.get('i')))

@@ -116,6 +116,8 @@
   #l_bar { container-type: inline-size; }          /* captions go when the bar itself gets narrow (not the window) */
   @container (max-width: 700px) { button.tb .tx { display: none; } button.tb { height: 32px; min-width: 26px; padding: 2px 3px; } .ltb .sep { margin: 0 2px; }
                                   #lt_track { min-width: 26px; } }
+  .delask { margin-top: 8px; padding: 8px; border: 1px solid var(--bad); border-radius: 6px; background: var(--bad-soft); font-size: 13px; }
+  .delask .row { display: flex; gap: 6px; margin-top: 6px; } .delask .row .btn { margin-top: 0; }
   #quitNote { position: fixed; inset: 0; z-index: 50; display: flex; align-items: center; justify-content: center; text-align: center;
                background: color-mix(in srgb, var(--bg) 88%, transparent); color: var(--text); font-size: 18px; padding: 16px; }
   #l_help { position: absolute; right: 14px; bottom: 14px; max-width: 440px; max-height: calc(100% - 28px); overflow: auto; z-index: 5;
@@ -246,6 +248,11 @@
     <div class="group">Labels</div>
     <div id="l_counts" class="hint"></div>
     <div id="l_out" class="hint" style="margin-top:6px;word-break:break-all"></div>
+    <button type="button" id="l_delall" class="btn stop" disabled title="Every label of this project - asks first">Delete all labels …</button>
+    <div id="l_delall_ask" class="delask" hidden>
+      <div id="l_delall_q"></div>
+      <div class="row"><button type="button" id="l_delall_yes" class="btn stop">Delete all</button><button type="button" id="l_delall_no" class="btn">Cancel</button></div>
+    </div>
 
   </aside>
   <div id="l_main">

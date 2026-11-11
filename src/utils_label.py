@@ -346,6 +346,26 @@ class LabelSession:
             self._changed()
         return end - i
     # ----------------------------------------------------------------------------------------------------------------------
+    def delete_all(self, name):
+        """Every label of this project (Delete all). Guarded: the caller must name the project (the UI sends it only after
+        the operator confirmed); Ctrl+Z brings the labels back, and the gt.jsonl as it was stays in the clip folder as
+        gt.before_delete_all.jsonl - so even after a restart nothing is lost. Returns how many labels went."""
+        if name != self.name:
+            raise ValueError(f'not deleted: confirm with the project name ({self.name})')
+        self.stop_tracking('deleted all')
+        with self.lock:
+            n = sum(1 for lab in self.labels if lab)
+            if not n:
+                return 0
+            gt = os.path.join(self.out_dir, 'gt.jsonl')
+            if os.path.isfile(gt):
+                shutil.copyfile(gt, os.path.join(self.out_dir, 'gt.before_delete_all.jsonl'))
+            self._snapshot()
+            self.labels = [None] * len(self.labels)
+            self.back_note = f'deleted all {n} labels - Ctrl+Z brings them back'
+            self._changed()
+        return n
+    # ----------------------------------------------------------------------------------------------------------------------
     def delete(self, i):
         """Delete from here: the label of frame i and what the tracker / interpolation put after it, up to the next key frame.
         Always the same, on a key frame or a tracked one: removing a single tracked frame left a hole, and a frame without

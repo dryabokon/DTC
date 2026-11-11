@@ -222,6 +222,22 @@ class TestLabel(unittest.TestCase):
         self.wait_tracking(S)
         self.assertIsNone(S.back_note)
 
+    def test_90_delete_all_is_guarded(self):
+        S = self.session()
+        for i in range(len(S.labels)):
+            S.labels[i] = None
+        S.set_box(5, truth(5)); S.set_absent(50)
+        with self.assertRaises(ValueError):                                          # no / a wrong project name: nothing goes
+            S.delete_all('other')
+        self.assertEqual(S.counts()['labeled'], 2)
+        self.assertEqual(S.delete_all(S.name), 2)
+        self.assertEqual(S.counts()['labeled'], 0)
+        self.assertEqual(open(os.path.join(S.out_dir, 'gt.jsonl')).read(), '')
+        kept = open(os.path.join(S.out_dir, 'gt.before_delete_all.jsonl')).read()      # the file as it was, for after a restart
+        self.assertIn('"frame": 5', kept); self.assertIn('"frame": 50', kept)
+        S.undo()                                                                     # Ctrl+Z: all back
+        self.assertEqual(S.labels[5]['src'], 'manual'); self.assertEqual(S.labels[50]['src'], 'absent')
+
     @staticmethod
     def _iou(a, b):
         ix = max(0, min(a[2], b[2]) - max(a[0], b[0])); iy = max(0, min(a[3], b[3]) - max(a[1], b[1]))
