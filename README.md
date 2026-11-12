@@ -27,7 +27,7 @@ as you go and is ready to use as ground truth in the benchmark.
 
 ```
 git clone --recursive https://github.com/dryabokon/DTC
-infrastructureuild_me_x86.bat
+infrastructure\build_me_x86.bat
 app_run_x86.bat --source campus
 ```
 
