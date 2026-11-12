@@ -24,7 +24,7 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 
 ## Where the real docs live
 
-- `README.md` — setup, the `dtc` command, web UI keys, test suites, run folders. Read it first.
+- `README.md` — short overview: what the app does, labeling in brief, how to run it. The details live in the files below.
 - `dtc.py` docstring — every harness command.
 - `src/configs/config_common.py` — every app setting; each one is also a CLI flag (`--name value`).
 - `src/utils_tracker_sot.py` — click-to-track models (`SOT_MODELS`: NANO default, VIT, SIAMBAN, SIAMFC, MIL), loss rules.
