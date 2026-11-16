@@ -3,7 +3,7 @@
 Video in (file, USB / CSI camera, RTSP) → YOLO detection, DeepSORT tracking, click-to-track → web UI on http://localhost:8509.
 Runs on a Raspberry Pi 5 (CPU) and on a Windows PC (CUDA if present) from the same code.
 
-![DTC](/images/Image1.jpg)
+![DTC](/docs/Image1.jpg)
 
 ## What you can do
 
@@ -23,13 +23,17 @@ through the frames. When it slips onto someone else, you scroll to that spot and
 tracker fixes the frames around it and goes on. A quick replay to check, and the video is labeled: it is saved
 as you go and is ready to use as ground truth in the benchmark.
 
+Videos live in one folder, `videos/`: copy files there (any subfolder) and they show up in every tab. The labels are
+saved next to each video under the same name (`clip.mp4` → `clip.gt.jsonl`).
+
 ## Run
 
 ```
 git clone --recursive https://github.com/dryabokon/DTC
 infrastructure\build_me_x86.bat
-app_run_x86.bat --source campus
+app_run_x86.bat --source 0
 ```
 
-Open http://localhost:8509. Any video file, camera or RTSP stream works as `--source`.
+Open http://localhost:8509. `--source` takes a camera (`0`), an RTSP stream, a video file or a name from `videos/`
+(`python src/main.py --list-sources`). `videos/` is not in git: a fresh clone starts with it empty.
 On a Raspberry Pi: `infrastructure/build_me_arm.sh`, then `./app_run_pi.sh`. More: `dtc.py`, `AGENTS.md`.

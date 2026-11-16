@@ -6,10 +6,12 @@
 .pi_last_host
 .pi_sync.bundle
 runs/
-# reference clips with ground truth (dtc clips record) - local only, not in git
-clips/
-# downloaded public datasets (MOT15, VisDrone, Anti-UAV) - local only, not in git
+# the video store: every video + its ground truth / labels (utils_sources) - local only, not in git
+videos/
+# downloaded archives of public datasets; clips/ = the older layout (dtc data migrate) - local only
 datasets/
+clips/
+images/
 models/runs/
 
 # python

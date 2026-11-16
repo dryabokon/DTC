@@ -1,5 +1,5 @@
-"""Label tab (utils_label): frame cache, key frames, clearing, absent, interpolation, tracking forward, saved clip readable by
-the benchmark, resume. A synthetic video: a textured patch moving right over a fixed noise background."""
+"""Label tab (utils_label): frame cache, key frames, clearing, absent, interpolation, tracking forward, labels saved next to the
+video and readable by the benchmark, resume, the store list. A synthetic video: a textured patch moving right over a fixed noise background."""
 import json, os, shutil, tempfile, time, unittest
 from tests.unit import _paths
 import cv2
@@ -39,7 +39,7 @@ class TestLabel(unittest.TestCase):
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def session(self, **kw):
-        S = UL.LabelSession(self.video, clips_dir=os.path.join(self.tmp, 'clips'), cache_dir=os.path.join(self.tmp, 'cache'), **kw)
+        S = UL.LabelSession(self.video, cache_dir=os.path.join(self.tmp, 'cache'), **kw)
         t0 = time.time()
         while S.total is None and time.time() - t0 < 30:
             time.sleep(0.05)
@@ -112,11 +112,10 @@ class TestLabel(unittest.TestCase):
         self.assertGreater(np.median(ious), 0.6)
 
         S.save()
-        d = S.out_dir
-        self.assertTrue(os.path.isfile(os.path.join(d, 'video.mp4')))
-        meta = json.load(open(os.path.join(d, 'label.json')))
+        self.assertEqual(S.gt_path, os.path.join(self.tmp, 'moving patch.gt.jsonl'))         # next to the video, same name
+        meta = json.load(open(os.path.join(self.tmp, 'moving patch.label.json')))
         self.assertEqual(meta['frames'], N); self.assertEqual(meta['counts']['manual'], 2)
-        tracks = B.load_tracks({'kind': 'clip', 'gt': os.path.join(d, 'gt.jsonl')})
+        tracks = B.load_tracks({'kind': 'clip', 'gt': S.gt_path})
         self.assertEqual(set(tracks), {0})
         self.assertEqual(tracks[0][60], [float(v) for v in truth(60)])
         n_labeled = S.counts()['labeled']
@@ -127,13 +126,16 @@ class TestLabel(unittest.TestCase):
         self.assertEqual(R.counts()['labeled'], n_labeled)
         self.assertEqual(R.labels[60]['src'], 'manual')
 
-    def test_30_never_writes_into_a_foreign_clip(self):
-        S = UL.LabelSession(self.video, name=None, clips_dir=os.path.join(self.tmp, 'clips2'), cache_dir=os.path.join(self.tmp, 'cache2'))
+    def test_30_ground_truth_from_elsewhere_opens_as_labels(self):
+        d = os.path.join(self.tmp, 'gt30')                                     # the older layout: the only video + gt.jsonl
+        os.makedirs(d); v = os.path.join(d, 'video.mp4'); shutil.copyfile(self.video, v)
+        open(os.path.join(d, 'gt.jsonl'), 'w').write('{"frame": 3, "box": [1, 1, 5, 5]}\n{"frame": 4, "box": null}\n')
+        S = UL.LabelSession(v, cache_dir=os.path.join(self.tmp, 'cache30'))
         self.addCleanup(S.close)
-        os.makedirs(os.path.join(self.tmp, 'clips2', 'other'), exist_ok=True)
-        open(os.path.join(self.tmp, 'clips2', 'other', 'gt.jsonl'), 'w').write('{"frame": 0, "box": [1, 1, 5, 5]}\n')
-        S.clips_dir = os.path.join(self.tmp, 'clips2')
-        self.assertEqual(S._free_name('other'), 'other_2')
+        self.assertEqual((S.labels[3]['src'], S.labels[4]['src']), ('manual', 'absent'))
+        S.save()                                                               # one file per video: <stem>.gt.jsonl
+        self.assertTrue(os.path.isfile(os.path.join(d, 'video.gt.jsonl')))
+        self.assertFalse(os.path.isfile(os.path.join(d, 'gt.jsonl')))
 
     def test_40_upload_never_overwrites(self):
         class FS:                                              # what Flask hands over: .filename, .save(path)
@@ -143,25 +145,21 @@ class TestLabel(unittest.TestCase):
         up = os.path.join(self.tmp, 'uploads')
         a = UL.save_upload(FS('My Drone.MP4', b'one'), up)
         b = UL.save_upload(FS('My Drone.MP4', b'two'), up)
-        self.assertEqual(a, os.path.join(up, 'My_Drone', 'My_Drone.mp4'))     # dataset layout: <set>/<name>/<name>.mp4
-        self.assertEqual(b, os.path.join(up, 'My_Drone_2', 'My_Drone_2.mp4'))
+        self.assertEqual(a, os.path.join(up, 'My_Drone.mp4'))
+        self.assertEqual(b, os.path.join(up, 'My_Drone_2.mp4'))
         self.assertEqual(open(a, 'rb').read(), b'one')
+        c = UL.save_upload(FS('Помилка оператора.avi', b'x'), up)              # any letters stay
+        self.assertEqual(c, os.path.join(up, 'Помилка_оператора.avi'))
 
-    def test_50_project_opens_from_its_clip_when_the_source_is_gone(self):
-        clips = os.path.join(self.tmp, 'clips5')
-        src = os.path.join(self.tmp, 'gone.mp4'); shutil.copyfile(self.video, src)
-        S = UL.LabelSession(src, clips_dir=clips, cache_dir=os.path.join(self.tmp, 'cache5'))
-        t0 = time.time()
-        while S.total is None and time.time() - t0 < 30:
-            time.sleep(0.05)
-        S.set_box(5, truth(5)); S.close()
-        self.assertEqual(UL.resolve('gone', clips), (src, 'gone'))
-        os.remove(src)
-        path, name = UL.resolve('gone', clips)
-        self.assertEqual((path, name), (os.path.join(clips, 'gone', 'video.mp4'), 'gone'))
-        R = UL.LabelSession(path, name=name, clips_dir=clips, cache_dir=os.path.join(self.tmp, 'cache5'))
-        self.addCleanup(R.close)
-        self.assertEqual(R.labels[5]['src'], 'manual')
+    def test_50_a_video_from_outside_is_copied_into_the_store(self):
+        store = os.path.join(self.tmp, 'store50')
+        saved = (UL.utils_sources.VIDEOS_DIR, UL.UPLOAD_DIR)
+        self.addCleanup(lambda: (setattr(UL.utils_sources, 'VIDEOS_DIR', saved[0]), setattr(UL, 'UPLOAD_DIR', saved[1])))
+        UL.utils_sources.VIDEOS_DIR, UL.UPLOAD_DIR = store, os.path.join(store, 'uploads')
+        path = UL.resolve(self.video)
+        self.assertEqual(path, os.path.join(store, 'uploads', 'moving_patch.mp4'))
+        self.assertEqual(UL.resolve('uploads/moving_patch'), path)            # then it is in the list by its name
+        self.assertEqual(UL.resolve(path), path)                              # a path inside the store: used as it is
 
     def test_60_jump_and_meet_rules(self):
         J = UL.LabelSession._jump
@@ -232,39 +230,44 @@ class TestLabel(unittest.TestCase):
         self.assertEqual(S.counts()['labeled'], 2)
         self.assertEqual(S.delete_all(S.name), 2)
         self.assertEqual(S.counts()['labeled'], 0)
-        self.assertEqual(open(os.path.join(S.out_dir, 'gt.jsonl')).read(), '')
-        kept = open(os.path.join(S.out_dir, 'gt.before_delete_all.jsonl')).read()      # the file as it was, for after a restart
+        self.assertEqual(open(S.gt_path).read(), '')
+        kept = open(os.path.join(self.tmp, 'moving patch.gt.before_delete_all.jsonl')).read()   # the file as it was, after a restart too
         self.assertIn('"frame": 5', kept); self.assertIn('"frame": 50', kept)
         S.undo()                                                                     # Ctrl+Z: all back
         self.assertEqual(S.labels[5]['src'], 'manual'); self.assertEqual(S.labels[50]['src'], 'absent')
 
-    def test_95_list_delete_hide_thumb(self):
-        tmp = os.path.join(self.tmp, 'list')
-        saved = {k: getattr(UL, k) for k in ('CLIPS_DIR', 'CACHE_DIR', 'TRASH_DIR', 'HIDDEN_FILE')}
-        self.addCleanup(lambda: [setattr(UL, k, v) for k, v in saved.items()])
-        UL.CLIPS_DIR, UL.CACHE_DIR, UL.TRASH_DIR = os.path.join(tmp, 'clips'), os.path.join(tmp, 'cache'), os.path.join(tmp, 'trash')
-        UL.HIDDEN_FILE = os.path.join(UL.CLIPS_DIR, '.label_hidden.json')
-        here = os.getcwd(); os.chdir(os.path.join(UL.REPO, 'src')); self.addCleanup(os.chdir, here)   # the app's cwd: images/ is ../images
-        S = UL.LabelSession(self.video, name='proj', clips_dir=UL.CLIPS_DIR, cache_dir=UL.CACHE_DIR)
+    def test_95_store_list_delete_thumb(self):
+        store = os.path.join(self.tmp, 'store95')
+        saved = {k: getattr(UL, k) for k in ('CACHE_DIR', 'TRASH_DIR', 'UPLOAD_DIR')}
+        saved_root = UL.utils_sources.VIDEOS_DIR
+        self.addCleanup(lambda: [setattr(UL, k, v) for k, v in saved.items()] + [setattr(UL.utils_sources, 'VIDEOS_DIR', saved_root)])
+        UL.utils_sources.VIDEOS_DIR = store
+        UL.CACHE_DIR, UL.TRASH_DIR, UL.UPLOAD_DIR = os.path.join(self.tmp, 'cache95'), os.path.join(store, '.trash'), os.path.join(store, 'uploads')
+        os.makedirs(os.path.join(store, 'mine')); os.makedirs(os.path.join(store, 'set', 'seq'))
+        for p in ('mine/a.mp4', 'mine/b.mp4', 'set/seq/seq.mp4'):                # copied in by hand: several per folder, any depth
+            shutil.copyfile(self.video, os.path.join(store, p))
+        open(os.path.join(store, 'set', 'seq', 'seq.gt.txt'), 'w').write('1,1,40,100,40,40,1\n1,2,0,0,9,9,1\n')
+        names = [s['name'] for s in UL.video_sources()]
+        self.assertEqual(sorted(names), ['mine/a', 'mine/b', 'set/seq'])
+        S = UL.LabelSession(os.path.join(store, 'mine', 'b.mp4'), cache_dir=UL.CACHE_DIR)
         t0 = time.time()
         while S.total is None and time.time() - t0 < 30:
             time.sleep(0.05)
+        self.assertEqual(S.name, 'mine/b')
         S.set_box(20, truth(20)); S.close()
-        items = {s['name']: s for s in UL.video_sources()}
-        self.assertEqual((items['proj']['kind'], items['proj']['remove']), ('project', 'trash'))
-        self.assertTrue(os.path.isfile(UL.thumb('proj')))                            # its first key frame, with the box
-        self.assertEqual(UL.remove_source('proj')['action'], 'trash')                # a project: moved, never deleted
-        self.assertNotIn('proj', {s['name'] for s in UL.video_sources()})
-        moved = os.listdir(UL.TRASH_DIR)
-        self.assertEqual(len(moved), 1); self.assertTrue(os.path.isfile(os.path.join(UL.TRASH_DIR, moved[0], 'gt.jsonl')))
-        repo_video = next((s['name'] for s in items.values() if s['kind'] == 'video'), None)
-        self.assertIsNotNone(repo_video)
-        if repo_video:                                                               # a video of images/: hidden, the file stays
-            self.assertEqual(UL.remove_source(repo_video)['action'], 'hide')
-            self.assertNotIn(repo_video, {s['name'] for s in UL.video_sources()})
-            self.assertTrue(any(s['hidden'] for s in UL.video_sources(with_hidden=True) if s['name'] == repo_video))
-            UL.unhide_source(repo_video)
-            self.assertIn(repo_video, {s['name'] for s in UL.video_sources()})
+        items = UL.video_sources()
+        self.assertEqual(items[0]['name'], 'mine/b')                                 # labeled ones first
+        self.assertIn('labels 1 / 90 frames', items[0]['sub'])
+        self.assertIn('ground truth (MOT)', {s['name']: s for s in items}['set/seq']['sub'])
+        seqs = {s['id']: s for s in B.sequences() if s['video'].startswith(store)}
+        self.assertEqual((seqs['mine/b']['kind'], seqs['set/seq']['kind']), ('clip', 'mot'))   # both in the benchmark at once
+        self.assertTrue(os.path.isfile(UL.thumb('mine/b')))                          # its first key frame, with the box
+        r = UL.remove_source('mine/b')                                               # moved with its labels, never deleted
+        self.assertEqual(sorted(os.listdir(r['to'])), ['b.gt.jsonl', 'b.label.json', 'b.mp4'])
+        self.assertTrue(os.path.isfile(os.path.join(store, 'mine', 'a.mp4')))        # the neighbour stays
+        r = UL.remove_source('set/seq')                                              # the only video of a folder: the folder goes
+        self.assertEqual(sorted(os.listdir(r['to'])), ['seq.gt.txt', 'seq.mp4'])
+        self.assertEqual([s['name'] for s in UL.video_sources()], ['mine/a'])
         with self.assertRaises(ValueError):
             UL.remove_source('no such video')
 

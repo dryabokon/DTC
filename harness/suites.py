@@ -7,7 +7,7 @@ runs/<suite>_x86/NNNN (metrics are compared with the previous run on the same pl
     integration  ~5 min: CLI, source switching (file, 1080p, dead URL, camera), SOT loss at the edge, Esc quits;
                  with --sim also the PC simulator stream and the drone detector + DeepSORT on it
     quality      metrics with limits, compared with the previous run: SOT loss detection (PETS ground truth),
-                 SOT on reference sim clips (clips/), app FPS per mode - Pi only (limits are Pi baselines)
+                 SOT on one-object videos (videos/sim, antiuav), app FPS per mode - Pi only (limits are Pi baselines)
 """
 import json
 import os
@@ -52,6 +52,9 @@ def _prepare(R, pi, sync=True):
     R.manifest['target'] = 'pi'
     if sync:
         R.check('code synced to the Pi', pi.sync(), f'laptop {R.manifest["laptop"]["branch"]} @ {R.manifest["laptop"]["commit"]}')
+    from harness import datasets                   # videos/ is not in git: the test videos are copied (once, then what changed)
+    copied, failed = datasets.push(pi, datasets.FOR_TESTS, log=R.log)
+    R.check('test videos on the Pi (videos/)', not failed, f'{copied} copied' + (f', failed: {failed[:3]}' if failed else ''))
     c = pi.commit()
     R.manifest['pi'] = {'host': pi.host, 'commit': c[0] if c else None, 'branch': c[1] if len(c) > 1 else None, 'tools_commit': c[2] if len(c) > 2 else None}
     if pi.app_pid():
@@ -185,8 +188,8 @@ def _pause_check(R, pi):
     R.check('R: video from the start', bool(st and pos > 15 and st['video_pos'] < 15), f'frame {pos} -> {st and st["video_pos"]}')
 # ----------------------------------------------------------------------------------------------------------------------
 def _label_check(R, pi):
-    """Label tab through the web API: open campus as a throw-away project, a box on frame 0, the tracker follows it, the clip
-    is saved for the benchmark; the project (clips/smoke_label, runs/labels/smoke_label) is removed afterwards."""
+    """Label tab through the web API: open a throw-away copy of campus (videos/uploads/smoke_label.mp4), a box on frame 0,
+    the tracker follows it, the labels are a benchmark sequence at once; the copy goes to the trash afterwards."""
     name = 'smoke_label'
     code, r = pi.post('/label/open', js={'source': 'campus', 'name': name, 'model': 'NANO'})
     if not R.check('label: opens a video', code == 200 and isinstance(r, dict) and r.get('ok'), f'HTTP {code} {r}'):
@@ -206,16 +209,19 @@ def _label_check(R, pi):
     n = (st.get('counts') or {}).get('track', 0)
     R.check('label: the tracker follows the box', n >= 30, f'{n} tracked frames in 2 s, stopped: {st.get("stop_reason")}')
     seqs = []
-    for _ in range(20):                            # video.mp4 is written once the whole video is decoded
+    sid = 'uploads/' + name
+    for _ in range(20):
         _, opts = pi.get('/bench/options')
         seqs = [s['id'] for s in ((opts or {}).get('sequences') or [])] if isinstance(opts, dict) else []
-        if 'clip:' + name in seqs:
+        if sid in seqs:
             break
         time.sleep(0.5)
-    R.check('label: the clip is a benchmark sequence', 'clip:' + name in seqs)
+    R.check('label: the labels are a benchmark sequence', sid in seqs)
     pi.post('/label/close', js={'discard': True})
-    pi.rm(f'{pi.repo}/clips/{name}')
-    pi.rm(f'{pi.repo}/runs/labels/{name}')
+    code, r = pi.post('/label/remove', js={'name': sid})
+    R.check('label: delete moves the video with its labels to the trash', code == 200 and (r or {}).get('ok'), f'HTTP {code} {r}')
+    if code == 200 and (r or {}).get('ok'):
+        pi.rm(r['result']['to'].replace('\\', '/'))      # a throw-away copy: not kept in the trash
 # ----------------------------------------------------------------------------------------------------------------------
 def unit(R, pi=None, sync=True, local=False):
     standalone = pi is None
@@ -339,23 +345,6 @@ def _integration_sim(R, pi):
         if started_here:
             sim.stop()
 # ----------------------------------------------------------------------------------------------------------------------
-def _sync_clips(R, pi):
-    local = os.path.join(ROOT, 'clips')
-    names = sorted(d for d in os.listdir(local) if os.path.isfile(os.path.join(local, d, 'gt.jsonl'))) if os.path.isdir(local) else []
-    if not names:
-        return []
-    rc, out, _ = pi.sh(f'mkdir -p {PI_REPO}/clips && cd {PI_REPO}/clips && for d in *; do [ -f $d/video.mp4 ] && echo $d $(stat -c %s $d/video.mp4); done')
-    have = dict(l.split() for l in out.splitlines() if len(l.split()) == 2)
-    for n in names:
-        size = os.path.getsize(os.path.join(local, n, 'video.mp4'))
-        if have.get(n) != str(size):
-            pi.sh(f'mkdir -p {PI_REPO}/clips/{n}')
-            for f in ('video.mp4', 'gt.jsonl', 'meta.json'):
-                if os.path.isfile(os.path.join(local, n, f)):
-                    pi.push(os.path.join(local, n, f), f'{PI_REPO}/clips/{n}/{f}')
-            R.log(f'   clip {n} copied to the Pi')
-    return names
-# ----------------------------------------------------------------------------------------------------------------------
 def _app_fps(R, pi, name, args):
     """Processing capacity: every frame of a file once (--realtime false), --max_frames frames."""
     folder = f'{_app_folder(R, pi)}{name}/'
@@ -383,26 +372,27 @@ def quality(R, sync=True):
     except Exception as e:
         R.check('sot_pets', False, f'{e}: {pi.sh("tail -5 /tmp/q_pets.log")[1]}')
 
-    R.section('SOT on reference sim clips (clips/)')
-    clips = _sync_clips(R, pi)
+    R.section('SOT on one-object videos (videos/sim, antiuav, antiuav_val)')
+    from harness import datasets
+    clips = sorted(r for r in datasets.store_files(('sim/',)) if r.endswith('.mp4'))
+    rc, out, _ = pi.sh(f'cd {PI_REPO} && {PI_VENV} && python tests/quality/sot_clips.py /tmp/q_clips.json > /tmp/q_clips.log 2>&1; cat /tmp/q_clips.json', timeout=1800)
     if not clips:
-        R.check('reference clips', True, 'no clips in clips/ - record some: dtc clips record <name> --maneuver yaw', skip=True)
-    else:
-        rc, out, _ = pi.sh(f'cd {PI_REPO} && {PI_VENV} && python tests/quality/sot_clips.py clips /tmp/q_clips.json > /tmp/q_clips.log 2>&1; cat /tmp/q_clips.json', timeout=1800)
-        try:
-            q = json.loads(out); json.dump(q, open(R.path('sot_clips.json'), 'w'), indent=2)
-            for name, v in q.items():
-                gated = name.startswith('sim_')       # limits were set on the sim clips; dataset clips are tracked as a baseline (no limit yet)
-                R.metric(f'clip_{name}_on_target_pct', v['on_target_pct'], '%', min=LIMITS['clip_on_target_pct'] if gated else None)
-                R.metric(f'clip_{name}_drift_gone', v['drift_gone'], 'frames', max=LIMITS['clip_drift_gone'] if gated else None, better='lower')
-                R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', max=LIMITS['clip_drift_visible'] if gated else None, better='lower')
-        except Exception as e:
-            R.check('sot_clips', False, f'{e}: {pi.sh("tail -5 /tmp/q_clips.log")[1]}')
+        R.check('sim recordings', True, 'none in videos/sim - record some: dtc clips record <name> --maneuver yaw', skip=True)
+    try:
+        q = json.loads(out); json.dump(q, open(R.path('sot_clips.json'), 'w'), indent=2)
+        for full, v in q.items():
+            name = full.split('/')[-1]
+            gated = full.startswith('sim/')       # limits were set on the sim clips; dataset videos are tracked as a baseline (no limit yet)
+            R.metric(f'clip_{name}_on_target_pct', v['on_target_pct'], '%', min=LIMITS['clip_on_target_pct'] if gated else None)
+            R.metric(f'clip_{name}_drift_gone', v['drift_gone'], 'frames', max=LIMITS['clip_drift_gone'] if gated else None, better='lower')
+            R.metric(f'clip_{name}_drift_visible', v['drift_visible'], 'frames', max=LIMITS['clip_drift_visible'] if gated else None, better='lower')
+    except Exception as e:
+        R.check('sot_clips', False, f'{e}: {pi.sh("tail -5 /tmp/q_clips.log")[1]}')
 
     R.section('app FPS (processing capacity, 300 frames, every frame once)')
     R.metric('fps_video_only', _app_fps(R, pi, 'fps_video', '--source campus'), 'fps', min=LIMITS['video_fps'])
     R.metric('fps_mot_yolov8n', _app_fps(R, pi, 'fps_mot', '--source campus --do_detection true --do_tracking true'), 'fps', min=LIMITS['mot_fps'])
     if clips:
-        R.metric('fps_drone_mot', _app_fps(R, pi, 'fps_drone', f'--source {PI_REPO}/clips/{clips[0]}/video.mp4 '
+        R.metric('fps_drone_mot', _app_fps(R, pi, 'fps_drone', f'--source {PI_REPO}/videos/{clips[0]} '
                  f'--detection_model /home/pi/sources/Fly2/models/fly_416_ncnn_model --imgsz_hw 256,416 --do_detection true --do_tracking true'),
                  'fps', min=LIMITS['drone_mot_fps'])

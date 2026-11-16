@@ -3,28 +3,107 @@ import sys
 import glob
 import time
 # ----------------------------------------------------------------------------------------------------------------------
-# Video source registry shared by the CLI (--source) and the web UI dropdown.
-# A source spec can be: a preset alias, a listed name (e.g. 'v10/boats10b'), a file path, or a URL (rtsp://, http://, ...).
+# Video source registry shared by the CLI (--source), the web UI (Live dropdown, Label list) and the benchmark.
+# A source spec can be: a preset alias, a listed name (e.g. 'boats/boats10b'), a file path, or a URL (rtsp://, http://, ...).
+#
+# One store for every video: videos/ (not in git) - ours, public datasets, uploads, sim recordings alike. Copy a video
+# anywhere under it (any depth, several per folder) and it is listed. Its ground truth lies next to it, same name:
+#   a.mp4  a.gt.jsonl   one object: {"frame": i (0-based), "box": [x1, y1, x2, y2] | null, ...} per line (Label tab, sim, ...)
+#   a.mp4  a.gt.txt     MOT rows frame (1-based),id,x,y,w,h,... - many objects
+#   a.mp4  a.label.json what the Label tab knows about its labels (tracker, counts)
+# The older layout - the only video of a folder with gt.jsonl / gt.txt beside it - still counts.
+# Folders starting with '.' or '_' (.trash, _downloads) are not scanned.
 # ----------------------------------------------------------------------------------------------------------------------
-IMAGES_DIR = '../images'
-DATASETS_DIR = '../datasets/videos'          # public datasets built by `dtc data prepare` (local, not in git): <set>/<sequence>/<sequence>.mp4
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+VIDEOS_DIR = os.path.join(REPO, 'videos')
 VIDEO_EXT = ('.mp4', '.avi', '.mkv', '.mov')
+GT_ONE, GT_MOT, LABEL_META = '.gt.jsonl', '.gt.txt', '.label.json'
 ALIASES = {
-    'campus':  'v00/PETS09-S2L1',
-    'oxford':  'v01/TownCentreXVID',
-    'boats_a': 'v10/boats10a',
-    'boats_b': 'v10/boats10b',
-    'drone_ir': 'v30/IR',                    # Anti-UAV thermal sequence 640x512, one small drone, gt.txt
+    'campus':  'mot15/PETS09-S2L1',
+    'oxford':  'oxford/TownCentreXVID',
+    'boats_a': 'boats/boats10a',
+    'boats_b': 'boats/boats10b',
+    'drone_ir': 'antiuav/IR',                # Anti-UAV thermal sequence 640x512, one small drone
 }
-# not offered in the web UI dropdown (too many sources there); still usable by name / alias, by the benchmark and the tests
-HIDDEN_IN_UI = {'v10/boats10a', 'v10/boats10b', 'v21/uav0000117_02622_v', 'v22/uav0000137_00458_v', 'v30/IR',
+# not offered in the Live dropdown (too many sources there); still usable by name / alias, by the benchmark and the tests
+HIDDEN_IN_UI = {'boats/boats10a', 'boats/boats10b', 'visdrone/uav0000117_02622_v', 'visdrone/uav0000137_00458_v', 'antiuav/IR',
                 'antiuav_val/new29_train-new'}
 # ----------------------------------------------------------------------------------------------------------------------
+def sidecar(video, suffix):
+    """videos/x/a.mp4 + '.gt.jsonl' -> videos/x/a.gt.jsonl"""
+    return os.path.splitext(video)[0] + suffix
+# ----------------------------------------------------------------------------------------------------------------------
+def _alone_in_folder(video):
+    try:
+        return sum(1 for f in os.listdir(os.path.dirname(video) or '.') if f.lower().endswith(VIDEO_EXT)) == 1
+    except OSError:
+        return False
+# ----------------------------------------------------------------------------------------------------------------------
+def find_gt(video):
+    """Ground truth files of a video: [(path, 'mot' | 'one')], MOT first (more objects). <stem>.gt.txt / <stem>.gt.jsonl, or
+    in a folder with only this video gt.txt / gt.jsonl (the older layout)."""
+    out = [(p, k) for p, k in ((sidecar(video, GT_MOT), 'mot'), (sidecar(video, GT_ONE), 'one')) if os.path.isfile(p)]
+    if _alone_in_folder(video):
+        folder = os.path.dirname(video)
+        for f, k in (('gt.txt', 'mot'), ('gt.jsonl', 'one')):
+            if os.path.isfile(os.path.join(folder, f)) and k not in {kk for _, kk in out}:
+                out.append((os.path.join(folder, f), k))
+        out.sort(key=lambda x: x[1] != 'mot')
+    return out
+# ----------------------------------------------------------------------------------------------------------------------
 def _gt_for(video_path):
-    folder = os.path.dirname(video_path)
-    gt = os.path.join(folder, 'gt.txt')
-    videos = [f for f in os.listdir(folder) if f.lower().endswith(VIDEO_EXT)]
-    return gt if (os.path.isfile(gt) and len(videos) == 1) else None
+    """The ground truth the Live pipeline overlays (gt_table reads both kinds); None without one."""
+    g = find_gt(video_path)
+    return g[0][0] if g else None
+# ----------------------------------------------------------------------------------------------------------------------
+def gt_table(path):
+    """Ground truth as MOT rows (DataFrame frame 1-based, id, x, y, w, h, conf) - a .gt.jsonl becomes track id 1."""
+    import json
+    import pandas as pd
+    if not str(path).lower().endswith('.jsonl'):
+        return pd.read_csv(path, header=None)
+    rows = []
+    with open(path, encoding='utf-8') as f:
+        for line in f:
+            try:
+                r = json.loads(line)
+            except ValueError:
+                continue
+            b = r.get('box')
+            if b:
+                rows.append([int(r['frame']) + 1, 1, float(b[0]), float(b[1]), float(b[2]) - float(b[0]), float(b[3]) - float(b[1]), 1.0])
+    return pd.DataFrame(rows, columns=range(7)) if rows else pd.DataFrame(columns=range(7))
+# ----------------------------------------------------------------------------------------------------------------------
+def video_name(path, root=None):
+    """The name a video is listed under: its path in videos/ without the extension; a video named like its folder (or
+    'video') is named by the folder: mot15/PETS09-S2L1/PETS09-S2L1.mp4 -> mot15/PETS09-S2L1."""
+    rel = os.path.relpath(os.path.splitext(os.path.abspath(path))[0], root or VIDEOS_DIR).replace('\\', '/')
+    parts = rel.split('/')
+    if len(parts) > 1 and parts[-1] in (parts[-2], 'video') and _alone_in_folder(path):
+        rel = '/'.join(parts[:-1])
+    return rel
+# ----------------------------------------------------------------------------------------------------------------------
+def in_store(path, root=None):
+    root = os.path.abspath(root or VIDEOS_DIR)
+    return os.path.normcase(os.path.abspath(path)).startswith(os.path.normcase(root) + os.sep)
+# ----------------------------------------------------------------------------------------------------------------------
+def list_videos(root=None):
+    """Every video file in the store: [{name, path, gt: [(path, kind)]}], by name."""
+    root = root or VIDEOS_DIR
+    out, seen = [], set()
+    for d, dirs, files in os.walk(root):
+        dirs[:] = sorted(x for x in dirs if not x.startswith(('.', '_')))
+        for f in sorted(files):
+            if not f.lower().endswith(VIDEO_EXT) or '.tmp' in f.lower():
+                continue
+            path = os.path.join(d, f)
+            name = video_name(path, root)
+            if name in seen:                                  # a.mp4 and a.avi side by side
+                name = os.path.relpath(path, root).replace('\\', '/')
+            seen.add(name)
+            out.append({'name': name, 'path': path, 'gt': find_gt(path)})
+    out.sort(key=lambda v: v['name'].lower())
+    return out
 # ----------------------------------------------------------------------------------------------------------------------
 _win_cameras = {'t': -1e9, 'value': []}
 def _list_cameras_windows(max_age=60.0):
@@ -111,40 +190,30 @@ def is_device(spec):
     """A local camera read by utils_grabber_av: V4L2 node (Linux / Pi) or DirectShow device (Windows)."""
     return str(spec).startswith(('/dev/video', 'dshow://'))
 # ----------------------------------------------------------------------------------------------------------------------
-def list_sources(images_dir=IMAGES_DIR):
-    """Ordered list of dicts {name, label, source, gt}: embedded (CSI) and USB cameras first, then every video file under images_dir."""
+def list_sources(root=None):
+    """Ordered list of dicts {name, key, label, source, gt, gts}: embedded (CSI) and USB cameras first, then every video of
+    the store (name = its alias if it has one, key = its store name; gt = the file the Live overlay reads, gts = all)."""
     alias_of = {v: k for k, v in ALIASES.items()}
     result = [{'name': name, 'label': f'{name}: embedded camera {title} ({url})', 'source': url, 'gt': None} for name, url, title in list_csi_cameras()]
     result += [{'name': name, 'label': f'{name}: {title} ({device})', 'source': device, 'gt': None} for name, device, title in list_cameras()]
-    for path in sorted(glob.glob(os.path.join(images_dir, '**', '*'), recursive=True)):
-        if not path.lower().endswith(VIDEO_EXT):
-            continue
-        rel = os.path.relpath(path, images_dir).replace('\\', '/')
-        name = os.path.splitext(rel)[0]
-        alias = alias_of.get(name)
-        result.append({'name': alias or name, 'key': name,
-                       'label': f'{alias} ({rel})' if alias else rel,
-                       'source': path.replace('\\', '/'),
-                       'gt': _gt_for(path)})
-    for path in sorted(glob.glob(os.path.join(DATASETS_DIR, '*', '*', '*'))):     # one video per sequence folder
-        if not path.lower().endswith(VIDEO_EXT):
-            continue
-        rel = os.path.relpath(os.path.dirname(path), DATASETS_DIR).replace('\\', '/')     # e.g. visdrone/uav0000086_00000_v
-        result.append({'name': rel, 'key': rel, 'label': f'{rel} (dataset)' + (' [gt]' if _gt_for(path) else ''),
-                       'source': path.replace('\\', '/'), 'gt': _gt_for(path)})
+    for v in list_videos(root):
+        alias = alias_of.get(v['name'])
+        result.append({'name': alias or v['name'], 'key': v['name'],
+                       'label': (f"{alias} ({v['name']})" if alias else v['name']) + (' [gt]' if v['gt'] else ''),
+                       'source': v['path'].replace('\\', '/'), 'gt': v['gt'][0][0] if v['gt'] else None, 'gts': v['gt']})
     return result
 # ----------------------------------------------------------------------------------------------------------------------
 def is_url(spec):
     return '://' in str(spec)
 # ----------------------------------------------------------------------------------------------------------------------
-def resolve_source(spec, images_dir=IMAGES_DIR):
+def resolve_source(spec, root=None):
     """spec -> (name, source, gt). Raises ValueError if it cannot be resolved."""
     spec = str(spec).strip()
     if spec == '':
         raise ValueError('empty source')
 
-    for s in list_sources(images_dir):
-        if spec in (s['name'], ALIASES.get(spec)) or spec == os.path.splitext(os.path.relpath(s['source'], images_dir))[0].replace('\\', '/'):
+    for s in list_sources(root):
+        if spec in (s['name'], s.get('key')) or (s.get('key') and ALIASES.get(spec) == s['key']):
             return s['name'], s['source'], s['gt']
 
     if is_url(spec):
@@ -155,7 +224,7 @@ def resolve_source(spec, images_dir=IMAGES_DIR):
 
     if spec.isdigit():                       # webcam index: /dev/videoN on Linux, the Nth camera on Windows (both PyAV), else tools_grabber
         if os.path.exists(f'/dev/video{spec}'):
-            return resolve_source(f'/dev/video{spec}', images_dir)
+            return resolve_source(f'/dev/video{spec}', root)
         cams = list_cameras() if sys.platform == 'win32' else []
         if int(spec) < len(cams):
             return cams[int(spec)][0], cams[int(spec)][1], None
@@ -167,11 +236,11 @@ def resolve_source(spec, images_dir=IMAGES_DIR):
     if os.path.isfile(spec):
         return os.path.splitext(os.path.basename(spec))[0], spec, _gt_for(spec)
 
-    names = ', '.join(s['name'] for s in list_sources(images_dir))
+    names = ', '.join(s['name'] for s in list_sources(root))
     raise ValueError(f"unknown source '{spec}'. Use a URL, a file path, a folder, a webcam index or one of: {names}")
 # ----------------------------------------------------------------------------------------------------------------------
-def apply_to_config(config, spec, images_dir=IMAGES_DIR):
-    name, source, gt = resolve_source(spec, images_dir)
+def apply_to_config(config, spec, root=None):
+    name, source, gt = resolve_source(spec, root)
     config.source = source
     config.gt = gt
     config.source_name = name

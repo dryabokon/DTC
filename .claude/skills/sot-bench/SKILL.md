@@ -28,8 +28,8 @@ Typical picture: precision ~0.97+, recall limited by losses the tracker never re
 
 **Facts worth knowing**
 - Pi ms/frame: NANO ~12, VIT ~16, SIAMBAN ~45, SIAMFC ~400 (minutes per task — keep it out unless asked).
-- `drone_ir` (images/v30): the camera pans in jerks (~40 px/frame at frames ~34/46/64) — every tracker loses it; not a
-  fair showcase. Good showcase: run 0012 on `datasets/videos/antiuav_val/*` (NANO F1 0.915 @ 81 fps).
-- Sim clips (`clip:sim_*`) have 1–3 px targets: need `--min-size 2`.
+- `drone_ir` (videos/antiuav/IR): the camera pans in jerks (~40 px/frame at frames ~34/46/64) — every tracker loses it; not a
+  fair showcase. Good showcase: run 0012 on `antiuav_val/*` (NANO F1 0.915 @ 81 fps).
+- Sim recordings (`sim/*`) have 1–3 px targets: need `--min-size 2`.
 - Re-make clips of a run without re-running: `dtc pi run "cd ~/sources/DTC/src && . ~/venv/p311_dtc/bin/activate && python bench_render.py ../runs/bench/NNNN"`.
 - Runs older than results `version: 2` used other metrics; the UI says so — re-run to compare.

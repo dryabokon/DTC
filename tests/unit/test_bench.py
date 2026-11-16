@@ -74,7 +74,7 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(BW.iou([0, 0, 10, 10], [20, 20, 30, 30]), 0.0)
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'images', 'v00', 'gt.txt')), 'campus video not found')
+@unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'videos', 'mot15', 'PETS09-S2L1', 'PETS09-S2L1.gt.txt')), 'campus video not found')
 class TestRun(unittest.TestCase):
     def setUp(self):
         self.saved = B.RUNS_DIR

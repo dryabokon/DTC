@@ -30,7 +30,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 RUNS_DIR = os.path.join(REPO, 'runs', 'bench' if utils_platform.IS_ARM else 'bench_x86')
 CANCEL_FLAG = 'cancel'                       # runs/bench/NNNN/cancel: asks the worker to stop (partial results are kept)
-CLIPS_DIR = os.path.join(REPO, 'clips')
 DECODE_MS = 3.0                                 # per frame, for the estimate (decode + resize on the Pi)
 LOSS_RULES_MS = 3.0                             # extra per update of the full Tracker_SOT (embedding, contrast)
 CLIP_MS = 4.0                                   # per video frame and clip half: drawing + piping to ffmpeg (the encoders run in parallel)
@@ -48,17 +47,15 @@ PRESETS = {
 OBJECTS = (3, 5, 10, 20, 0)                     # the choices offered in the UI (0 = all)
 # ----------------------------------------------------------------------------------------------------------------------
 def sequences():
-    """[{id, label, kind, video, gt}]: every listed source with MOT ground truth, plus reference clips (one target)."""
+    """[{id, label, kind, video, gt}]: every video of the store (utils_sources) with ground truth - kind 'mot' (gt.txt, many
+    objects) or 'clip' (gt.jsonl, one object). A video with both is listed twice; its one-object labels as '<name> (label)'."""
     out = []
-    for s in utils_sources.list_sources(os.path.join(REPO, 'images')):
-        if s['gt'] and os.path.isfile(s['source']):
-            out.append({'id': s['name'], 'label': s['label'], 'kind': 'mot', 'video': os.path.abspath(s['source']), 'gt': os.path.abspath(s['gt'])})
-    if os.path.isdir(CLIPS_DIR):
-        for n in sorted(os.listdir(CLIPS_DIR)):
-            d = os.path.join(CLIPS_DIR, n)
-            if os.path.isfile(os.path.join(d, 'video.mp4')) and os.path.isfile(os.path.join(d, 'gt.jsonl')):
-                out.append({'id': 'clip:' + n, 'label': f'clip {n} (one target)', 'kind': 'clip',
-                            'video': os.path.join(d, 'video.mp4'), 'gt': os.path.join(d, 'gt.jsonl')})
+    for s in utils_sources.list_sources():
+        for j, (gt, k) in enumerate(s.get('gts') or []):
+            sid = s['name'] + (' (label)' if j else '')
+            kind = 'mot' if k == 'mot' else 'clip'
+            out.append({'id': sid, 'label': f"{s['name']}" + (' (labels, one target)' if j else ' (one target)' if kind == 'clip' else ''),
+                        'kind': kind, 'video': os.path.abspath(s['source']), 'gt': os.path.abspath(gt)})
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def video_info(path):

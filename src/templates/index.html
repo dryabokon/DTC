@@ -140,7 +140,7 @@
   .vp-menu input { width: 100%; margin: 0 0 6px; }
   #l_pick_list { flex: 1; min-height: 0; overflow-y: auto; }
   .vp-row { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; cursor: pointer; }
-  .vp-row:hover { background: var(--field); } .vp-row.cur { background: color-mix(in srgb, #ff9500 14%, transparent); } .vp-row.hid { opacity: .55; }
+  .vp-row:hover { background: var(--field); } .vp-row.cur { background: color-mix(in srgb, #ff9500 14%, transparent); }
   .vp-x { flex: none; border: 0; background: transparent; color: var(--muted); padding: 4px; border-radius: 5px; cursor: pointer; opacity: 0; }
   .vp-row:hover .vp-x { opacity: 1; } .vp-x:hover { color: var(--bad); background: var(--bad-soft); }
   .vp-row.ask { cursor: default; background: var(--field); flex-wrap: wrap; } .vp-row.ask .q { flex: 1; font-size: 12px; min-width: 200px; }
@@ -262,8 +262,7 @@
         <input id="l_path" type="text" placeholder="filter - or a path to a video file, Enter" autocomplete="off">
         <div id="l_pick_list" role="listbox"></div>
         <div class="vp-foot">
-          <label class="vp-add" title="Send a video file from this browser (kept in datasets/videos/uploads/<name>/)">+ Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
-          <button type="button" id="l_pick_hid" class="vp-link" hidden></button>
+          <label class="vp-add" title="Send a video file from this browser (kept in videos/uploads/) - or just copy files into videos/">+ Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
         </div>
       </div>
     </div>

@@ -16,11 +16,13 @@ number, back and forth, with exact frame indices. So the video is decoded once, 
 benchmark reads it, so frame numbers match), into a JPEG cache runs/labels/<name>/frames/, at most CACHE_WIDTH wide.
 Boxes are kept and saved in source-video pixels.
 
-Output = a reference clip the benchmark reads right away (utils_bench.sequences, kind 'clip'):
-  clips/<name>/video.mp4   the source video (copied if .mp4, else re-encoded once, frame by frame)
-  clips/<name>/gt.jsonl    one line per labeled frame: {"frame": i (0-based), "box": [x1, y1, x2, y2] | null, "src": ...}
+Output lies next to the video in the store videos/ (utils_sources), the benchmark reads it right away (kind 'clip'):
+  videos/.../a.mp4         the video itself - never copied, never re-encoded
+  videos/.../a.gt.jsonl    one line per labeled frame: {"frame": i (0-based), "box": [x1, y1, x2, y2] | null, "src": ...}
                            src: manual | track | interp | absent; frames never labeled are not written (= no object)
-  clips/<name>/label.json  where it came from, which tracker, counts; marks the folder as made by this tool
+  videos/.../a.label.json  which tracker, counts, when
+A video opened from outside the store is copied into videos/uploads/ first, so every label lives in one place.
+Existing one-object ground truth of a video (a.gt.jsonl from a dataset, a sim recording) opens as labels and can be edited.
 Every change is saved at once (while tracking: every SAVE_EVERY frames and at the stop).
 """
 import json
@@ -34,15 +36,15 @@ import cv2
 import numpy as np
 
 import utils_platform
+import utils_sources
 import utils_tracker_sot
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 CACHE_DIR = os.path.join(REPO, 'runs', 'labels')
-CLIPS_DIR = os.path.join(REPO, 'clips')
-UPLOAD_DIR = os.path.join(REPO, 'datasets', 'videos', 'uploads')    # <name>/<name>.mp4, like any dataset sequence
-TRASH_DIR = os.path.join(REPO, 'datasets', '.trash')                # deleted projects / uploads land here (not scanned, not in git)
-HIDDEN_FILE = os.path.join(CLIPS_DIR, '.label_hidden.json')         # videos of images/ and datasets hidden from the Label list
+UPLOAD_DIR = os.path.join(utils_sources.VIDEOS_DIR, 'uploads')     # browser uploads and videos opened from outside the store
+TRASH_DIR = os.path.join(utils_sources.VIDEOS_DIR, '.trash')        # deleted videos with their labels (not scanned, not in git)
+SIDECARS = (utils_sources.GT_ONE, utils_sources.GT_MOT, utils_sources.LABEL_META, '.gt.before_delete_all.jsonl')
 THUMB_W = 160
 CACHE_WIDTH = 1280                  # frames wider than this are cached (and tracked) downscaled, like the benchmark's max_width
 JPEG_Q = 92
@@ -62,7 +64,7 @@ ALONE_MAX = 60                      # a backward run that stops (loss, jump) wit
 UNDO_DEPTH = 50       # the operator's decisions: tracking stops there, clearing never removes them
 # ----------------------------------------------------------------------------------------------------------------------
 def safe_name(text):
-    n = re.sub(r'[^A-Za-z0-9_.-]+', '_', os.path.splitext(os.path.basename(str(text).rstrip('/\\')))[0]).strip('_.')
+    n = re.sub(r'[^\w.-]+', '_', os.path.splitext(os.path.basename(str(text).rstrip('/\\')))[0]).strip('_.')
     return n or 'video'
 # ----------------------------------------------------------------------------------------------------------------------
 def _imwrite(path, img):            # cv2.imwrite fails on non-ASCII Windows paths
@@ -99,25 +101,19 @@ def _write_json(path, value, **kw):
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(value, f, **kw)
 # ----------------------------------------------------------------------------------------------------------------------
-def projects(clips_dir=None):
-    """Label projects already in clips/ (folders with label.json): [{name, source, frames, labeled}]."""
-    clips_dir = clips_dir or CLIPS_DIR
-    out = []
-    if os.path.isdir(clips_dir):
-        for n in sorted(os.listdir(clips_dir)):
-            p = os.path.join(clips_dir, n, 'label.json')
-            if os.path.isfile(p):
-                try:
-                    m = _read_json(p)
-                    out.append({'name': n, 'source': m.get('source'), 'frames': m.get('frames'), 'labeled': (m.get('counts') or {}).get('labeled')})
-                except (OSError, ValueError):
-                    pass
-    return out
+def cache_key(name):
+    """Folder of a video's frame cache in runs/labels/: readable, and unique although names may hold '/' and any letters."""
+    import hashlib
+    return f"{safe_name(name.replace('/', '__'))[:60]}_{hashlib.md5(name.encode('utf-8')).hexdigest()[:6]}"
+# ----------------------------------------------------------------------------------------------------------------------
+def labels_file(video):
+    """The one-object labels of a video: <stem>.gt.jsonl, else the older gt.jsonl of a folder with only this video, else None."""
+    return next((p for p, k in utils_sources.find_gt(video) if k == 'one'), None)
 # ----------------------------------------------------------------------------------------------------------------------
 class LabelSession:
     """One video being labeled. Thread-safe: the web UI calls it from Flask threads; decoding and tracking run in threads of
     their own. Labels: list (one entry per frame) of None or {'src', 'box' (source px, or None for absent), 'score'?}."""
-    def __init__(self, source, name=None, model='NANO', clips_dir=CLIPS_DIR, cache_dir=CACHE_DIR, models_dir=None):
+    def __init__(self, source, name=None, model='NANO', cache_dir=CACHE_DIR, models_dir=None):
         if not os.path.isfile(source):
             raise ValueError(f'not a video file: {source}')
         cap = cv2.VideoCapture(source)
@@ -130,10 +126,11 @@ class LabelSession:
         if self.src_w <= 0 or self.src_h <= 0:
             raise ValueError(f'no video frames in {source}')
         self.source = os.path.abspath(source)
-        self.clips_dir, self.models_dir = clips_dir, models_dir or os.path.join(REPO, 'models')
-        self.name = name or self._free_name(safe_name(source))
-        self.out_dir = os.path.join(clips_dir, self.name)
-        self.cache = os.path.join(cache_dir, self.name, 'frames')
+        self.models_dir = models_dir or os.path.join(REPO, 'models')
+        self.name = name or (utils_sources.video_name(self.source) if utils_sources.in_store(self.source) else safe_name(source))
+        self.gt_path = utils_sources.sidecar(self.source, utils_sources.GT_ONE)
+        self.meta_path = utils_sources.sidecar(self.source, utils_sources.LABEL_META)
+        self.cache = os.path.join(cache_dir, cache_key(self.name), 'frames')
         self.k = min(1.0, CACHE_WIDTH / self.src_w)                           # cache px = source px * k
         self.model = model
         self.lock = threading.RLock()
@@ -156,32 +153,14 @@ class LabelSession:
         self._decoder = threading.Thread(target=self._decode, daemon=True)
         self._decoder.start()
     # ----------------------------------------------------------------------------------------------------------------------
-    def _free_name(self, base):
-        """The clip folder: reuse our own project of the same source; never write into a clip someone else made."""
-        n, i = base, 1
-        while True:
-            d = os.path.join(self.clips_dir, n)
-            meta = os.path.join(d, 'label.json')
-            if not os.path.exists(d):
-                return n
-            if os.path.isfile(meta):
-                try:
-                    if os.path.normcase(_read_json(meta).get('source', '')) == os.path.normcase(self.source):
-                        return n
-                except (OSError, ValueError):
-                    pass
-            i += 1
-            n = f'{base}_{i}'
-    # ----------------------------------------------------------------------------------------------------------------------
     def _load_existing(self):
-        """Resume a project: labels from clips/<name>/gt.jsonl (made by this tool)."""
-        p = os.path.join(self.out_dir, 'gt.jsonl')
-        meta = os.path.join(self.out_dir, 'label.json')
-        if not (os.path.isfile(p) and os.path.isfile(meta)):
+        """Resume: the video's one-object labels (ours, or ground truth from elsewhere - rows without 'src' are key frames)."""
+        p = labels_file(self.source)
+        self.legacy_gt = p if p and os.path.normcase(p) != os.path.normcase(self.gt_path) else None   # moves to <stem>.gt.jsonl on save
+        if not p:
             return
         try:
-            m = _read_json(meta)
-            self.created = m.get('created', self.created)
+            self.created = _read_json(self.meta_path).get('created', self.created)
         except (OSError, ValueError):
             pass
         with open(p, encoding='utf-8') as f:
@@ -238,7 +217,7 @@ class LabelSession:
         if not self.decode_error:
             _write_json(done, {**sig, 'frames': i})
         print(f'[ Label ] {self.name}: {i} frames cached')
-        if any(self.labels):                       # labeled while decoding: now the clip can get its video.mp4
+        if any(self.labels):                       # labeled while decoding: now label.json knows the frame count
             self.save()
     # ----------------------------------------------------------------------------------------------------------------------
     def _fit_labels(self):
@@ -363,9 +342,9 @@ class LabelSession:
             n = sum(1 for lab in self.labels if lab)
             if not n:
                 return 0
-            gt = os.path.join(self.out_dir, 'gt.jsonl')
-            if os.path.isfile(gt):
-                shutil.copyfile(gt, os.path.join(self.out_dir, 'gt.before_delete_all.jsonl'))
+            gt = labels_file(self.source)
+            if gt and os.path.isfile(gt):
+                shutil.copyfile(gt, utils_sources.sidecar(self.source, '.gt.before_delete_all.jsonl'))
             self._snapshot()
             self.labels = [None] * len(self.labels)
             self.back_note = f'deleted all {n} labels - Ctrl+Z brings them back'
@@ -614,7 +593,7 @@ class LabelSession:
         return c
     # ----------------------------------------------------------------------------------------------------------------------
     def state(self):
-        return {'name': self.name, 'source': self.source, 'out_dir': self.out_dir, 'frames': self.n, 'decoded': self.decoded,
+        return {'name': self.name, 'source': self.source, 'out': self.gt_path, 'frames': self.n, 'decoded': self.decoded,
                 'decoding': self.total is None, 'decode_error': self.decode_error, 'width': self.src_w, 'height': self.src_h,
                 'fps': round(self.fps, 3), 'model': self.model, 'tracking': self.tracking,
                 'track_pos': self.track_pos, 'stop_reason': self.stop_reason, 'back_note': self.back_note, 'phase': self.phase, 'version': self.version, 'counts': self.counts(),
@@ -634,40 +613,21 @@ class LabelSession:
             return {'version': self.version, 'labels': out}
     # ----------------------------------------------------------------------------------------------------------------------
     def save(self):
-        """clips/<name>/gt.jsonl + label.json (+ video.mp4 once, when the whole video is decoded)."""
+        """<stem>.gt.jsonl + <stem>.label.json next to the video (an older gt.jsonl it was read from goes: one file per video)."""
         with self.lock:
             rows = [json.dumps({'frame': i, 'box': lab['box'], 'src': lab['src'], **{k: lab[k] for k in ('score', 'sim') if k in lab}})
                     for i, lab in enumerate(self.labels) if lab]
-            meta = {'tool': 'DTC Label tab', 'source': self.source, 'frames': self.n, 'width': self.src_w, 'height': self.src_h,
+            meta = {'tool': 'DTC Label tab', 'frames': self.n, 'width': self.src_w, 'height': self.src_h,
                     'fps': round(self.fps, 3), 'tracker': self.model, 'created': self.created,
                     'updated': time.strftime('%Y-%m-%d %H:%M:%S'), 'counts': self.counts()}
-        os.makedirs(self.out_dir, exist_ok=True)
-        tmp = os.path.join(self.out_dir, 'gt.jsonl.tmp')
+        tmp = self.gt_path + '.tmp'
         with open(tmp, 'w', encoding='utf-8') as f:
             f.write('\n'.join(rows) + ('\n' if rows else ''))
-        utils_platform.replace_file(tmp, os.path.join(self.out_dir, 'gt.jsonl'))     # the benchmark may be reading it
-        _write_json(os.path.join(self.out_dir, 'label.json'), meta, indent=1)
-        self._ensure_video()
-    # ----------------------------------------------------------------------------------------------------------------------
-    def _ensure_video(self):
-        """The benchmark reads clips/<name>/video.mp4 with cv2, frame by frame: an .mp4 source is copied as it is (the same
-        frames), anything else is re-encoded once from a full-resolution decode (same frame count, so the indices hold)."""
-        dst = os.path.join(self.out_dir, 'video.mp4')
-        if os.path.isfile(dst) or self.total is None or self.decode_error:
-            return
-        if self.source.lower().endswith('.mp4'):
-            shutil.copyfile(self.source, dst + '.tmp')
-        else:
-            cap = cv2.VideoCapture(self.source)
-            w = cv2.VideoWriter(dst + '.tmp.mp4', cv2.VideoWriter_fourcc(*'mp4v'), self.fps, (self.src_w, self.src_h))
-            while True:
-                ok, frame = cap.read()
-                if not ok:
-                    break
-                w.write(frame)
-            cap.release(); w.release()
-            os.replace(dst + '.tmp.mp4', dst + '.tmp')
-        os.replace(dst + '.tmp', dst)
+        utils_platform.replace_file(tmp, self.gt_path)     # the benchmark may be reading it
+        _write_json(self.meta_path, meta, indent=1)
+        if self.legacy_gt and os.path.isfile(self.legacy_gt):
+            os.remove(self.legacy_gt)
+            self.legacy_gt = None
     # ----------------------------------------------------------------------------------------------------------------------
     def close(self, save=True):
         self.stop_tracking('closed')
@@ -684,12 +644,10 @@ def current():
     return _SESSION
 # ----------------------------------------------------------------------------------------------------------------------
 def open_session(source, model='NANO', **kw):
-    """Opens a video for labeling (the previous session is saved and closed). source: a file path, a listed source name, or
-    the name of an existing label project in clips/."""
+    """Opens a video for labeling (the previous session is saved and closed). source: a name in the store, an alias, or a
+    file path (copied into videos/uploads/ when outside the store)."""
     global _SESSION
-    path, name = resolve(source)
-    if name and not kw.get('name'):
-        kw['name'] = name
+    path = resolve(source)
     with _SESSION_LOCK:
         if _SESSION is not None:
             _SESSION.close()
@@ -704,109 +662,107 @@ def close_session(save=True):
             _SESSION.close(save=save)
         _SESSION = None
 # ----------------------------------------------------------------------------------------------------------------------
-def resolve(spec, clips_dir=None):
-    """spec -> (video path, project name or None). A label project whose source video is gone (moved, deleted) opens from
-    its own copy clips/<name>/video.mp4 - the same frames, so the labels still fit."""
-    clips_dir = clips_dir or CLIPS_DIR
+def _free_path(folder, base, ext):
+    name, i = base, 1
+    while os.path.exists(os.path.join(folder, name + ext)):
+        i += 1
+        name = f'{base}_{i}'
+    return os.path.join(folder, name + ext)
+# ----------------------------------------------------------------------------------------------------------------------
+def copy_in(path, name=None, upload_dir=None, replace=False):
+    """A video from outside the store -> videos/uploads/<name>.<ext> (never over another file unless replace: tests)."""
+    upload_dir = upload_dir or UPLOAD_DIR
+    os.makedirs(upload_dir, exist_ok=True)
+    ext = os.path.splitext(path)[1].lower() or '.mp4'
+    base = safe_name(name or path)
+    dst = os.path.join(upload_dir, base + ext) if replace else _free_path(upload_dir, base, ext)
+    if replace:
+        for suf in SIDECARS:
+            if os.path.isfile(utils_sources.sidecar(dst, suf)):
+                os.remove(utils_sources.sidecar(dst, suf))
+    print(f'[ Label ] copying {path} -> {dst}')
+    shutil.copyfile(path, dst + '.tmp')
+    os.replace(dst + '.tmp', dst)
+    return dst
+# ----------------------------------------------------------------------------------------------------------------------
+def _find(name):
+    alias = utils_sources.ALIASES.get(name)
+    return next((v for v in utils_sources.list_videos() if v['name'] in (name, alias)), None)
+# ----------------------------------------------------------------------------------------------------------------------
+def resolve(spec):
+    """spec (a store name, an alias, a file path) -> the video file in the store."""
     spec = str(spec or '').strip().strip('"')
     if not spec:
         raise ValueError('no video given')
-    for p in projects(clips_dir):
-        if spec == p['name']:
-            if p.get('source') and os.path.isfile(p['source']):
-                return p['source'], p['name']
-            own = os.path.join(clips_dir, p['name'], 'video.mp4')
-            if os.path.isfile(own):
-                return own, p['name']
-            raise ValueError(f"label project {p['name']}: its video is gone ({p.get('source')}) and there is no clips/{p['name']}/video.mp4")
-    if os.path.isfile(spec):
-        return spec, None
-    import utils_sources
-    name, source, gt = utils_sources.resolve_source(spec)
-    if not os.path.isfile(source):
-        raise ValueError(f'labeling needs a video file, not {source} (record a camera / stream to a file first)')
-    return source, None
-# ----------------------------------------------------------------------------------------------------------------------
-def _is_upload(path):
-    return os.path.abspath(path).lower().startswith(os.path.abspath(UPLOAD_DIR).lower() + os.sep)
-# ----------------------------------------------------------------------------------------------------------------------
-def _hidden():
-    try:
-        return set(_read_json(HIDDEN_FILE))
-    except (OSError, ValueError, TypeError):
-        return set()
-# ----------------------------------------------------------------------------------------------------------------------
-def _set_hidden(names):
-    os.makedirs(os.path.dirname(HIDDEN_FILE), exist_ok=True)
-    _write_json(HIDDEN_FILE, sorted(names))
-# ----------------------------------------------------------------------------------------------------------------------
-def video_sources(with_hidden=False):
-    """Files the Label tab offers: label projects first, then listed video files (images/, datasets/videos/ - uploads too).
-    Each: {name, label, sub, kind: project | upload | video, remove: trash | hide, hidden}. A project and an upload can be
-    deleted (moved to the trash), a video of images/ or of a dataset only hidden from this list (see remove_source)."""
-    import utils_sources
-    hidden = _hidden()
-    out = [{'name': p['name'], 'label': p['name'], 'sub': f"label project · {p['labeled'] or 0} / {p['frames'] or '?'} frames",
-            'kind': 'project', 'remove': 'trash', 'hidden': False} for p in projects()]
-    for s in utils_sources.list_sources():
-        src = str(s['source'])
+    v = _find(spec)
+    if v:
+        return v['path']
+    if not os.path.isfile(spec):
+        name, src, gt = utils_sources.resolve_source(spec)          # raises ValueError listing the names
         if not os.path.isfile(src):
-            continue
-        up = _is_upload(src)
-        hid = not up and s['name'] in hidden
-        if hid and not with_hidden:
-            continue
-        if up:
-            sub = 'uploaded video'
-        elif '(dataset)' in s['label']:
-            sub = 'dataset'
-        else:
-            sub = os.path.relpath(src, os.path.join(REPO, 'images')).replace('\\', '/')
-        out.append({'name': s['name'], 'label': s['name'], 'sub': sub + (' · ground truth' if s.get('gt') else ''),
-                    'kind': 'upload' if up else 'video', 'remove': 'trash' if up else 'hide', 'hidden': hid})
-    return out
+            raise ValueError(f'labeling needs a video file, not {src} (record a camera / stream to a file first)')
+        spec = src
+    return spec if utils_sources.in_store(spec) else copy_in(spec)
 # ----------------------------------------------------------------------------------------------------------------------
-def _trash(path, name):
-    os.makedirs(TRASH_DIR, exist_ok=True)
-    dst = os.path.join(TRASH_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{safe_name(name)}")
-    shutil.move(path, dst)
-    return dst
+def _labels_meta(video):
+    try:
+        return _read_json(utils_sources.sidecar(video, utils_sources.LABEL_META))
+    except (OSError, ValueError):
+        return None
+# ----------------------------------------------------------------------------------------------------------------------
+def video_sources():
+    """Every video of the store for the Label tab: [{name, label, sub}], the ones with our labels first (latest first).
+    sub: its folder · labels n / N frames | ground truth (MOT) | not labeled."""
+    alias_of = {v: k for k, v in utils_sources.ALIASES.items()}
+    mine, rest = [], []
+    for v in utils_sources.list_videos():
+        meta = _labels_meta(v['path'])
+        kinds = {k for _, k in v['gt']}
+        if meta:
+            sub = f"labels {(meta.get('counts') or {}).get('labeled', 0)} / {meta.get('frames') or '?'} frames"
+        elif kinds:
+            sub = 'ground truth' + (' (MOT)' if kinds == {'mot'} else '')
+        else:
+            sub = 'not labeled'
+        folder = os.path.dirname(v['name'])
+        row = {'name': v['name'], 'label': v['name'] + (f" ({alias_of[v['name']]})" if v['name'] in alias_of else ''),
+               'sub': (folder + ' · ' if folder else '') + sub}
+        (mine if meta else rest).append((meta.get('updated', '') if meta else '', row))
+    mine.sort(key=lambda r: r[0], reverse=True)
+    return [r for _, r in mine + rest]
 # ----------------------------------------------------------------------------------------------------------------------
 def remove_source(name):
-    """Delete from the Label list - the counterpart of adding (a new project, Upload). A label project or an uploaded
-    video is MOVED to datasets/.trash/<time>_<name>/ (move it back to undo; the frame cache runs/labels/<name> is dropped,
-    it is rebuilt from the video). A video of images/ or of a dataset is only hidden from this list: those files belong to
-    the repo / the benchmark, the Label tab never deletes them. Returns {'action': 'trash' | 'hide', 'to'?}."""
-    import utils_sources
+    """Delete from the store: the video with its labels / ground truth is MOVED to videos/.trash/<time>_<name>/ (move it
+    back to undo); the only video of a folder goes with its whole folder. The frame cache runs/labels/... is dropped."""
     name = str(name or '')
+    v = _find(name)
+    if v is None:
+        raise ValueError(f'not in the list: {name}')
     S = current()
-    for p in projects():
-        if p['name'] == name:
-            if S is not None and S.name == name:
-                close_session()
-            dst = _trash(os.path.join(CLIPS_DIR, name), name)
-            shutil.rmtree(os.path.join(CACHE_DIR, name), ignore_errors=True)
-            return {'action': 'trash', 'to': dst}
-    for s in utils_sources.list_sources():
-        src = str(s['source'])
-        if s['name'] == name and os.path.isfile(src):
-            if _is_upload(src):
-                if S is not None and os.path.abspath(S.source) == os.path.abspath(src):
-                    close_session()
-                return {'action': 'trash', 'to': _trash(os.path.dirname(src), name)}
-            _set_hidden(_hidden() | {name})
-            return {'action': 'hide'}
-    raise ValueError(f'not in the list: {name}')
-# ----------------------------------------------------------------------------------------------------------------------
-def unhide_source(name):
-    _set_hidden(_hidden() - {str(name or '')})
+    if S is not None and os.path.normcase(S.source) == os.path.normcase(os.path.abspath(v['path'])):
+        close_session()
+    os.makedirs(TRASH_DIR, exist_ok=True)
+    dst = os.path.join(TRASH_DIR, f"{time.strftime('%Y%m%d_%H%M%S')}_{cache_key(v['name'])}")
+    folder = os.path.dirname(os.path.abspath(v['path']))
+    if utils_sources._alone_in_folder(v['path']) and utils_sources.in_store(folder):
+        shutil.move(folder, dst)
+    else:
+        os.makedirs(dst)
+        for p in [v['path']] + [utils_sources.sidecar(v['path'], suf) for suf in SIDECARS]:
+            if os.path.isfile(p):
+                shutil.move(p, os.path.join(dst, os.path.basename(p)))
+    shutil.rmtree(os.path.join(CACHE_DIR, cache_key(v['name'])), ignore_errors=True)
+    return {'action': 'trash', 'to': dst}
 # ----------------------------------------------------------------------------------------------------------------------
 def thumb(name):
-    """A small JPEG for the list (cached in runs/labels/.thumbs/): a label project shows its first key frame with the box,
-    a video a frame a third of the way in."""
+    """A small JPEG for the list (cached in runs/labels/.thumbs/): a labeled video shows its first key frame with the box,
+    another one a frame a third of the way in."""
     import hashlib
-    path, proj = resolve(name)
-    gt = os.path.join(CLIPS_DIR, proj, 'gt.jsonl') if proj else None
+    v = _find(name)
+    if v is None:
+        raise ValueError(f'not in the list: {name}')
+    path = v['path']
+    gt = labels_file(path)
     stamp = os.path.getmtime(gt) if gt and os.path.isfile(gt) else os.path.getmtime(path)
     cache = os.path.join(CACHE_DIR, '.thumbs')
     out = os.path.join(cache, f"{hashlib.md5(str(name).encode()).hexdigest()[:12]}_{int(stamp)}.jpg")
@@ -840,19 +796,13 @@ def thumb(name):
     return out
 # ----------------------------------------------------------------------------------------------------------------------
 def save_upload(file_storage, upload_dir=None):
-    """A video sent from the browser -> datasets/videos/uploads/<name>/<name>.<ext> (the dataset layout, so it is listed as
-    a source 'uploads/<name>' everywhere, and kept outside runs/, which gets cleaned). A name already there is never
-    overwritten: <name>_2, <name>_3, ... Returns the path."""
+    """A video sent from the browser -> videos/uploads/<name>.<ext> (listed as 'uploads/<name>'). A name already there is
+    never overwritten: <name>_2, <name>_3, ... Returns the path."""
     upload_dir = upload_dir or UPLOAD_DIR
     base, ext = os.path.splitext(os.path.basename(file_storage.filename or 'video.mp4'))
     ext = ext.lower() if re.fullmatch(r'\.[A-Za-z0-9]{1,5}', ext or '') else '.mp4'
-    base = safe_name(base)
-    name, i = base, 1
-    while os.path.exists(os.path.join(upload_dir, name)):
-        i += 1
-        name = f'{base}_{i}'
-    os.makedirs(os.path.join(upload_dir, name))
-    path = os.path.join(upload_dir, name, name + ext)
+    os.makedirs(upload_dir, exist_ok=True)
+    path = _free_path(upload_dir, safe_name(base), ext)
     file_storage.save(path)
     return path
 # ----------------------------------------------------------------------------------------------------------------------

@@ -147,7 +147,8 @@ class Pipeliner:
 
         if self.config.gt is not None:
             if os.path.isfile(config.gt):
-                self.update_true(pd.read_csv(config.gt, header=None))
+                import utils_sources
+                self.update_true(utils_sources.gt_table(config.gt))       # MOT gt.txt or a one-object gt.jsonl
 
         return
     # ----------------------------------------------------------------------------------------------------------------------

@@ -179,7 +179,7 @@ class WebApp:
         def label_sources():
             import utils_label, utils_tracker_sot
             S = utils_label.current()
-            return {'sources': utils_label.video_sources(with_hidden=request.args.get('hidden') == '1'), 'hidden_count': len(utils_label._hidden()), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
+            return {'sources': utils_label.video_sources(), 'models': [{'name': m, 'label': v['label']} for m, v in utils_tracker_sot.SOT_MODELS.items()],
                     'default_model': getattr(self.config, 'sot_tracking_model', 'NANO'),
                     'state': S.state() if S else None}
 # ----------------------------------------------------------------------------------------------------------------------
@@ -194,7 +194,7 @@ class WebApp:
             return send_file(p, mimetype='image/jpeg')
 
         @self.app.route('/label/remove', methods=['POST'])
-        def label_remove():                                # delete from the list: a project / an upload to the trash, else hide
+        def label_remove():                                # delete: the video with its labels to videos/.trash
             import utils_label
             d = request.get_json(silent=True) or {}
             try:
@@ -202,20 +202,16 @@ class WebApp:
             except (ValueError, OSError) as e:
                 return {'ok': False, 'error': str(e)}, 400
             return {'ok': True, 'result': r}
-
-        @self.app.route('/label/unhide', methods=['POST'])
-        def label_unhide():
-            import utils_label
-            utils_label.unhide_source((request.get_json(silent=True) or {}).get('name'))
-            return {'ok': True}
 # ----------------------------------------------------------------------------------------------------------------------
         @self.app.route('/label/open', methods=['POST'])
         def label_open():
             import utils_label
             d = request.get_json(silent=True) or {}
             try:
-                S = utils_label.open_session(d.get('source'), model=d.get('model') or getattr(self.config, 'sot_tracking_model', 'NANO'),
-                                             name=utils_label.safe_name(d['name']) if d.get('name') else None)     # name: tests only
+                src = d.get('source')
+                if d.get('name'):                          # tests only: label a throw-away copy videos/uploads/<name>.<ext>
+                    src = utils_label.copy_in(utils_label.resolve(src), d['name'], replace=True)
+                S = utils_label.open_session(src, model=d.get('model') or getattr(self.config, 'sot_tracking_model', 'NANO'))
             except ValueError as e:
                 return {'ok': False, 'error': str(e)}, 400
             return {'ok': True, 'state': S.state()}

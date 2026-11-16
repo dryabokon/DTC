@@ -27,12 +27,16 @@ and the tests. Two targets, one interface: "pi" (harness/pi_app.py, over SSH) an
                                    without unreal the usual source (default campus, or --source X). Wrapper: session_start.bat [local] [unreal]
   dtc down                         stop all of it: DTC on the Pi and on this PC, the game, ffmpeg, mediamtx (wrapper: session_stop.bat)
 
-  dtc clips record NAME [--maneuver yaw|yaw_fast|sweep|none] [--seconds 60]   reference clip with ground truth -> clips/NAME
+  dtc clips record NAME [--maneuver yaw|yaw_fast|sweep|none] [--seconds 60]   sim recording with ground truth -> videos/sim/NAME/
   dtc clips list
 
-  dtc data prepare [mot15|visdrone|antiuav|all]   public datasets (datasets/_downloads) -> sources + reference clips
-  dtc data list | push             list the built sequences / copy them to the Pi (UI dropdown there)
-  dtc data convert FOLDER [--fps 25] [--keep-frames]   frames + Anti-UAV json -> FOLDER/<name>.mp4 + gt.txt (images/vNN layout)
+  videos/ is the one store for every video (not in git): copy files in (any subfolder), ground truth lies next to a video
+  as <name>.gt.jsonl (one object) or <name>.gt.txt (MOT) - see src/utils_sources.py
+  dtc data list                    every video of the store, its ground truth / labels
+  dtc data push [PREFIX ...]       copy the store (or the videos under the prefixes, e.g. 001/ mot15/) to the Pi
+  dtc data migrate [--apply]       the older layouts (images/, datasets/videos/, clips/) -> videos/ (copies; plan first)
+  dtc data prepare [mot15|visdrone|antiuav|all]   public datasets (datasets/_downloads) -> videos/<set>/<sequence>/
+  dtc data convert FOLDER [--fps 25] [--keep-frames]   frames + Anti-UAV json -> FOLDER/<name>.mp4 + <name>.gt.jsonl
 
   dtc test unit | smoke | integration [--sim] | quality     -> runs/<suite>/NNNN (report.md, metrics.json, manifest.json)
   dtc test unit | smoke | integration --local               the same on this PC (x86) -> runs/<suite>_x86/NNNN
@@ -231,7 +235,7 @@ def cmd_clips(a, extra):
         if not os.path.isdir(sim.CLIPS):
             print('no clips yet (dtc clips record NAME)'); return 0
         for n in sorted(os.listdir(sim.CLIPS)):
-            m = os.path.join(sim.CLIPS, n, 'meta.json')
+            m = os.path.join(sim.CLIPS, n, n + '.meta.json')
             meta = json.load(open(m)) if os.path.isfile(m) else {}
             print(f'{n:20s} {meta.get("frames", "?"):>5} frames  maneuver {meta.get("maneuver", "?"):9s} {meta.get("created", "")}')
         return 0
@@ -243,8 +247,11 @@ def cmd_clips(a, extra):
             print(f'{out} exists - pick another name or delete it'); return 1
         print(f'recording {a.seconds:.0f} s, maneuver {a.maneuver} -> {out} (simulator start ~40 s first)')
         sim.start(stream=False, record=out, maneuver=a.maneuver, seconds=a.seconds)
-        rows = [json.loads(l) for l in open(os.path.join(out, 'gt.jsonl'))]
-        print(f'done: {len(rows)} frames, target visible in {sum(1 for r in rows if r["box"])}'); return 0
+        for old, new in (('video.mp4', a.name + '.mp4'), ('gt.jsonl', a.name + '.gt.jsonl'), ('meta.json', a.name + '.meta.json')):
+            if os.path.isfile(os.path.join(out, old)):          # sim_fly2 writes fixed names: the store's <name>.<suffix>
+                os.replace(os.path.join(out, old), os.path.join(out, new))
+        rows = [json.loads(l) for l in open(os.path.join(out, a.name + '.gt.jsonl'))]
+        print(f'done: {len(rows)} frames, target visible in {sum(1 for r in rows if r["box"])} -> sim/{a.name}'); return 0
 # ----------------------------------------------------------------------------------------------------------------------
 def cmd_data(a, extra):
     from harness import datasets
@@ -262,23 +269,31 @@ def cmd_data(a, extra):
             print('usage: dtc data convert FOLDER'); return 1
         datasets.frames_folder_to_source(a.name, fps=a.fps, keep_frames=a.keep_frames); return 0
     if a.action == 'list':
-        if not os.path.isdir(datasets.VIDEOS):
-            print('nothing built yet: dtc data prepare'); return 0
-        for s in sorted(os.listdir(datasets.VIDEOS)):
-            for q in sorted(os.listdir(os.path.join(datasets.VIDEOS, s))):
-                d = os.path.join(datasets.VIDEOS, s, q)
-                mb = sum(os.path.getsize(os.path.join(d, f)) for f in os.listdir(d)) / 1e6
-                print(f'{s}/{q:28s} {mb:7.1f} MB' + ('  gt' if os.path.isfile(os.path.join(d, 'gt.txt')) else ''))
+        sys.path.insert(0, os.path.join(ROOT, 'src'))
+        import utils_sources
+        vids = utils_sources.list_videos()
+        if not vids:
+            print('videos/ is empty: copy video files in, or dtc data migrate / prepare'); return 0
+        for v in vids:
+            mb = os.path.getsize(v['path']) / 1e6
+            meta = os.path.isfile(utils_sources.sidecar(v['path'], utils_sources.LABEL_META))
+            gt = ', '.join(('labels' if meta and k == 'one' else 'one object' if k == 'one' else 'MOT') for _, k in v['gt'])
+            print(f"{v['name']:56s} {mb:8.1f} MB  {gt}")
         return 0
     if a.action == 'push':
         from harness import pi_app
         pi = pi_app.Pi(verbose=False)
-        pi.sh(f'mkdir -p {pi_app.REPO}/datasets/videos')
-        for s in sorted(os.listdir(datasets.VIDEOS)):
-            print(f'copying {s} ...', flush=True)
-            if not pi.push_dir(os.path.join(datasets.VIDEOS, s), f'{pi_app.REPO}/datasets/videos/'):
-                print('   failed'); return 1
-        print(pi.sh(f'du -sh {pi_app.REPO}/datasets/videos/*')[1]); return 0
+        prefixes = [a.name] + list(extra) if a.name else None
+        copied, failed = datasets.push(pi, prefixes)
+        print(f'{copied} copied to the Pi' + (f', failed: {failed}' if failed else ', the rest was there already'))
+        return 1 if failed else 0
+    if a.action == 'migrate':
+        todo = datasets.migrate(apply=a.apply)
+        if not todo:
+            print('videos/ has all of it already')
+        else:
+            print(f'{todo} copied / converted' if a.apply else f'{todo} to copy / convert - run again with --apply (copies only: the old folders stay)')
+        return 0
 # ----------------------------------------------------------------------------------------------------------------------
 def cmd_test(a, extra):
     from harness import suites
@@ -339,8 +354,9 @@ def main():
     s = sub.add_parser('down'); s.add_argument('--local', action='store_true', help='this PC only, do not look for the Pi')
     s = sub.add_parser('clips'); s.add_argument('action', choices=['record', 'list']); s.add_argument('name', nargs='?')
     s.add_argument('--maneuver', default='yaw'); s.add_argument('--seconds', type=float, default=60)
-    s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push', 'convert']); s.add_argument('name', nargs='?')
+    s = sub.add_parser('data'); s.add_argument('action', choices=['prepare', 'list', 'push', 'convert', 'migrate']); s.add_argument('name', nargs='?')
     s.add_argument('--fps', type=float, default=25); s.add_argument('--keep-frames', action='store_true')
+    s.add_argument('--apply', action='store_true', help='migrate: do it (without: only the plan)')
     s = sub.add_parser('test'); s.add_argument('suite', choices=['unit', 'smoke', 'integration', 'quality'])
     s.add_argument('--sim', action='store_true', help='integration: also the PC simulator stream'); s.add_argument('--no-sync', action='store_true')
     s.add_argument('--local', action='store_true', help='on this x86 PC instead of the Pi -> runs/<suite>_x86/')

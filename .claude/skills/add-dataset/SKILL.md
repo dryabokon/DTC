@@ -5,22 +5,24 @@ description: Add video with ground truth to DTC as a source (for the app and the
 
 # Add a dataset
 
-**The source format** (what `utils_sources` and the benchmark read): a folder with exactly one video and `gt.txt` in MOT
-format `frame(1-based),id,x,y,w,h,1,-1,-1,-1`, frames without the target simply have no row.
+**The store** (`utils_sources`): every video lives under `videos/` (any depth, several per folder); its ground truth lies
+next to it with the same name - `<name>.gt.jsonl` (one object: `{"frame": 0-based, "box": [x1,y1,x2,y2]}` per line) or
+`<name>.gt.txt` (MOT `frame(1-based),id,x,y,w,h,...`, many objects). Frames without the target have no row. A video
+named like its folder is listed by the folder: `videos/set/seq/seq.mp4` -> `set/seq`.
 
 **Anti-UAV style folder** (`000001.jpg ... + IR_label.json` with `exist`, `gt_rect` [x,y,w,h], optional attributes
 LR/OC/FM/SV/DBC/... per frame):
 ```
-dtc data convert <folder> [--fps 25] [--keep-frames]     # -> <folder>/IR.mp4 (name from the json) + gt.txt
+dtc data convert <folder> [--fps 25] [--keep-frames]     # -> <folder>/IR.mp4 (name from the json) + IR.gt.jsonl
 ```
 or from Python `harness.datasets.frames_folder_to_source(folder, name=..., fps=25, keep_frames=True)`.
 Without `--keep-frames` it deletes the frames — never run that on the user's folder: copy into scratch first, convert there,
-move `<name>.mp4` + `gt.txt` to the destination.
+move `<name>.mp4` + `<name>.gt.jsonl` into `videos/<set>/<seq>/`.
 
 **Where to put it**
-- a few small sequences meant to stay: `images/vNN/` (in git, ~MBs), optional alias in `utils_sources.ALIASES`;
-- anything bigger: `datasets/videos/<set>/<seq>/` (not in git), then `dtc data push` copies it to the Pi; it shows up as
-  source `<set>/<seq>` in the UI dropdown and in the Benchmark tab.
+- always `videos/<set>/<seq>/` (not in git); optional short alias in `utils_sources.ALIASES`. It shows up at once in
+  Live, Label and Benchmark. `dtc data push <set>/` copies it to the Pi (add the set to `datasets.FOR_TESTS` if the tests
+  or presets need it there).
 - public sets (MOT15, VisDrone, Anti-UAV300 from `datasets/_downloads`): `dtc data prepare [mot15|visdrone|antiuav|all]`.
 
 **Many sequences — screen first, convert only the useful ones** (no conversion needed to screen): run the app's tracker

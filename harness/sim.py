@@ -17,7 +17,7 @@ FLY2_PYTHON = pi_ssh.ENV.get('FLY2_PYTHON') or r'D:\venv\p310_ms_airsim_win\Scri
 UI = 'http://127.0.0.1:8509'
 RTSP_PATH = 'sim'
 LOG = os.path.join(ROOT, 'runs', 'sim.log')
-CLIPS = os.path.join(ROOT, 'clips')                  # local reference clips, not in git
+CLIPS = os.path.join(ROOT, 'videos', 'sim')         # sim recordings in the video store (not in git): sim/<name>/<name>.mp4 + .gt.jsonl
 # ----------------------------------------------------------------------------------------------------------------------
 def port_open(port, host='127.0.0.1'):
     try:

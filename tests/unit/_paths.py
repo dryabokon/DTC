@@ -4,4 +4,4 @@ SRC = os.path.join(REPO, 'src')
 for p in (SRC, os.path.join(SRC, 'configs'), os.path.join(REPO, 'tools')):
     if p not in sys.path:
         sys.path.insert(0, p)
-os.chdir(SRC)                     # the app resolves ../images, ../models relative to src/
+os.chdir(SRC)                     # the app resolves ../models relative to src/

@@ -1,11 +1,12 @@
-"""Click-to-track quality on reference clips with exact ground truth (clips/<name>/video.mp4 + gt.jsonl from harness/sim_fly2.py).
+"""Click-to-track quality on one-object videos of the store (videos/<group>/... + <stem>.gt.jsonl: sim recordings of
+harness/sim_fly2.py, Anti-UAV sequences; frames without a line have no object).
 
 An "operator" clicks the target (box 32x24 around the true centre) whenever SOT is idle and the target has been visible
 for 3 frames - as a user re-clicks after a loss. Per frame, with SOT active:
     on target      box centre within 20 px of the true centre
     drift (vis)    target visible but the box is elsewhere
     drift (gone)   target out of view but SOT still claims it  <- the silent failure users see
-Usage (on the Pi):  python tests/quality/sot_clips.py <clips_dir> <out.json>
+Usage (on the Pi):  python tests/quality/sot_clips.py <out.json> [group ...]   (default groups: GROUPS)
 """
 import json
 import os
@@ -17,11 +18,18 @@ import numpy as np
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, '..', '..', 'src')
 sys.path.insert(0, SRC)
+import utils_sources                                                # noqa: E402
 import utils_tracker_sot                                             # noqa: E402
+GROUPS = ('sim', 'antiuav', 'antiuav_val')
 # ----------------------------------------------------------------------------------------------------------------------
-def evaluate(clip_dir, models_dir):
-    gt = [json.loads(l) for l in open(os.path.join(clip_dir, 'gt.jsonl'))]
-    cap = cv2.VideoCapture(os.path.join(clip_dir, 'video.mp4'))
+def evaluate(video, gt_path, models_dir):
+    boxes = {}
+    for line in open(gt_path, encoding='utf-8'):
+        r = json.loads(line)
+        boxes[int(r['frame'])] = r.get('box')
+    cap = cv2.VideoCapture(video)
+    n = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0) or (max(boxes) + 1 if boxes else 0)
+    gt = [{'box': boxes.get(i)} for i in range(n)]
     T = utils_tracker_sot.Tracker_SOT(models_dir=models_dir)
     on = drift_vis = drift_gone = starts = vis_run = visible = 0
     stops, ms = {}, []
@@ -53,12 +61,12 @@ def evaluate(clip_dir, models_dir):
             'update_ms_median': round(float(np.median(ms)), 1) if ms else None}
 # ----------------------------------------------------------------------------------------------------------------------
 if __name__ == '__main__':
-    clips_dir, out = sys.argv[1], sys.argv[2]
+    out, groups = sys.argv[1], tuple(sys.argv[2:]) or GROUPS
     models = os.path.join(HERE, '..', '..', 'models', 'nanotrack') + '/'
     res = {}
-    for name in sorted(os.listdir(clips_dir)):
-        d = os.path.join(clips_dir, name)
-        if os.path.isfile(os.path.join(d, 'gt.jsonl')) and os.path.isfile(os.path.join(d, 'video.mp4')):
-            res[name] = evaluate(d, models)
-            print(name, json.dumps(res[name]), flush=True)
+    for v in utils_sources.list_videos():
+        one = next((p for p, k in v['gt'] if k == 'one'), None)
+        if one and v['name'].split('/')[0] in groups:
+            res[v['name']] = evaluate(v['path'], one, models)
+            print(v['name'], json.dumps(res[v['name']]), flush=True)
     json.dump(res, open(out, 'w'), indent=2)
