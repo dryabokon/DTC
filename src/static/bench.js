@@ -302,10 +302,28 @@
         const full = (document.getElementById('r_detail').clientWidth || 1000) - 4;
         const colW = Math.max(320, full >= 900 ? Math.floor((full - 20) / 2) : full);
         const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
-        const stack = el('div', 'ganttStack', ganttCanvas('recall', rows, tl, n, 'recall', colR, colW, true),
-                         ganttCanvas('precision', rows, tl, n, 'precision', colP, colW, true));
-        row.append(clipName ? clipPair(id, clipName) : el('div', 'hint', 'no clip'), stack);
+        // the two Gantts share the frame axis: only the lower one (precision) has its numbers
+        const stack = el('div', 'ganttStack', ganttCanvas('recall', rows, tl, n, 'recall', colR, colW, true, false),
+                         ganttCanvas('precision', rows, tl, n, 'precision', colP, colW, true, true));
+        const clip = clipName ? clipPair(id, clipName) : el('div', 'hint', 'no clip');
+        row.append(clip, stack);
+        const video = clip.querySelector && clip.querySelector('video');
+        if (video) playhead(video, stack, f => GANTT_L + (colW - GANTT_L - GANTT_R) * f / n, n);
         return wrap;
+    }
+
+    function playhead(video, stack, X, n) {
+        // a thin vertical line over both Gantts at the frame the clip shows (the clip is the whole video, frame 0 at time 0)
+        const line = el('div', 'playhead'); stack.append(line);
+        let raf = 0;
+        const place = () => {
+            if (!video.duration) return;
+            const f = Math.min(n, Math.max(0, video.currentTime / video.duration * n));
+            line.style.left = Math.round(X(f)) + 'px'; line.style.display = 'block';
+        };
+        const loop = () => { place(); raf = video.paused || video.ended ? 0 : requestAnimationFrame(loop); };
+        video.addEventListener('play', () => { if (!raf) raf = requestAnimationFrame(loop); });
+        ['timeupdate', 'seeked', 'loadedmetadata'].forEach(e => video.addEventListener(e, place));
     }
 
     function clipPair(id, name) {
@@ -317,8 +335,9 @@
         return wrap;
     }
 
-    function ganttCanvas(title, rows, tl, n, key, cols, w, labels) {
-        const L = labels ? 140 : 8, R = 8, top = 22, bar = 11, rowH = 17, hgt = top + rows.length * rowH + 20, ratio = window.devicePixelRatio || 1;
+    const GANTT_L = 140, GANTT_R = 8;                // left margin with the object labels, right margin (the playhead uses them too)
+    function ganttCanvas(title, rows, tl, n, key, cols, w, labels, axis = true) {
+        const L = labels ? GANTT_L : 8, R = GANTT_R, top = 22, bar = 11, rowH = 17, hgt = top + rows.length * rowH + (axis ? 20 : 4), ratio = window.devicePixelRatio || 1;
         const cv = E('canvas'); cv.width = w * ratio; cv.height = hgt * ratio; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
         const g = cv.getContext('2d'); g.scale(ratio, ratio);
         const css = getComputedStyle(document.documentElement), muted = css.getPropertyValue('--muted').trim(), line = css.getPropertyValue('--line').trim(),
@@ -327,7 +346,10 @@
         g.font = '600 12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(title.toUpperCase(), L, 13);
         g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.lineWidth = 1;
         const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 8) || 1000;
-        for (let f = 0; f <= n; f += step) { g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - 16); g.stroke(); g.fillStyle = muted; g.fillText(String(f), Math.min(X(f) - 4, w - 28), hgt - 3); }
+        for (let f = 0; f <= n; f += step) {
+            g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - (axis ? 16 : 0)); g.stroke();
+            if (axis) { g.fillStyle = muted; g.fillText(String(f), Math.min(X(f) - 4, w - 28), hgt - 3); }
+        }
         rows.forEach((t, i) => {
             const y = top + i * rowH, s = tl[t.meta.task][key], r = t.m[tlModel], start = t.meta.start + 1;
             if (labels) {

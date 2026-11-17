@@ -161,7 +161,8 @@
   .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; } .ganttTitle { margin-bottom: 4px; }
   .videoRow { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
   @media (max-width: 900px) { .videoRow { grid-template-columns: 1fr; } }
-  .ganttStack canvas { display: block; margin-bottom: 6px; }
+  .ganttStack { position: relative; } .ganttStack canvas { display: block; margin-bottom: 6px; }
+  .playhead { position: absolute; top: 18px; bottom: 22px; width: 1px; margin-left: -0.5px; background: var(--text); opacity: .9; pointer-events: none; display: none; }
   .clip { margin: 0; min-width: 0; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
   table.grid td.strips { padding-top: 4px; padding-bottom: 4px; } .f1cell { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
   .f1cell b { min-width: 34px; text-align: right; } .f1cell canvas { display: block; }
