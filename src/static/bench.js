@@ -200,6 +200,7 @@
         });
         box.appendChild(mt);
 
+        const videoFrames = Object.fromEntries((cfgAll.per_sequence || []).map(s => [s.seq, s.frames_in_video]));
         if (Object.keys(res.by_sequence).length > 1) {
             // per video and model: F1, and under it two strips over the video's frames - recall (hit / miss) over precision (hit / false box)
             box.appendChild(E('h3', 'F1 by video'));
@@ -225,9 +226,11 @@
                 const stripW = Math.max(80, Math.min(320, Math.floor((box.clientWidth - st.rows[0].cells[0].offsetWidth - 8) / models.length) - 80));
                 const byModel = Object.fromEntries(models.map((m, i) => [m, tls[i] || {}]));
                 cells.forEach(x => {
-                    const parts = res.tasks.filter(r => r.seq === x.seq && r.model === x.model).sort((a, b) => a.start - b.start || a.track - b.track)
-                        .map(r => byModel[x.model][r.task]).filter(Boolean);
-                    drawStrips(x.cv, parts, stripW);
+                    // the same frame axis as the Gantt below (see its n): the whole video
+                    const parts = res.tasks.filter(r => r.seq === x.seq && r.model === x.model && byModel[x.model][r.task])
+                        .map(r => ({start: r.start + 1, ...byModel[x.model][r.task]}));
+                    const n = Math.max(videoFrames[x.seq] || 0, ...parts.map(q => q.start + q.recall.length));
+                    drawStrips(x.cv, parts, stripW, n);
                 });
             });
         }
@@ -240,7 +243,6 @@
         box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
         const gantt = el('div', 'gantt'); box.appendChild(gantt);
         box.appendChild(legend(true));
-        const videoFrames = Object.fromEntries((cfgAll.per_sequence || []).map(s => [s.seq, s.frames_in_video]));
         timelines(d.id, tlModel).then(tl => {
             tl = tl || {};
             c.sequences.forEach(seq => {
@@ -269,28 +271,31 @@
         return leg;
     }
 
-    function drawStrips(cv, parts, w) {
-        // the frames of a video's objects one after another (in the order they appear): recall strip over precision strip
+    function drawStrips(cv, parts, w, n) {
+        // recall strip over precision strip on the SAME frame axis as the Gantt and the clip below: the whole video, 0..n,
+        // every object at its own frames. Several objects on one frame: miss beats hit (recall), false box beats hit (precision).
         const bar = 8, gap = 3, hgt = 2 * bar + gap, ratio = window.devicePixelRatio || 1;
         cv.width = w * ratio; cv.height = hgt * ratio; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
         const g = cv.getContext('2d'); g.scale(ratio, ratio);
         const field = getComputedStyle(document.documentElement).getPropertyValue('--field').trim();
         g.fillStyle = field; g.fillRect(0, 0, w, bar); g.fillRect(0, bar + gap, w, bar);
-        const n = parts.reduce((a, p) => a + p.recall.length, 0);
         if (!n) return;
-        const cols = {c: TL.caught, m: TL.missed, g: TL.onTarget, f: TL.falseBox};
-        let off = 0;
+        const rank = {c: 1, m: 2, g: 1, f: 2}, rec = new Uint8Array(n + 1), prec = new Uint8Array(n + 1);
         parts.forEach(p => {
-            [[p.recall, 0], [p.precision, bar + gap]].forEach(([s, y]) => {
-                let k = 0;
-                while (k < s.length) {
-                    let j = k; while (j < s.length && s[j] === s[k]) j++;
-                    if (cols[s[k]]) { g.fillStyle = cols[s[k]]; const x0 = w * (off + k) / n; g.fillRect(x0, y, Math.max(0.5, w * (off + j) / n - x0), bar); }
-                    k = j;
-                }
-            });
-            off += p.recall.length;
-            if (off < n) { g.clearRect(w * off / n - 0.5, 0, 1, hgt); }        // a thin gap between two objects
+            for (let k = 0; k < p.recall.length; k++) {
+                const f = p.start + k;
+                if (f > n) break;
+                rec[f] = Math.max(rec[f], rank[p.recall[k]] || 0);
+                prec[f] = Math.max(prec[f], rank[p.precision[k]] || 0);
+            }
+        });
+        [[rec, 0, [null, TL.caught, TL.missed]], [prec, bar + gap, [null, TL.onTarget, TL.falseBox]]].forEach(([a, y, cols]) => {
+            let k = 0;
+            while (k <= n) {
+                let j = k; while (j <= n && a[j] === a[k]) j++;
+                if (cols[a[k]]) { g.fillStyle = cols[a[k]]; const x0 = w * k / n; g.fillRect(x0, y, Math.max(0.5, w * j / n - x0), bar); }
+                k = j;
+            }
         });
     }
 
@@ -345,10 +350,10 @@
         const X = f => L + (w - L - R) * f / n;
         g.font = '600 12px system-ui, sans-serif'; g.fillStyle = muted; g.fillText(title.toUpperCase(), L, 13);
         g.font = '12px system-ui, sans-serif'; g.strokeStyle = line; g.lineWidth = 1;
-        const step = [10, 20, 50, 100, 200, 500, 1000].find(s => n / s <= 8) || 1000;
+        const step = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000].find(s => n / s <= 8) || 100000;
         for (let f = 0; f <= n; f += step) {
             g.beginPath(); g.moveTo(X(f), top - 2); g.lineTo(X(f), hgt - (axis ? 16 : 0)); g.stroke();
-            if (axis) { g.fillStyle = muted; g.fillText(String(f), Math.min(X(f) - 4, w - 28), hgt - 3); }
+            if (axis) { g.fillStyle = muted; g.fillText(String(f), Math.min(X(f) - 4, w - g.measureText(String(f)).width - 2), hgt - 3); }
         }
         rows.forEach((t, i) => {
             const y = top + i * rowH, s = tl[t.meta.task][key], r = t.m[tlModel], start = t.meta.start + 1;
