@@ -3,8 +3,7 @@ from config_common import cnfg_common
 def get_config_campus():
     class cnfg(cnfg_common):
         exp_name = '[offline] campus'
-        source = '../images/v00/PETS09-S2L1.mp4'
-        gt     = '../images/v00/gt.txt'
+        source = 'campus'                 # resolved by utils_sources (videos/)
 
         do_detection = False
         do_tracking = False
@@ -16,7 +15,7 @@ def get_config_campus():
 def get_config_Oxford():
     class cnfg(cnfg_common):
         exp_name = '[offline] Oxford'
-        source = '../images/v01/TownCentreXVID.mp4'
+        source = 'oxford'
 
         do_detection = False
         do_tracking = False
@@ -28,7 +27,7 @@ def get_config_Oxford():
 def get_config_boats():
     class cnfg(cnfg_common):
         exp_name = '[offline] boats'
-        source = '../images/v10/boats10a.mp4'
+        source = 'boats_a'
 
         do_detection = False
         do_tracking = False

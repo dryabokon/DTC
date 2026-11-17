@@ -22,6 +22,14 @@ class TestSettings(unittest.TestCase):
         c = B.normalize({'models': ['NANO']}); c2 = B.normalize({'models': ['NANO', 'SIAMFC']})
         self.assertGreater(B.estimate_s(c2, 100), 10 * B.estimate_s(c, 100))
 
+    def test_reacquisition_models_are_benchmark_only(self):
+        # NCCM / NCCS can be benchmarked, but they are not click-to-track models of the app (Live / Label keep SOT_MODELS)
+        import utils_tracker_sot
+        self.assertEqual(B.normalize({'models': ['NANO', 'NCCS']})['models'], ['NANO', 'NCCS'])
+        names = [m['name'] for m in B.options()['models']]
+        self.assertTrue({'NCCM', 'NCCS'} <= set(names))
+        self.assertNotIn('NCCS', utils_tracker_sot.SOT_MODELS)
+
 
 class TestTargets(unittest.TestCase):
     def setUp(self):
@@ -74,7 +82,7 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(BW.iou([0, 0, 10, 10], [20, 20, 30, 30]), 0.0)
 
 
-@unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'images', 'v00', 'gt.txt')), 'campus video not found')
+@unittest.skipUnless(os.path.isfile(os.path.join(_paths.REPO, 'videos', 'mot15', 'PETS09-S2L1', 'PETS09-S2L1.gt.txt')), 'campus video not found')
 class TestRun(unittest.TestCase):
     def setUp(self):
         self.saved = B.RUNS_DIR
@@ -85,7 +93,7 @@ class TestRun(unittest.TestCase):
         B.RUNS_DIR = self.saved
 
     def test_tiny_run_end_to_end(self):
-        rid = B.start({'models': ['NANO', 'MIL'], 'sequences': ['campus'], 'tracks': 1, 'max_frames': 25})
+        rid = B.start({'models': ['NANO', 'MIL', 'NCCS'], 'sequences': ['campus'], 'tracks': 1, 'max_frames': 25})
         t0 = time.time()
         while B.progress(rid)['state'] == 'RUNNING' and time.time() - t0 < 120:
             time.sleep(0.5)
@@ -93,7 +101,7 @@ class TestRun(unittest.TestCase):
         self.assertEqual(p['state'], 'DONE', open(os.path.join(B.RUNS_DIR, rid, 'log.txt')).read()[-500:])
         self.assertEqual(p['done_frac'], 1.0)
         r = json.load(open(os.path.join(B.RUNS_DIR, rid, 'results.json')))
-        self.assertEqual(set(r['models']), {'NANO', 'MIL'})
+        self.assertEqual(set(r['models']), {'NANO', 'MIL', 'NCCS'})
         self.assertGreater(r['models']['NANO']['f1'], 0.3)
         self.assertEqual(B.runs_summary()[0]['id'], rid)
         s = B.task_series(rid, 0)

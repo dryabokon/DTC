@@ -69,7 +69,6 @@
   #tabs button.on { background: var(--accent); color: var(--accent-text); }
   #tabs button:hover:not(.on) { border-color: var(--line); }
   .page { min-height: 0; overflow: auto; padding: 16px 20px; }
-  #archView { min-height: 0; } #archFrame { border: 0; width: 100%; height: 100%; display: block; }
   .page h2 { margin: 0; font-size: 16px; } .page h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--faint); margin: 20px 0 6px; }
   .cols { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 20px; align-items: start; }
   #benchForm .check, #benchForm .group { white-space: nowrap; }      /* model and sequence names on one line */
@@ -87,7 +86,7 @@
   .runhead { display: flex; gap: 10px; align-items: center; }
   .pill.good-static { border-color: var(--good); color: var(--good); background: var(--good-soft); }
   table { border-collapse: collapse; margin: 4px 0 8px; font-size: 12px; } th, td { padding: 4px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr.on td { background: var(--field); }
+  th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr:not(:first-child):hover td { background: var(--field); } table.clickable tr.on td { background: var(--field); }
   .up { color: var(--good); } .down { color: var(--bad); } .warnText { color: var(--warn); }
   .chartbox canvas { width: 100%; max-width: 900px; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
   /* Runs: plain tables */
@@ -140,7 +139,7 @@
   .vp-menu input { width: 100%; margin: 0 0 6px; }
   #l_pick_list { flex: 1; min-height: 0; overflow-y: auto; }
   .vp-row { display: flex; align-items: center; gap: 8px; padding: 4px; border-radius: 6px; cursor: pointer; }
-  .vp-row:hover { background: var(--field); } .vp-row.cur { background: color-mix(in srgb, #ff9500 14%, transparent); } .vp-row.hid { opacity: .55; }
+  .vp-row:hover { background: var(--field); } .vp-row.cur { background: color-mix(in srgb, #ff9500 14%, transparent); }
   .vp-x { flex: none; border: 0; background: transparent; color: var(--muted); padding: 4px; border-radius: 5px; cursor: pointer; opacity: 0; }
   .vp-row:hover .vp-x { opacity: 1; } .vp-x:hover { color: var(--bad); background: var(--bad-soft); }
   .vp-row.ask { cursor: default; background: var(--field); flex-wrap: wrap; } .vp-row.ask .q { flex: 1; font-size: 12px; min-width: 200px; }
@@ -159,9 +158,15 @@
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #l_counts div { display: flex; justify-content: space-between; }
   .ganttHead { display: flex; align-items: center; gap: 6px; } .ganttHead select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
-  .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; } .ganttTitle { margin-bottom: 4px; }
-  .ganttPair { display: flex; gap: 24px; } .ganttPair canvas { display: block; flex: none; }
-  .clip { margin: 4px 0 26px; max-width: 1300px; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
+  .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; scroll-margin-top: 12px; border-radius: 6px; } .ganttTitle { margin-bottom: 4px; }
+  .videoRow { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+  @media (max-width: 900px) { .videoRow { grid-template-columns: 1fr; } }
+  .ganttBox.flash { animation: flash 1.6s ease-out; } @keyframes flash { from { background: var(--field); } to { background: transparent; } }
+  .ganttStack { position: relative; } .ganttStack canvas { display: block; margin-bottom: 6px; }
+  .playhead { position: absolute; top: 18px; bottom: 22px; width: 1px; margin-left: -0.5px; background: var(--text); opacity: .9; pointer-events: none; display: none; }
+  .clip { margin: 0; min-width: 0; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
+  table.grid td.strips { padding-top: 4px; padding-bottom: 4px; } .f1cell { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
+  .f1cell b { min-width: 34px; text-align: right; } .f1cell canvas { display: block; }
   .clipHead { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 2px; }
   .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 6px 0 8px; color: var(--muted); }
   pre.report { white-space: pre-wrap; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }
@@ -170,7 +175,7 @@
 <body>
 
 <header class="topbar">
-  <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button><button data-tab="label" type="button">Label</button><button data-tab="arch" type="button">Architecture</button></nav>
+  <nav id="tabs"><button data-tab="live" class="on" type="button">Live</button><button data-tab="bench" type="button">Benchmark</button><button data-tab="runs" type="button">Runs</button><button data-tab="label" type="button">Label</button></nav>
   <span class="spacer"></span>
   <span class="pill warn" id="pausePill" hidden title="Space: resume, → : next frame">⏸ paused</span>
   <span class="pill" id="modePill">idle</span>
@@ -262,8 +267,7 @@
         <input id="l_path" type="text" placeholder="filter - or a path to a video file, Enter" autocomplete="off">
         <div id="l_pick_list" role="listbox"></div>
         <div class="vp-foot">
-          <label class="vp-add" title="Send a video file from this browser (kept in datasets/videos/uploads/<name>/)">+ Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
-          <button type="button" id="l_pick_hid" class="vp-link" hidden></button>
+          <label class="vp-add" title="Send a video file from this browser (kept in videos/uploads/) - or just copy files into videos/">+ Upload a video …<input id="l_upload" type="file" accept="video/*" hidden></label>
         </div>
       </div>
     </div>
@@ -300,7 +304,6 @@
   </div>
 </section>
 
-<section id="archView" hidden><iframe id="archFrame" title="Architecture" data-src="{{ url_for('static', filename='architecture.html') }}"></iframe></section>
 
 <script>
     const $ = id => document.getElementById(id);

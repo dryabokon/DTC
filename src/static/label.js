@@ -22,7 +22,7 @@
     function init() {
         inited = true;
         getJ('/label/sources').then(d => {
-            fillSources(d.sources, d.state, d.hidden_count);
+            fillSources(d.sources, d.state);
             const m = $('l_model'); m.innerHTML = '';
             d.models.forEach(x => { const o = document.createElement('option'); o.value = x.name; o.textContent = x.label; m.appendChild(o); });
             m.value = d.state ? d.state.model : d.default_model;
@@ -31,57 +31,51 @@
         });
     }
     //------------------------------------------------------------------------------------------------------------------
-    // the video picker: a thumbnail per video (a project: its first key frame with the box), type to filter or a path +
-    // Enter, + Upload; a bin per row deletes a project / an upload (to datasets/.trash) or hides a video of images/ or a
-    // dataset (files stay) - it asks in the row first
+    // the video picker: every video of videos/ (copy files there, they show up), a thumbnail per video (labeled: its first
+    // key frame with the box), type to filter or a path + Enter, + Upload; a bin per row moves the video with its labels to
+    // videos/.trash - it asks in the row first
     //------------------------------------------------------------------------------------------------------------------
-    let SOURCES = [], hiddenCount = 0, showHidden = false;
+    let SOURCES = [];
     const BIN = '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3.5 5.5h13 M8 5.5V3.5h4v2 M5.5 5.5l1 11h7l1-11"/></svg>';
     const thumbUrl = s => `/label/thumb?name=${encodeURIComponent(s.name)}&v=${encodeURIComponent(s.sub)}`;
-    function fillSources(list, st, hid) { SOURCES = list || []; if (hid !== undefined) hiddenCount = hid; renderPick(st); }
-    function refreshSources() { getJ('/label/sources' + (showHidden ? '?hidden=1' : '')).then(d => fillSources(d.sources, d.state, d.hidden_count)); }
+    function fillSources(list, st) { SOURCES = list || []; renderPick(st); }
+    function refreshSources() { getJ('/label/sources').then(d => fillSources(d.sources, d.state)); }
     function renderPick(st) {
         const name = st ? st.name : (S ? S.name : null), it = SOURCES.find(s => s.name === name);
         $('l_pick_name').textContent = it ? it.label : (name || '— pick a video —');
-        $('l_pick_sub').textContent = it ? it.sub : (name ? 'label project' : '');
+        $('l_pick_sub').textContent = it ? it.sub : '';
         $('l_pick_img').hidden = !it; if (it) $('l_pick_img').src = thumbUrl(it);
         const q = $('l_path').value.trim().toLowerCase(), box = $('l_pick_list');
         box.innerHTML = '';
         SOURCES.filter(s => !q || (s.label + ' ' + s.sub).toLowerCase().includes(q)).forEach(s => {
             const r = document.createElement('div');
-            r.className = 'vp-row' + (s.name === name ? ' cur' : '') + (s.hidden ? ' hid' : ''); r.setAttribute('role', 'option');
+            r.className = 'vp-row' + (s.name === name ? ' cur' : ''); r.setAttribute('role', 'option');
             r.innerHTML = `<img loading="lazy" alt=""><span class="vp-t"><b></b><span></span></span><button type="button" class="vp-x">${BIN}</button>`;
             r.querySelector('img').src = thumbUrl(s);
-            r.querySelector('b').textContent = s.label; r.querySelector('.vp-t span').textContent = s.hidden ? 'hidden - click to show it again' : s.sub;
-            r.querySelector('.vp-x').title = s.remove === 'trash' ? 'Delete (to datasets/.trash - asks first)' : 'Hide from this list (the file stays)';
-            r.querySelector('.vp-x').hidden = s.hidden;
+            r.querySelector('b').textContent = s.label; r.querySelector('.vp-t span').textContent = s.sub;
+            r.querySelector('.vp-x').title = 'Delete with its labels (to videos/.trash - asks first)';
             r.addEventListener('click', e => {
                 if (r.classList.contains('ask')) return;
                 if (e.target.closest('.vp-x')) { e.stopPropagation(); askRemove(r, s); return; }
-                if (s.hidden) { postJ('/label/unhide', {name: s.name}).then(refreshSources); return; }
                 closePick(); openVideo(s.name);
             });
             box.appendChild(r);
         });
-        if (!box.children.length) box.innerHTML = '<div class="hint" style="padding:6px">nothing matches - Enter opens it as a path</div>';
-        if (!hiddenCount && showHidden && !SOURCES.some(s => s.hidden)) showHidden = false;
-        $('l_pick_hid').hidden = !hiddenCount && !showHidden;
-        $('l_pick_hid').textContent = showHidden ? 'hide the hidden' : `${hiddenCount} hidden - show`;
+        if (!box.children.length) box.innerHTML = SOURCES.length
+            ? '<div class="hint" style="padding:6px">nothing matches - Enter opens it as a path</div>'
+            : '<div class="hint" style="padding:6px">no videos yet - copy video files into videos/ (any subfolder) or Upload</div>';
     }
     function askRemove(r, s) {
         r.classList.add('ask');
-        const trash = s.remove === 'trash';
-        r.innerHTML = `<span class="q"></span><span class="row"><button type="button" class="pbtn danger">${trash ? 'Delete' : 'Hide'}</button><button type="button" class="pbtn">Cancel</button></span>`;
-        r.querySelector('.q').textContent = trash
-            ? `Delete "${s.label}"${s.kind === 'project' ? ' with its labels' : ''}? It is moved to datasets/.trash - move it back from there to undo.`
-            : `Hide "${s.label}" from this list? The file stays (it belongs to images/ or a dataset).`;
+        r.innerHTML = `<span class="q"></span><span class="row"><button type="button" class="pbtn danger">Delete</button><button type="button" class="pbtn">Cancel</button></span>`;
+        r.querySelector('.q').textContent = `Delete "${s.label}" with its labels? It is moved to videos/.trash - move it back from there to undo.`;
         const [yes, no] = r.querySelectorAll('button');
         no.addEventListener('click', e => { e.stopPropagation(); renderPick(); });
         yes.addEventListener('click', e => {
             e.stopPropagation();
             postJ('/label/remove', {name: s.name}).then(d => {
                 if (!d.ok) { status('Error: ' + d.error, true); renderPick(); return; }
-                status(d.result.action === 'trash' ? `deleted ${s.label} - it is in ${d.result.to.replace(/\\/g, '/')}` : `${s.label} hidden from the list`);
+                status(`deleted ${s.label} - it is in ${d.result.to.replace(/\\/g, '/')}`);
                 getJ('/label/state').then(st => { if (!st.state && S) closedView(); refreshSources(); });
             });
         });
@@ -108,10 +102,9 @@
         if (e.key === 'Escape') { e.stopPropagation(); closePick(); return; }
         if (e.key !== 'Enter') return;
         const v = e.target.value.trim(); if (!v) return;
-        const rows = SOURCES.filter(s => !s.hidden && (s.label + ' ' + s.sub).toLowerCase().includes(v.toLowerCase()));
+        const rows = SOURCES.filter(s => (s.label + ' ' + s.sub).toLowerCase().includes(v.toLowerCase()));
         closePick(); openVideo(rows.length === 1 ? rows[0].name : v);     // one match: that one; else a path / a source name
     });
-    $('l_pick_hid').addEventListener('click', () => { showHidden = !showHidden; refreshSources(); });
     let resumeAt = null;                             // a reopened project: go to its last labeled frame once it is decoded
     function status(text, bad) {
         $('l_status').textContent = text || ''; $('l_status').style.color = bad ? 'var(--bad)' : '';
@@ -298,10 +291,10 @@
             if (col) { const sw = document.createElement('span'); sw.className = 'swatch'; sw.style.background = col; if (name.startsWith('key')) sw.style.borderRadius = '50%'; a.appendChild(sw); }
             a.appendChild(document.createTextNode(name)); b.textContent = v; d.append(a, b); $('l_counts').appendChild(d);
         });
-        $('l_out').textContent = 'saved to ' + S.out_dir.replace(/\\/g, '/');
+        $('l_out').textContent = 'saved to ' + S.out.replace(/\\/g, '/');
         if (!$('l_status').dataset.err) $('l_status').textContent = 'open: ' + S.source.split(/[\\/]/).slice(-2).join('/');
         if (!SOURCES.some(s => s.name === S.name) && S.counts.labeled && !refreshedFor[S.name]) { refreshedFor[S.name] = 1; refreshSources(); }
-        $('l_pick_sub').textContent = `label project · ${S.counts.labeled} / ${S.frames} frames`;     // live, the list is fetched on opening
+        $('l_pick_sub').textContent = `labels ${S.counts.labeled} / ${S.frames} frames`;     // live, the list is fetched on opening
         if ($('l_model').value !== S.model && document.activeElement !== $('l_model')) $('l_model').value = S.model;
         updateBar();
     }

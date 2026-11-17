@@ -32,9 +32,9 @@ def raw_nano():
     return cv2.TrackerNano_create(p)
 # ----------------------------------------------------------------------------------------------------------------------
 def main(out):
-    gt = pd.read_csv(os.path.join(REPO, 'images', 'v00', 'gt.txt'), header=None).iloc[:, :6]
+    gt = pd.read_csv(os.path.join(REPO, 'videos', 'mot15', 'PETS09-S2L1', 'PETS09-S2L1.gt.txt'), header=None).iloc[:, :6]
     gt.columns = ['f', 'id', 'x', 'y', 'w', 'h']
-    cap = cv2.VideoCapture(os.path.join(REPO, 'images', 'v00', 'PETS09-S2L1.mp4')); frames = []
+    cap = cv2.VideoCapture(os.path.join(REPO, 'videos', 'mot15', 'PETS09-S2L1', 'PETS09-S2L1.mp4')); frames = []
     while True:
         ok, f = cap.read()
         if not ok:

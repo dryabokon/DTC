@@ -3,7 +3,7 @@ import os, time, unittest
 from tests.unit import _paths
 import utils_grabber_av as G
 
-VIDEO = os.path.join(_paths.REPO, 'images', 'v00', 'PETS09-S2L1.mp4')
+VIDEO = os.path.join(_paths.REPO, 'videos', 'mot15', 'PETS09-S2L1', 'PETS09-S2L1.mp4')
 
 
 @unittest.skipUnless(os.path.isfile(VIDEO), 'campus video not found')

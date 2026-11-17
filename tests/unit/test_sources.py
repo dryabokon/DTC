@@ -39,6 +39,21 @@ class TestSources(unittest.TestCase):
             self.assertEqual(cams, list(range(len(cams))))
 
 
+    def test_store_names_and_ground_truth_next_to_the_video(self):
+        import shutil, tempfile
+        root = tempfile.mkdtemp(); self.addCleanup(shutil.rmtree, root, True)
+        def touch(rel, text=''):
+            p = os.path.join(root, *rel.split('/')); os.makedirs(os.path.dirname(p), exist_ok=True)
+            open(p, 'w', encoding='utf-8').write(text); return p
+        touch('pile/a.mp4'); touch('pile/a.gt.jsonl', '{"frame": 0, "box": [1, 2, 11, 22]}\n'); touch('pile/b.avi')
+        touch('set/seq/seq.mp4'); touch('set/seq/seq.gt.txt', '1,1,1,2,10,20,1\n')
+        touch('old/x/video.mp4'); touch('old/x/gt.jsonl')                       # the older layout of a sim recording
+        touch('.trash/gone.mp4'); touch('_downloads/z.mp4')                     # not scanned
+        v = {x['name']: [k for _, k in x['gt']] for x in S.list_videos(root)}
+        self.assertEqual(v, {'old/x': ['one'], 'pile/a': ['one'], 'pile/b': [], 'set/seq': ['mot']})
+        t = S.gt_table(os.path.join(root, 'pile', 'a.gt.jsonl'))               # the Live overlay reads both kinds as MOT rows
+        self.assertEqual(t.values.tolist(), [[1, 1, 1.0, 2.0, 10.0, 20.0, 1.0]])
+
     def test_embedded_camera_spec(self):
         self.assertTrue(S.is_csi('csi://0')); self.assertFalse(S.is_csi('/dev/video0'))
         self.assertEqual(S.csi_number('csi://1'), 1)

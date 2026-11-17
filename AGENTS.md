@@ -28,9 +28,10 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 - `dtc.py` docstring — every harness command.
 - `src/configs/config_common.py` — every app setting; each one is also a CLI flag (`--name value`).
 - `src/utils_tracker_sot.py` — click-to-track models (`SOT_MODELS`: NANO default, VIT, SIAMBAN, SIAMFC, MIL), loss rules.
+- `src/utils_tracker_reacq.py` — NCCM / NCCS: NANO + re-acquisition after a loss (whole-frame NCC search); benchmark-only models.
 - `src/utils_bench.py`, `src/bench_worker.py`, `src/bench_render.py` — the SOT benchmark (method in their docstrings).
-- `src/utils_label.py`, `src/static/label.js` — the Label tab: one object per frame, operator + tracker -> `clips/<name>/gt.jsonl`.
-- `src/utils_sources.py` — what `--source` accepts (aliases, `images/`, `datasets/videos/`, cameras, URLs).
+- `src/utils_label.py`, `src/static/label.js` — the Label tab: one object per frame, operator + tracker -> `<video>.gt.jsonl` next to the video.
+- `src/utils_sources.py` — the video store `videos/` and its rules, what `--source` accepts (aliases, store names, cameras, URLs).
 - `harness/` — `pi_app.py` (Pi control), `suites.py` (tests and `LIMITS`), `bench.py`, `datasets.py`; `infrastructure/pi.py`
   (find / sync / run on the Pi).
 
@@ -40,10 +41,9 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 |---|---|---|
 | `src/` | the app (Flask UI: `utils_UI_Flask.py`, `templates/index.html`, `static/bench.js`) | yes |
 | `tools/` | submodule github.com/dryabokon/tools (DL wrappers, grabbers, drawing) — pinned commit | yes (submodule) |
-| `images/vNN/` | sources: one video + `gt.txt` (MOT: frame,id,x,y,w,h,...) per folder; aliases in `utils_sources.ALIASES` | yes |
+| `videos/` | THE video store, every video alike (ours, public datasets, uploads, sim): copy a file in (any subfolder) and it is listed everywhere; ground truth next to it: `<name>.gt.jsonl` (one object) / `<name>.gt.txt` (MOT); aliases (`campus`, ...) in `utils_sources.ALIASES`; on the Pi via `dtc data push` (tests push what they need) | no |
 | `models/` | tracker weights (nanotrack, vittrack, siamban) | yes |
-| `datasets/videos/<set>/<seq>/` | public datasets as sources (`dtc data prepare / convert / push`) | no |
-| `clips/<name>/` | single-target reference clips (`video.mp4 + gt.jsonl`) | no |
+| `datasets/_downloads/` | archives of public datasets (`dtc data prepare` -> `videos/`) | no |
 | `runs/` | `runs/<suite>/NNNN/` test runs (laptop), `runs/sessions/`, `runs/bench/NNNN/` (Pi) | no |
 | `.env` | Pi address / host key / user / password, `GH_PAT` | **never** |
 
@@ -53,7 +53,7 @@ start-up differences only in the launchers. Don't add `if platform` branches els
   (pscp, sed). Tests run the last *commit* on the Pi, not uncommitted changes. See `.claude/skills/ship-change`.
 - Work on a feature branch; merge to `main` only when the user says so. Don't push or merge without being asked.
 - Never print, commit or send `.env` values. SSH to the Pi only after its host key matched `PI_HOSTKEY` (the harness does it).
-- Don't delete or overwrite data you did not create (user datasets, `images/`, frames, runs). Copy into scratch first.
+- Don't delete or overwrite data you did not create (`videos/`, user datasets, frames, runs). Copy into scratch first.
 - Don't change the user's VPN, routes or the Pi's network settings; never reactivate the Pi's only link remotely.
 - Don't change defaults (e.g. the default SOT model) on your own — ask. Say what a measurement really measured.
 - A benchmark or full test makes the Pi's fan loud; stop what you started (`dtc pi stop`, `dtc bench cancel`) when done.
