@@ -17,13 +17,12 @@
     function showTab(t, push) {
         tab = t;
         document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-        $('liveView').hidden = t !== 'live'; $('benchView').hidden = t !== 'bench'; $('runsView').hidden = t !== 'runs'; $('archView').hidden = t !== 'arch'; $('labelView').hidden = t !== 'label';
+        $('liveView').hidden = t !== 'live'; $('benchView').hidden = t !== 'bench'; $('runsView').hidden = t !== 'runs'; $('labelView').hidden = t !== 'label';
         if (t === 'live') { if (!feed.getAttribute('src')) feed.setAttribute('src', feedSrc); }       // the MJPEG stream only while it is seen
         else feed.removeAttribute('src');
         if (t === 'bench') initBench();
         if (t === 'runs') loadRuns();
         if (window.dtcLabelShown) window.dtcLabelShown(t === 'label');
-        if (t === 'arch' && !$('archFrame').src) $('archFrame').src = $('archFrame').dataset.src;     // static page, loaded on first view
         if (push !== false) { const u = new URL(location); u.searchParams.set('tab', t); if (t !== 'runs') u.searchParams.delete('run'); history.replaceState(null, '', u); }
     }
     document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); b.blur(); });
@@ -202,13 +201,35 @@
         box.appendChild(mt);
 
         if (Object.keys(res.by_sequence).length > 1) {
+            // per video and model: F1, and under it two strips over the video's frames - recall (hit / miss) over precision (hit / false box)
             box.appendChild(E('h3', 'F1 by video'));
+            box.appendChild(legend());
             const st = E('table', null, 'grid');
             const hr = el('tr', null, th('video')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
+            const cells = [];
             Object.entries(res.by_sequence).forEach(([s, mv]) => {
-                const tr = el('tr', null, E('td', s)); models.forEach(m => tr.append(el('td', 'n', mv[m] && mv[m].tasks ? v3(mv[m].f1) : '–'))); st.append(tr);
+                const tr = el('tr', null, E('td', s));
+                models.forEach(m => {
+                    if (!(mv[m] && mv[m].tasks)) { tr.append(el('td', 'n', '–')); return; }
+                    const cv = E('canvas');
+                    cells.push({seq: s, model: m, cv});
+                    tr.append(el('td', 'n strips', el('div', 'f1cell', el('b', null, v3(mv[m].f1)), cv)));
+                });
+                st.append(tr);
             });
             box.appendChild(st);
+            const runId = d.id;
+            Promise.all(models.map(m => timelines(runId, m))).then(tls => {
+                if (!detail || detail.id !== runId) return;
+                // what is left after the video names (measured now, the canvases are still empty): F1 number + padding ~ 80 px per model
+                const stripW = Math.max(80, Math.min(320, Math.floor((box.clientWidth - st.rows[0].cells[0].offsetWidth - 8) / models.length) - 80));
+                const byModel = Object.fromEntries(models.map((m, i) => [m, tls[i] || {}]));
+                cells.forEach(x => {
+                    const parts = res.tasks.filter(r => r.seq === x.seq && r.model === x.model).sort((a, b) => a.start - b.start || a.track - b.track)
+                        .map(r => byModel[x.model][r.task]).filter(Boolean);
+                    drawStrips(x.cv, parts, stripW);
+                });
+            });
         }
 
         // Gantt per video: one row per object (sorted by when it appears), recall over precision, for one model
@@ -218,33 +239,72 @@
         sel.onchange = () => { tlModel = sel.value; renderRun(); };
         box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
         const gantt = el('div', 'gantt'); box.appendChild(gantt);
-        const leg = el('div', 'legend');
-        [['recall:', null], [TL.caught, 'hit'], [TL.missed, 'miss'], ['precision:', null], [TL.onTarget, 'hit'], [TL.falseBox, 'false positive'],
-         ['grey = no box on that frame · white tick = the tracker dropped its box', null]]
-            .forEach(([a, b]) => { if (b === null) { leg.append(E('span', a, 'hint')); return; } const s = E('span', '■ '); s.style.color = a; leg.append(el('span', null, s, b)); });
-        box.appendChild(leg);
+        box.appendChild(legend(true));
         const videoFrames = Object.fromEntries((cfgAll.per_sequence || []).map(s => [s.seq, s.frames_in_video]));
-        getJ(`/bench/timelines?id=${d.id}&model=${tlModel}`).then(tl => {
+        timelines(d.id, tlModel).then(tl => {
+            tl = tl || {};
             c.sequences.forEach(seq => {
                 const rows = Object.values(tasks).filter(t => t.meta.seq === seq && tl[t.meta.task]).sort((a, b) => a.meta.start - b.meta.start || a.meta.track - b.meta.track);
                 if (!rows.length) return;
                 const n = Math.max(videoFrames[seq] || 0, ...rows.map(t => t.meta.start + 1 + tl[t.meta.task].recall.length));
-                gantt.append(drawGantt(seq, rows, tl, n));
                 const v = ((res.videos || {})[seq] || {})[tlModel];
-                if (v) gantt.append(clipPair(d.id, v));
+                gantt.append(videoRow(d.id, seq, rows, tl, n, v));
             });
         });
     }
 
-    function drawGantt(seq, rows, tl, n) {
-        // one video: recall Gantt on the left, precision Gantt on the right, the same objects in the same rows
+    const tlCache = {};
+    function timelines(id, model) {
+        // frames of one run and model (see utils_bench.timelines); kept, the F1 table and the per-video rows both need them
+        const k = id + '|' + model;
+        if (!tlCache[k]) tlCache[k] = getJ(`/bench/timelines?id=${id}&model=${model}`).catch(() => { delete tlCache[k]; return null; });
+        return tlCache[k];
+    }
+
+    function legend(withTicks) {
+        const leg = el('div', 'legend');
+        [['recall:', null], [TL.caught, 'hit'], [TL.missed, 'miss'], ['precision:', null], [TL.onTarget, 'hit'], [TL.falseBox, 'false positive'],
+         [withTicks ? 'grey = no box on that frame · white tick = the tracker dropped its box' : 'grey = no target / no box on that frame', null]]
+            .forEach(([a, b]) => { if (b === null) { leg.append(E('span', a, 'hint')); return; } const s = E('span', '■ '); s.style.color = a; leg.append(el('span', null, s, b)); });
+        return leg;
+    }
+
+    function drawStrips(cv, parts, w) {
+        // the frames of a video's objects one after another (in the order they appear): recall strip over precision strip
+        const bar = 8, gap = 3, hgt = 2 * bar + gap, ratio = window.devicePixelRatio || 1;
+        cv.width = w * ratio; cv.height = hgt * ratio; cv.style.width = w + 'px'; cv.style.height = hgt + 'px';
+        const g = cv.getContext('2d'); g.scale(ratio, ratio);
+        const field = getComputedStyle(document.documentElement).getPropertyValue('--field').trim();
+        g.fillStyle = field; g.fillRect(0, 0, w, bar); g.fillRect(0, bar + gap, w, bar);
+        const n = parts.reduce((a, p) => a + p.recall.length, 0);
+        if (!n) return;
+        const cols = {c: TL.caught, m: TL.missed, g: TL.onTarget, f: TL.falseBox};
+        let off = 0;
+        parts.forEach(p => {
+            [[p.recall, 0], [p.precision, bar + gap]].forEach(([s, y]) => {
+                let k = 0;
+                while (k < s.length) {
+                    let j = k; while (j < s.length && s[j] === s[k]) j++;
+                    if (cols[s[k]]) { g.fillStyle = cols[s[k]]; const x0 = w * (off + k) / n; g.fillRect(x0, y, Math.max(0.5, w * (off + j) / n - x0), bar); }
+                    k = j;
+                }
+            });
+            off += p.recall.length;
+            if (off < n) { g.clearRect(w * off / n - 0.5, 0, 1, hgt); }        // a thin gap between two objects
+        });
+    }
+
+    function videoRow(id, seq, rows, tl, n, clipName) {
+        // one video: the clip in the left column, recall Gantt over precision Gantt in the right one (same objects in the same rows)
         const wrap = el('div', 'ganttBox');
         wrap.append(el('div', 'ganttTitle', el('b', null, seq), E('span', `  ·  ${n} frames`, 'hint')));
-        const pair = el('div', 'ganttPair'); wrap.append(pair);
-        // equal plot widths, so a frame sits at the same x on both sides (only the left one has the object labels)
-        const full = Math.max(600, (document.getElementById('r_detail').clientWidth || 1000) - 4), gapPx = 24, plot = Math.floor((full - gapPx - 140 - 16) / 2);
+        const row = el('div', 'videoRow'); wrap.append(row);
+        const full = (document.getElementById('r_detail').clientWidth || 1000) - 4;
+        const colW = Math.max(320, full >= 900 ? Math.floor((full - 20) / 2) : full);
         const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
-        pair.append(ganttCanvas('recall', rows, tl, n, 'recall', colR, 140 + plot + 8, true), ganttCanvas('precision', rows, tl, n, 'precision', colP, 8 + plot + 8, false));
+        const stack = el('div', 'ganttStack', ganttCanvas('recall', rows, tl, n, 'recall', colR, colW, true),
+                         ganttCanvas('precision', rows, tl, n, 'precision', colP, colW, true));
+        row.append(clipName ? clipPair(id, clipName) : el('div', 'hint', 'no clip'), stack);
         return wrap;
     }
 
@@ -288,6 +348,6 @@
 
     //------------------------------------------------------------------------------------------------------------------
     const t0 = new URL(location).searchParams.get('tab');
-    if (t0 === 'bench' || t0 === 'runs' || t0 === 'arch' || t0 === 'label') showTab(t0, false);
+    if (t0 === 'bench' || t0 === 'runs' || t0 === 'label') showTab(t0, false);
     window.dtcBenchTab = () => tab;
 })();
