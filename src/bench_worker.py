@@ -22,7 +22,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(os.path.dirname(HERE), 'tools'))
 import utils_bench as B                                             # noqa: E402
-import utils_tracker_sot as U                                       # noqa: E402
 # ----------------------------------------------------------------------------------------------------------------------
 HIT_IOU, HIT_PX = 0.5, 2.0
 # ----------------------------------------------------------------------------------------------------------------------
@@ -124,9 +123,10 @@ class Worker:
             prep = (lambda f: cv2.resize(f, None, fx=k, fy=k, interpolation=cv2.INTER_AREA)) if k < 1 else (lambda f: f)
             frame = prep(frame)
             box0 = [int(round(v)) for v in scale(truth[task['start']])]
+            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0                     # the re-acquisition models count their gates in seconds
             T, acc = {}, {}
             for m in self.c['models']:
-                T[m] = U.Tracker_SOT(model=m, models_dir=models_dir)
+                T[m] = B.make_tracker(m, models_dir, fps)
                 t = time.perf_counter(); T[m].start(frame, box0); init_ms = (time.perf_counter() - t) * 1000
                 acc[m] = {'hit': 0, 'fp': 0, 'fn': 0, 'ms': [], 'init_ms': round(init_ms, 1), 'stopped_at': None, 'reason': None}
             for rel in range(1, task['frames'] + 1):

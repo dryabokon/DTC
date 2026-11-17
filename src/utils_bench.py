@@ -24,6 +24,7 @@ import numpy as np
 
 import utils_platform
 import utils_sources
+import utils_tracker_reacq
 import utils_tracker_sot
 # ----------------------------------------------------------------------------------------------------------------------
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -45,6 +46,19 @@ PRESETS = {
                  **DEFAULTS, 'models': ['NANO', 'VIT', 'SIAMBAN', 'SIAMFC'], 'sequences': '*', 'tracks': 10},
 }
 OBJECTS = (3, 5, 10, 20, 0)                     # the choices offered in the UI (0 = all)
+# ----------------------------------------------------------------------------------------------------------------------
+def bench_models():
+    """{name: {label, pi_ms, base}}: the app's click-to-track models + the benchmark-only ones (utils_tracker_reacq: NANO with
+    re-acquisition). base = the SOT model whose weights it needs."""
+    out = {m: {'label': v['label'], 'pi_ms': v['pi_ms'], 'base': m} for m, v in utils_tracker_sot.SOT_MODELS.items()}
+    out.update({m: {'label': v['label'], 'pi_ms': v['pi_ms'], 'base': 'NANO'} for m, v in utils_tracker_reacq.REACQ_MODELS.items()})
+    return out
+# ----------------------------------------------------------------------------------------------------------------------
+def make_tracker(model, models_dir, fps=25.0):
+    """The tracker of one benchmark model: Tracker_SOT as the app runs it, or a re-acquisition one (needs the video's fps)."""
+    if model in utils_tracker_reacq.REACQ_MODELS:
+        return utils_tracker_reacq.Reacq(model, models_dir, fps)
+    return utils_tracker_sot.Tracker_SOT(model=model, models_dir=models_dir)
 # ----------------------------------------------------------------------------------------------------------------------
 def sequences():
     """[{id, label, kind, video, gt}]: every video of the store (utils_sources) with ground truth - kind 'mot' (gt.txt, many
@@ -116,9 +130,10 @@ def normalize(cfg):
         c.update({k: v for k, v in PRESETS[cfg['preset']].items() if k != 'label'})
     c.update({k: v for k, v in cfg.items() if v is not None})
     models = [m.upper() for m in (c['models'].split(',') if isinstance(c['models'], str) else c['models']) if m]
-    bad = [m for m in models if m not in utils_tracker_sot.SOT_MODELS]
+    known_models = bench_models()
+    bad = [m for m in models if m not in known_models]
     if not models or bad:
-        raise ValueError(f'models: pick from {", ".join(utils_tracker_sot.SOT_MODELS)}' + (f' (unknown {bad})' if bad else ''))
+        raise ValueError(f'models: pick from {", ".join(known_models)}' + (f' (unknown {bad})' if bad else ''))
     known = {s['id']: s for s in sequences()}
     seqs = c['sequences']
     seqs = list(known) if seqs in ('*', ['*']) else (seqs.split(',') if isinstance(seqs, str) else list(seqs))
@@ -153,7 +168,7 @@ def plan(cfg):
             'estimate_s': round(est), 'per_sequence': per_seq}
 # ----------------------------------------------------------------------------------------------------------------------
 def model_ms(c, m):
-    return utils_tracker_sot.SOT_MODELS[m]['pi_ms'] + LOSS_RULES_MS
+    return bench_models()[m]['pi_ms'] + LOSS_RULES_MS
 # ----------------------------------------------------------------------------------------------------------------------
 def render_ms(c):
     """Per video frame when the clips are made: decode + 2 clips (recall, precision) per model."""
@@ -173,7 +188,7 @@ def readiness(cfg):
     c = p['config']
     T = utils_tracker_sot.Tracker_SOT(models_dir=os.path.join(REPO, 'models'))
     for m in c['models']:
-        miss = [f for f in T.weights(m) if not os.path.isfile(f)]
+        miss = [f for f in T.weights(bench_models()[m]['base']) if not os.path.isfile(f)]
         add(f'weights {m}', 'fail' if miss else 'ok', f'missing {miss[0]}' if miss else 'present')
     if any(m in ('SIAMBAN', 'SIAMFC') for m in c['models']):
         try:
@@ -385,7 +400,8 @@ def video_path(run_id, name):
 def options():
     T = utils_tracker_sot.Tracker_SOT(models_dir=os.path.join(REPO, 'models'))
     return {'presets': {k: {kk: vv for kk, vv in v.items()} for k, v in PRESETS.items()},
-            'models': [{**m, 'pi_ms': utils_tracker_sot.SOT_MODELS[m['name']]['pi_ms']} for m in T.available()],
+            'models': [{'name': m, 'label': v['label'], 'pi_ms': v['pi_ms'], 'ok': all(os.path.isfile(f) for f in T.weights(v['base']))}
+                       for m, v in bench_models().items()],
             'sequences': [{'id': s['id'], 'label': s['label'], 'kind': s['kind']} for s in sequences()],
             'objects': OBJECTS, 'defaults': DEFAULTS}
 # ----------------------------------------------------------------------------------------------------------------------
