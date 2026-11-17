@@ -205,11 +205,18 @@
             // per video and model: F1, and under it two strips over the video's frames - recall (hit / miss) over precision (hit / false box)
             box.appendChild(E('h3', 'F1 by video'));
             box.appendChild(legend());
-            const st = E('table', null, 'grid');
+            const st = E('table', null, 'grid clickable');
             const hr = el('tr', null, th('video')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
             const cells = [];
             Object.entries(res.by_sequence).forEach(([s, mv]) => {
                 const tr = el('tr', null, E('td', s));
+                tr.title = 'Show this video below';
+                tr.onclick = () => {                            // jump to the video's clip and Gantt (drawn later, so looked up on click)
+                    const target = [...document.querySelectorAll('#r_detail .ganttBox')].find(x => x.dataset.seq === s);
+                    if (!target) return;
+                    target.scrollIntoView({behavior: 'smooth', block: 'start'});
+                    target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+                };
                 models.forEach(m => {
                     if (!(mv[m] && mv[m].tasks)) { tr.append(el('td', 'n', '–')); return; }
                     const cv = E('canvas');
@@ -301,7 +308,7 @@
 
     function videoRow(id, seq, rows, tl, n, clipName) {
         // one video: the clip in the left column, recall Gantt over precision Gantt in the right one (same objects in the same rows)
-        const wrap = el('div', 'ganttBox');
+        const wrap = el('div', 'ganttBox'); wrap.dataset.seq = seq;
         wrap.append(el('div', 'ganttTitle', el('b', null, seq), E('span', `  ·  ${n} frames`, 'hint')));
         const row = el('div', 'videoRow'); wrap.append(row);
         const full = (document.getElementById('r_detail').clientWidth || 1000) - 4;

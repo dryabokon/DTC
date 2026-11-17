@@ -86,7 +86,7 @@
   .runhead { display: flex; gap: 10px; align-items: center; }
   .pill.good-static { border-color: var(--good); color: var(--good); background: var(--good-soft); }
   table { border-collapse: collapse; margin: 4px 0 8px; font-size: 12px; } th, td { padding: 4px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
-  th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr.on td { background: var(--field); }
+  th { color: var(--muted); font-weight: 600; } table.clickable tr:not(:first-child) { cursor: pointer; } table.clickable tr:not(:first-child):hover td { background: var(--field); } table.clickable tr.on td { background: var(--field); }
   .up { color: var(--good); } .down { color: var(--bad); } .warnText { color: var(--warn); }
   .chartbox canvas { width: 100%; max-width: 900px; height: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; }
   /* Runs: plain tables */
@@ -158,9 +158,10 @@
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #l_counts div { display: flex; justify-content: space-between; }
   .ganttHead { display: flex; align-items: center; gap: 6px; } .ganttHead select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
-  .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; } .ganttTitle { margin-bottom: 4px; }
+  .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; scroll-margin-top: 12px; border-radius: 6px; } .ganttTitle { margin-bottom: 4px; }
   .videoRow { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
   @media (max-width: 900px) { .videoRow { grid-template-columns: 1fr; } }
+  .ganttBox.flash { animation: flash 1.6s ease-out; } @keyframes flash { from { background: var(--field); } to { background: transparent; } }
   .ganttStack { position: relative; } .ganttStack canvas { display: block; margin-bottom: 6px; }
   .playhead { position: absolute; top: 18px; bottom: 22px; width: 1px; margin-left: -0.5px; background: var(--text); opacity: .9; pointer-events: none; display: none; }
   .clip { margin: 0; min-width: 0; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
