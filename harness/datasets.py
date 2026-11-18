@@ -182,8 +182,7 @@ def frames_folder_to_source(folder, name=None, fps=25, keep_frames=False, log=pr
 #   clips/<n>/ (any video, gt.jsonl, label.json)   -> videos/<n>/ (sim_*: videos/sim/<n>/), files renamed to <stem>.gt.jsonl ...
 #     a Label project (label.json with 'source') whose source moved too: its labels go next to the moved source
 # ----------------------------------------------------------------------------------------------------------------------
-IMAGES_SETS = {'v00': 'mot15', 'v01': 'oxford', 'v10': 'boats', 'v20': 'visdrone', 'v21': 'visdrone', 'v22': 'visdrone', 'v30': 'antiuav'}
-FLAT_SETS = {'boats'}                                   # several videos without ground truth: one folder for all
+IMAGES_SETS = {'v00': 'mot15', 'v01': 'oxford', 'v20': 'visdrone', 'v21': 'visdrone', 'v22': 'visdrone', 'v30': 'antiuav'}
 VIDEO_EXT = ('.mp4', '.avi', '.mkv', '.mov')
 # ----------------------------------------------------------------------------------------------------------------------
 def _mot_ids(gt):
@@ -228,7 +227,7 @@ def migration_plan(root=ROOT):
         for f in vids:
             stem = os.path.splitext(f)[0]
             group = IMAGES_SETS.get(vdir, vdir)
-            dst = os.path.join(store, group, f) if group in FLAT_SETS else os.path.join(store, group, stem, f)
+            dst = os.path.join(store, group, stem, f)
             steps.append(('copy', os.path.join(d, f), dst)); moved[os.path.join(d, f)] = dst
             if len(vids) == 1 and os.path.isfile(os.path.join(d, 'gt.txt')):
                 steps.append(_gt_step(os.path.join(d, 'gt.txt'), dst))
@@ -297,7 +296,7 @@ def migrate(apply=False, root=ROOT, log=print):
 # ----------------------------------------------------------------------------------------------------------------------
 # The store on the Pi: videos/ is not in git, so the harness copies it (what is missing or has another size).
 # ----------------------------------------------------------------------------------------------------------------------
-FOR_TESTS = ('mot15/PETS09-S2L1/', 'oxford/', 'boats/', 'antiuav/', 'antiuav_val/', 'visdrone/', 'sim/')   # tests, quality, benchmark presets
+FOR_TESTS = ('mot15/PETS09-S2L1/', 'oxford/', 'antiuav/', 'antiuav_val/', 'visdrone/', 'sim/')   # tests, quality, benchmark presets
 # ----------------------------------------------------------------------------------------------------------------------
 def store_files(prefixes=None, root=VIDEOS):
     """{relative posix path: size} of the store's files (not .trash, _downloads), those under the prefixes if given."""

@@ -4,7 +4,7 @@ import glob
 import time
 # ----------------------------------------------------------------------------------------------------------------------
 # Video source registry shared by the CLI (--source), the web UI (Live dropdown, Label list) and the benchmark.
-# A source spec can be: a preset alias, a listed name (e.g. 'boats/boats10b'), a file path, or a URL (rtsp://, http://, ...).
+# A source spec can be: a preset alias, a listed name (e.g. 'oxford/TownCentreXVID'), a file path, or a URL (rtsp://, http://, ...).
 #
 # One store for every video: videos/ (not in git) - ours, public datasets, uploads, sim recordings alike. Copy a video
 # anywhere under it (any depth, several per folder) and it is listed. Its ground truth lies next to it, same name:
@@ -21,12 +21,10 @@ GT_ONE, GT_MOT, LABEL_META = '.gt.jsonl', '.gt.txt', '.label.json'
 ALIASES = {
     'campus':  'mot15/PETS09-S2L1',
     'oxford':  'oxford/TownCentreXVID',
-    'boats_a': 'boats/boats10a',
-    'boats_b': 'boats/boats10b',
     'drone_ir': 'antiuav/IR',                # Anti-UAV thermal sequence 640x512, one small drone
 }
 # not offered in the Live dropdown (too many sources there); still usable by name / alias, by the benchmark and the tests
-HIDDEN_IN_UI = {'boats/boats10a', 'boats/boats10b', 'visdrone/uav0000117_02622_v', 'visdrone/uav0000137_00458_v', 'antiuav/IR',
+HIDDEN_IN_UI = {'visdrone/uav0000117_02622_v', 'visdrone/uav0000137_00458_v', 'antiuav/IR',
                 'antiuav_val/new29_train-new'}
 # ----------------------------------------------------------------------------------------------------------------------
 def sidecar(video, suffix):

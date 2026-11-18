@@ -24,18 +24,6 @@ def get_config_Oxford():
 
     return cnfg()
 # ----------------------------------------------------------------------------------------------------------------------
-def get_config_boats():
-    class cnfg(cnfg_common):
-        exp_name = '[offline] boats'
-        source = 'boats_a'
-
-        do_detection = False
-        do_tracking = False
-        do_classification = False
-        do_profiling = False
-
-    return cnfg()
-# ----------------------------------------------------------------------------------------------------------------------
 def get_config_live_cam_PC():
     class cnfg(cnfg_common):
         exp_name = '[live] PC cam'

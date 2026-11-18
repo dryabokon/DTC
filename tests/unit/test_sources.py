@@ -6,7 +6,7 @@ import utils_sources as S
 
 class TestSources(unittest.TestCase):
     def test_aliases_resolve_to_files(self):
-        for alias in ('campus', 'oxford', 'boats_a', 'boats_b'):
+        for alias in ('campus', 'oxford'):
             name, source, gt = S.resolve_source(alias)
             self.assertEqual(name, alias)
             self.assertTrue(os.path.isfile(source), source)

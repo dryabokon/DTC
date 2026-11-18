@@ -24,7 +24,6 @@ folder_runs = '../runs/sessions/'               # default; --folder_runs overrid
 # ----------------------------------------------------------------------------------------------------------------------
 #config = config_pipe00.get_config_Oxford()
 #config = config_pipe00.get_config_campus()
-#config = config_pipe00.get_config_boats()
 #config = config_pipe00.get_config_live_cam_PC()
 config = config_pipe00.get_config_rtsp_stream()
 # ----------------------------------------------------------------------------------------------------------------------
