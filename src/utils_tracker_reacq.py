@@ -49,8 +49,9 @@ def ncc(a, b):
 # ----------------------------------------------------------------------------------------------------------------------
 class Reacq:
     """Same interface as utils_tracker_sot.Tracker_SOT for bench_worker: start, update, is_active, stop_reason, model."""
-    def __init__(self, model, models_dir, fps=25.0):
+    def __init__(self, model, models_dir, fps=25.0, tracker_kw=None):
         self.model, self.models_dir, self.verify = model, models_dir, REACQ_MODELS[model]['verify']
+        self.tracker_kw = tracker_kw or {}      # loss rules of the inner NANO (utils_tracker_cand in Live: the app's settings)
         self.fps = float(fps) if fps and fps > 0 else 25.0
         self.inner, self.stop_reason, self.active = None, None, False
 
@@ -76,7 +77,7 @@ class Reacq:
         return ((b[0] + b[2]) / 2.0, (b[1] + b[3]) / 2.0)
 
     def _restart(self, frame, box):
-        self.inner = U.Tracker_SOT(model='NANO', models_dir=self.models_dir)
+        self.inner = U.Tracker_SOT(model='NANO', models_dir=self.models_dir, **self.tracker_kw)
         ok = self.inner.start(frame, box)
         self.hist = collections.deque(maxlen=self.hist_len)                 # (n, box, grey crop) of this track segment
         self.mode = 'track' if ok else 'search'

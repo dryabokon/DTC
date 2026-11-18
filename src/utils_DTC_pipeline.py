@@ -23,6 +23,7 @@ from DL import utils_classifier_yolo
 from DL import utils_tracker_deep_sort,utils_tracker_SiamFC,utils_tracker_KCF
 from DL import utils_tracker_yolo
 import utils_tracker_sot
+import utils_tracker_cand
 # ----------------------------------------------------------------------------------------------------------------------
 SOT_TRACKER_CLASSES = ['Tracker_KCF', 'Tracker_SiamFC', 'Tracker_Nano', 'Tracker_optical_flow']     # used when one of them is configured as tracking_model
 # ----------------------------------------------------------------------------------------------------------------------
@@ -55,14 +56,14 @@ class Pipeliner:
         self.frame_buffer = []
         self.ROI = None
 
-        self.SOT = utils_tracker_sot.Tracker_SOT(model=getattr(self.config, 'sot_tracking_model', 'NANO'),
-                                                 models_dir=getattr(self.config, 'sot_models_dir', '../models/'),
-                                                 score_th=getattr(self.config, 'sot_score_th', None),
-                                                 lost_th=getattr(self.config, 'sot_lost_th', 15),
-                                                 edge_frames=getattr(self.config, 'sot_lost_edge_frames', 8),
-                                                 app_rel=getattr(self.config, 'sot_lost_appearance', 0.6),
-                                                 app_window=getattr(self.config, 'sot_lost_window', 30),
-                                                 empty_rel=getattr(self.config, 'sot_lost_empty', 0.35))
+        self.SOT = utils_tracker_cand.Tracker_Live(model=getattr(self.config, 'sot_tracking_model', 'NANO'),
+                                                   models_dir=getattr(self.config, 'sot_models_dir', '../models/'),
+                                                   score_th=getattr(self.config, 'sot_score_th', None),
+                                                   lost_th=getattr(self.config, 'sot_lost_th', 15),
+                                                   edge_frames=getattr(self.config, 'sot_lost_edge_frames', 8),
+                                                   app_rel=getattr(self.config, 'sot_lost_appearance', 0.6),
+                                                   app_window=getattr(self.config, 'sot_lost_window', 30),
+                                                   empty_rel=getattr(self.config, 'sot_lost_empty', 0.35))
         self._sot_lock = threading.Lock()
         self._sot_request = None
         return
@@ -893,11 +894,18 @@ class Pipeliner:
     def request_sot_model(self, model):
         """From the web UI thread: switch the click-to-track model (applied in the main loop; a running track stops)."""
         model = str(model).strip().upper()
-        if model not in utils_tracker_sot.SOT_MODELS:
-            raise ValueError(f"unknown SOT model '{model}', one of: {', '.join(utils_tracker_sot.SOT_MODELS)}")
+        names = list(utils_tracker_sot.SOT_MODELS) + list(utils_tracker_cand.LIVE_MODELS)
+        if model not in names:
+            raise ValueError(f"unknown SOT model '{model}', one of: {', '.join(names)}")
         with self._sot_lock:
             self._sot_request = ('model', model)
         return model
+    # ----------------------------------------------------------------------------------------------------------------------
+    def request_pick(self, number):
+        """From the UI: the operator chose candidate `number` (keys 1-5); applied in the main loop."""
+        with self._sot_lock:
+            self._sot_request = ('pick', int(number))
+        return
     # ----------------------------------------------------------------------------------------------------------------------
     def click_to_box(self, point_xy, frame_shape):
         H, W = frame_shape[:2]
@@ -932,9 +940,16 @@ class Pipeliner:
                 self.SOT.set_model(point)
                 self.config.sot_tracking_model = self.SOT.model
                 print(f'[SOT trk] model: {self.SOT.model}')
+            elif action == 'pick':
+                if self.SOT.pick(point):
+                    return self.sot_df(self.SOT.box, 1.0)
             elif action == 'start':
                 point, box = point
+                n = self.SOT.candidate_at(point) if self.SOT.searching else None      # a click on a candidate picks it
+                if n is not None and self.SOT.pick(n):
+                    return self.sot_df(self.SOT.box, 1.0)
                 self.ROI = self.clamp_box(box, frame.shape) if box is not None else self.click_to_box(point, frame.shape)
+                self.SOT.fps = getattr(self.Grabber, 'fps', None) or 25.0           # video files know it; cameras / streams: assumed
                 if self.SOT.start(frame, self.ROI):
                     return self.sot_df(self.SOT.box, 1.0)
 
@@ -961,6 +976,9 @@ class Pipeliner:
         box = self.SOT.box
         if box is not None:
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), color, 2)
+        for n, b, _ in self.SOT.candidates:             # CAND after a loss: numbered places for the operator to pick
+            cv2.rectangle(image, (b[0], b[1]), (b[2], b[3]), (0, 255, 255), 1)
+            cv2.putText(image, str(n), (b[0], max(14, b[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2, cv2.LINE_AA)
         return image
     # ----------------------------------------------------------------------------------------------------------------------
     def update_grabber(self, Grabber):

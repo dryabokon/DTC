@@ -402,6 +402,8 @@ class WebApp:
                     'sot_active': bool(self.P is not None and self.P.SOT.is_active), 'sot_model': self.P.SOT.model if self.P is not None else None,
                     'sot_ms': round(self.P.SOT.last_ms) if self.P is not None and self.P.SOT.is_active else None, 'sot_box_ratio': getattr(self.config, 'sot_box_ratio', 0.10),
                     'sot_stop_reason': self.P.SOT.stop_reason if self.P is not None else None,
+                    'sot_searching': bool(self.P is not None and self.P.SOT.searching),
+                    'sot_candidates': len(self.P.SOT.candidates) if self.P is not None else 0,
                     'paused': bool(self.E is not None and self.E.is_paused()), 'bench_hold': bool(self.E is not None and self.E._bench_held),
                     'idle_hold': bool(self.E is not None and self.E._idle_held),
                     'can_pause': bool(self.E is not None and getattr(self.E.Grabber, 'can_pause', False)),

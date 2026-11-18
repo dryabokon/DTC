@@ -29,6 +29,7 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 - `src/configs/config_common.py` — every app setting; each one is also a CLI flag (`--name value`).
 - `src/utils_tracker_sot.py` — click-to-track models (`SOT_MODELS`: NANO default, VIT, SIAMBAN, SIAMFC, MIL), loss rules.
 - `src/utils_tracker_reacq.py` — NCCM / NCCS: NANO + re-acquisition after a loss (whole-frame NCC search); benchmark-only models.
+- `src/utils_tracker_cand.py` — Live only: NCCF (NCCS on a fast search, automatic) and CAND (up to 5 numbered candidates, the operator picks: click or keys 1-5); `DROPDOWN` = the Live list.
 - `src/utils_bench.py`, `src/bench_worker.py`, `src/bench_render.py` — the SOT benchmark (method in their docstrings).
 - `src/utils_label.py`, `src/static/label.js` — the Label tab: one object per frame, operator + tracker -> `<video>.gt.jsonl` next to the video.
 - `src/utils_sources.py` — the video store `videos/` and its rules, what `--source` accepts (aliases, store names, cameras, URLs).

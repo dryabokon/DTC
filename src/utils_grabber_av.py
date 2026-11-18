@@ -24,6 +24,7 @@ class Grabber_AV:
         self._step = False                      # while paused: release exactly one more frame
         self._restart = False                   # files: start again from the first frame
         self.position = 0                       # files: index of the frame on screen (1 = first)
+        self.fps = None                         # files: frame rate of the video
         self.stop_event = threading.Event()
         threading.Thread(target=self._run_file if self.is_file else self._run_stream, daemon=True).start()
         return
@@ -127,6 +128,7 @@ class Grabber_AV:
         while not self.stop_event.is_set():
             try:
                 container, stream, fps = self._open_file()
+                self.fps = fps
                 interval = 1.0 / fps
                 t0 = time.time()
                 frame_idx = 0

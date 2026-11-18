@@ -281,7 +281,8 @@ class Experimentor():
                 'sot_active': bool(P is not None and P.SOT.is_active), 'sot_box': [int(v) for v in P.SOT.box] if P is not None and P.SOT.box is not None else None,
                 'sot_stop_reason': P.SOT.stop_reason if P is not None else None,
                 'sot_model': P.SOT.model if P is not None else None, 'bench_hold': self._bench_held, 'idle_hold': self._idle_held,
-                'sot_ms': round(P.SOT.last_ms, 1) if P is not None and P.SOT.is_active else None}
+                'sot_ms': round(P.SOT.last_ms, 1) if P is not None and P.SOT.is_active else None,
+                'sot_searching': bool(P is not None and P.SOT.searching), 'sot_search': P.SOT.search_stats if P is not None else None}
     # ----------------------------------------------------------------------------------------------------------------------
     def close_experiment(self):
 
@@ -369,6 +370,9 @@ class Experimentor():
 
         if key in ['c','C','Delete']:
             self.Perceptioner.cancel_sot()
+
+        if key in ['1', '2', '3', '4', '5'] and self.Perceptioner.SOT.searching:      # CAND: pick a candidate
+            self.Perceptioner.request_pick(int(key))
 
         # pre-recorded video only (cameras / RTSP / simulator keep running): pause to aim at a small target, then resume
         if key in ['Space', ' '] and getattr(self.Grabber, 'can_pause', False):

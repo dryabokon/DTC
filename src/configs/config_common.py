@@ -38,7 +38,7 @@ class cnfg_common(config_base.cnfg_base):
     track_lifetime = 2
 
     # click-to-track single-object tracking (SOT): detector/MOT are bypassed while SOT is active
-    sot_tracking_model = 'NANO'                 # NANO (NanoTrack, default) | VIT (VitTrack) | SIAMBAN (DTC_Training, MobileNetV3) | SIAMFC (AlexNet) | MIL
+    sot_tracking_model = 'NANO'                 # NANO (NanoTrack, default) | VIT (VitTrack) | SIAMBAN (DTC_Training, MobileNetV3) | SIAMFC (AlexNet) | MIL | NCCF (NANO + fast re-acquisition), CAND (NANO, then candidates for the operator): Live only
                                                 # also switchable in the web UI; details: utils_tracker_sot.SOT_MODELS
     sot_models_dir = '../models/'               # nanotrack/, vittrack/, siamban/ (SiamFC weights come with tools/DL/siamfc_pytorch)
     sot_box_ratio = 0.10                        # ROI on click: this fraction of frame width and height
