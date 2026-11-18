@@ -1,0 +1,7 @@
+{
+    "label": "SiamBAN-ONNX MobileNetV4 FPN tower int8",
+    "score_th": null,
+    "pi_ms": 40,
+    "threads": 0,
+    "allow_spinning": false
+}
