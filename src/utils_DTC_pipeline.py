@@ -972,13 +972,14 @@ class Pipeliner:
         if image is None:
             return image
         image = tools_image.desaturate(image, 0.3) if self.config.do_detection else image.copy()
-        color = (0, 255, 0) if df_sot is not None and df_sot.shape[0] > 0 else (0, 0, 255)
+        # BGR. The tracked target is red (green is the ground truth elsewhere); grey while the tracker holds the box without
+        # confirming it; CAND candidates after a loss are yellow-orange (a click on one picks it; keys 1-5 still work, by position).
+        color = (0, 0, 255) if df_sot is not None and df_sot.shape[0] > 0 else (160, 160, 160)
         box = self.SOT.box
         if box is not None:
             cv2.rectangle(image, (box[0], box[1]), (box[2], box[3]), color, 2)
-        for n, b, _ in self.SOT.candidates:             # CAND after a loss: numbered places for the operator to pick
-            cv2.rectangle(image, (b[0], b[1]), (b[2], b[3]), (0, 255, 255), 1)
-            cv2.putText(image, str(n), (b[0], max(14, b[1] - 4)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (0, 255, 255), 2, cv2.LINE_AA)
+        for n, b, _ in self.SOT.candidates:
+            cv2.rectangle(image, (b[0], b[1]), (b[2], b[3]), (0, 170, 255), 1)
         return image
     # ----------------------------------------------------------------------------------------------------------------------
     def update_grabber(self, Grabber):
