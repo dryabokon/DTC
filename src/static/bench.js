@@ -23,7 +23,7 @@
         if (t === 'bench') initBench();
         if (t === 'runs') loadRuns();
         if (window.dtcLabelShown) window.dtcLabelShown(t === 'label');
-        if (push !== false) { const u = new URL(location); u.searchParams.set('tab', t); if (t !== 'runs') u.searchParams.delete('run'); history.replaceState(null, '', u); }
+        if (push !== false) { const u = new URL(location); u.searchParams.set('tab', t); if (t !== 'runs') { u.searchParams.delete('run'); u.searchParams.delete('seq'); } history.replaceState(null, '', u); }
     }
     document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { showTab(b.dataset.tab); b.blur(); });
     // a hidden browser tab / minimised window does not watch either: drop the stream, take it back when visible again
@@ -209,13 +209,11 @@
             const hr = el('tr', null, th('video')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
             const cells = [];
             Object.entries(res.by_sequence).forEach(([s, mv]) => {
-                const tr = el('tr', null, E('td', s));
-                tr.title = 'Show this video below';
-                tr.onclick = () => {                            // jump to the video's clip and Gantt (drawn later, so looked up on click)
-                    const target = [...document.querySelectorAll('#r_detail .ganttBox')].find(x => x.dataset.seq === s);
-                    if (!target) return;
-                    target.scrollIntoView({behavior: 'smooth', block: 'start'});
-                    target.classList.remove('flash'); void target.offsetWidth; target.classList.add('flash');
+                const tr = el('tr', s === curSeq ? 'on' : null, E('td', s)); tr.dataset.seq = s;
+                tr.title = 'Show this video in the player below';
+                tr.onclick = () => {                            // this video in the player card, and the card on the screen
+                    showVideo(s, true);
+                    const card = $('r_viewer'); if (card) card.scrollIntoView({behavior: 'smooth', block: 'start'});
                 };
                 models.forEach(m => {
                     if (!(mv[m] && mv[m].tasks)) { tr.append(el('td', 'n', '–')); return; }
@@ -242,25 +240,65 @@
             });
         }
 
-        // Gantt per video: one row per object (sorted by when it appears), recall over precision, for one model
+        // the player: ONE video at a time in a card - its clip, and its recall / precision Gantts (one row per object, sorted
+        // by when it appears) for one model. No paused clips above and below to distract; ‹ › / ← → / a row of F1 by video
+        // go to another one.
         const tasks = {};
         res.tasks.forEach(r => { (tasks[r.task] = tasks[r.task] || {meta: r, m: {}}).m[r.model] = r; });
         const sel = E('select', null, 'small'); models.forEach(m => sel.append(Object.assign(E('option', m), {value: m}))); sel.value = tlModel;
         sel.onchange = () => { tlModel = sel.value; renderRun(); };
         box.appendChild(el('h3', 'ganttHead', 'Objects over time · ', sel));
-        const gantt = el('div', 'gantt'); box.appendChild(gantt);
+        const card = el('div', 'viewer'); card.id = 'r_viewer'; box.appendChild(card);
         box.appendChild(legend(true));
+        viewer = null;
+        const runId = d.id;
         timelines(d.id, tlModel).then(tl => {
+            if (!detail || detail.id !== runId) return;
             tl = tl || {};
-            c.sequences.forEach(seq => {
+            const vids = c.sequences.map(seq => {
                 const rows = Object.values(tasks).filter(t => t.meta.seq === seq && tl[t.meta.task]).sort((a, b) => a.meta.start - b.meta.start || a.meta.track - b.meta.track);
-                if (!rows.length) return;
+                if (!rows.length) return null;
                 const n = Math.max(videoFrames[seq] || 0, ...rows.map(t => t.meta.start + 1 + tl[t.meta.task].recall.length));
-                const v = ((res.videos || {})[seq] || {})[tlModel];
-                gantt.append(videoRow(d.id, seq, rows, tl, n, v));
-            });
+                return {seq, rows, n};
+            }).filter(Boolean);
+            if (!vids.length) { card.append(E('p', 'No timelines for this model.', 'hint')); return; }
+            viewer = {id: runId, res, tl, vids};
+            showVideo(curSeq, false);
         });
     }
+
+    // ---- the player card: one video of the run ---------------------------------------------------------------------------
+    let curSeq = new URL(location).searchParams.get('seq'), viewer = null;
+    function showVideo(seq, play) {
+        const V = viewer, card = $('r_viewer');
+        if (!V || !card) { curSeq = seq; return; }
+        let i = V.vids.findIndex(v => v.seq === seq); if (i < 0) i = 0;
+        const v = V.vids[i]; curSeq = v.seq;
+        const u = new URL(location); u.searchParams.set('seq', curSeq); history.replaceState(null, '', u);
+        document.querySelectorAll('#r_detail tr[data-seq]').forEach(tr => tr.classList.toggle('on', tr.dataset.seq === curSeq));
+        const f1 = seq => { const x = ((V.res.by_sequence || {})[seq] || {})[tlModel]; return x && x.tasks ? x.f1 : null; };
+        const nav = (k, text, tip) => {
+            const b = E('button', text, 'pbtn navb'); b.title = tip; b.disabled = k < 0 || k >= V.vids.length;
+            b.onclick = () => showVideo(V.vids[k].seq, true); return b;
+        };
+        const pick = E('select', null, 'small');
+        V.vids.forEach((x, k) => pick.append(Object.assign(E('option', `${k + 1}. ${x.seq}` + (f1(x.seq) === null ? '' : `  ·  F1 ${v3(f1(x.seq))}`)), {value: x.seq})));
+        pick.value = curSeq; pick.onchange = () => { showVideo(pick.value, true); pick.blur(); };
+        card.innerHTML = '';                                             // the old clip goes with it (it stops)
+        card.append(el('div', 'viewerHead', nav(i - 1, '‹', 'Previous video (←)'), pick, nav(i + 1, '›', 'Next video (→)'),
+                       E('span', `${i + 1} of ${V.vids.length} · ${v.n} frames · ${tlModel}` + (f1(v.seq) === null ? '' : ` F1 ${v3(f1(v.seq))}`), 'hint'),
+                       E('span', '← → other videos', 'hint keys')));
+        card.append(videoRow(V.id, v.seq, v.rows, V.tl, v.n, ((V.res.videos || {})[v.seq] || {})[tlModel]));
+        if (play) { const x = card.querySelector('video'); if (x) x.play().catch(() => {}); }
+    }
+    document.addEventListener('keydown', e => {                          // ← → : the previous / next video of the player
+        if (tab !== 'runs' || !viewer || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
+        const t = e.target;
+        if (['INPUT', 'SELECT', 'TEXTAREA', 'VIDEO'].includes(t.tagName) || t.isContentEditable) return;      // a focused clip seeks itself
+        const i = viewer.vids.findIndex(v => v.seq === curSeq), k = i + (e.key === 'ArrowRight' ? 1 : -1);
+        if (k < 0 || k >= viewer.vids.length) return;
+        e.preventDefault(); showVideo(viewer.vids[k].seq, true);
+    });
 
     const tlCache = {};
     function timelines(id, model) {
@@ -308,10 +346,8 @@
 
     function videoRow(id, seq, rows, tl, n, clipName) {
         // one video: the clip in the left column, recall Gantt over precision Gantt in the right one (same objects in the same rows)
-        const wrap = el('div', 'ganttBox'); wrap.dataset.seq = seq;
-        wrap.append(el('div', 'ganttTitle', el('b', null, seq), E('span', `  ·  ${n} frames`, 'hint')));
-        const row = el('div', 'videoRow'); wrap.append(row);
-        const full = (document.getElementById('r_detail').clientWidth || 1000) - 4;
+        const row = el('div', 'videoRow'), card = $('r_viewer');
+        const full = (card ? card.clientWidth - 2 * 16 : $('r_detail').clientWidth || 1000) - 4;       // 16 = the card's padding
         const colW = Math.max(320, full >= 900 ? Math.floor((full - 20) / 2) : full);
         const colR = {c: TL.caught, m: TL.missed}, colP = {g: TL.onTarget, f: TL.falseBox};
         // the two Gantts share the frame axis: only the lower one (precision) has its numbers
@@ -321,7 +357,7 @@
         row.append(clip, stack);
         const video = clip.querySelector && clip.querySelector('video');
         if (video) playhead(video, stack, f => GANTT_L + (colW - GANTT_L - GANTT_R) * f / n, n);
-        return wrap;
+        return row;
     }
 
     function playhead(video, stack, X, n) {

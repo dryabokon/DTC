@@ -158,10 +158,15 @@
   .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px; }
   #l_counts div { display: flex; justify-content: space-between; }
   .ganttHead { display: flex; align-items: center; gap: 6px; } .ganttHead select.small { width: auto; margin: 0; padding: 2px 6px; text-transform: none; }
-  .gantt { width: 100%; overflow: hidden; } .ganttBox { margin: 14px 0 22px; scroll-margin-top: 12px; border-radius: 6px; } .ganttTitle { margin-bottom: 4px; }
+  /* the Runs player: one video at a time in a card (clip + its Gantts), ‹ › / ← → to the others */
+  .viewer { border: 1px solid var(--line); border-radius: 10px; background: var(--surface); padding: 12px 16px 14px; margin: 8px 0 14px;
+            scroll-margin-top: 10px; min-height: 120px; overflow: hidden; }
+  .viewerHead { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .viewerHead select.small { width: auto; max-width: 100%; margin: 0; padding: 3px 6px; text-transform: none; }
+  .viewerHead .keys { margin-left: auto; }
+  .pbtn.navb { padding: 2px 12px; font-size: 18px; line-height: 1.2; } .pbtn.navb:disabled { opacity: .3; cursor: default; filter: none; }
   .videoRow { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
   @media (max-width: 900px) { .videoRow { grid-template-columns: 1fr; } }
-  .ganttBox.flash { animation: flash 1.6s ease-out; } @keyframes flash { from { background: var(--field); } to { background: transparent; } }
   .ganttStack { position: relative; } .ganttStack canvas { display: block; margin-bottom: 6px; }
   .playhead { position: absolute; top: 18px; bottom: 22px; width: 1px; margin-left: -0.5px; background: var(--text); opacity: .9; pointer-events: none; display: none; }
   .clip { margin: 0; min-width: 0; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
