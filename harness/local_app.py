@@ -26,7 +26,7 @@ APP_LOG = os.path.join(STATE, 'dtc_app.log')
 PID_FILE = os.path.join(STATE, 'dtc_app.pid')
 PORT_FILE = os.path.join(STATE, 'dtc_app.port')     # the --ui_port it was started with: stop / status talk to THAT app,
                                                     # never to another one on 8509 (the user's own instance)
-DEFAULT_ARGS = ['--source', 'campus']                       # as app_run_x86.bat / app_run_pi.sh: main.py's own default is an RTSP stream
+DEFAULT_ARGS = ['--source', 'campus']                       # as start_me.bat: main.py's own default is an RTSP stream
 # ----------------------------------------------------------------------------------------------------------------------
 def venv_python():
     """The x86 venv's python.exe (see the module docstring), or None."""

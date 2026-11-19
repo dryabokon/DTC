@@ -24,8 +24,8 @@ and the tests. Two targets, one interface: "pi" (harness/pi_app.py, over SSH) an
   dtc unreal local [app flags]     start DTC on this PC on the Unreal stream
 
   dtc up [local] [unreal] [app flags]   everything in one go: (Unreal + mediamtx +) DTC on the Pi (with local: on this PC);
-                                   without unreal the usual source (default campus, or --source X). Wrapper: session_start.bat [local] [unreal]
-  dtc down                         stop all of it: DTC on the Pi and on this PC, the game, ffmpeg, mediamtx (wrapper: session_stop.bat)
+                                   without unreal the usual source (default campus, or --source X)
+  dtc down                         stop all of it: DTC on the Pi and on this PC, the game, ffmpeg, mediamtx
 
   dtc clips record NAME [--maneuver yaw|yaw_fast|sweep|none] [--seconds 60]   sim recording with ground truth -> videos/sim/NAME/
   dtc clips list
@@ -190,9 +190,9 @@ def cmd_unreal(a, extra):
 def cmd_up(a, extra):
     """One command for a session: with --unreal mediamtx -> game -> stream check -> DTC on the Pi on that stream."""
     from harness import unreal, pi_app
-    if 'unreal' in extra:                           # session_start.bat unreal  ==  dtc up --unreal
+    if 'unreal' in extra:                           # dtc up unreal  ==  dtc up --unreal
         extra = [x for x in extra if x != 'unreal']; a.unreal = True
-    if 'local' in extra:                            # session_start.bat local   ==  dtc up --local
+    if 'local' in extra:                            # dtc up local   ==  dtc up --local
         extra = [x for x in extra if x != 'local']; a.local = True
     game_args, app_args = _split_game_args(extra)
     try:

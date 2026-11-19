@@ -1,6 +1,6 @@
 @echo off
 :: x86 laptop / PC (Windows): the app's virtual environment, torch with CUDA 12.1 (falls back to the CPU without an NVIDIA GPU).
-:: Default location: <repo>\.venv  (set DTC_VENV to put it elsewhere; app_run_x86.bat and "dtc local" look in the same place).
+:: Default location: <repo>\.venv  (set DTC_VENV to put it elsewhere; start_me.bat and "dtc local" look in the same place).
 :: The Raspberry Pi (ARM) has its own: infrastructure/build_me_arm.sh
 SET "PATH_VENV=%DTC_VENV%"
 if "%PATH_VENV%"=="" SET "PATH_VENV=%~dp0..\.venv"
@@ -25,5 +25,5 @@ SET "PY=%PATH_VENV%\Scripts\python.exe"
 "%PY%" -c "import torch; print('PyTorch', torch.__version__, '| CUDA:', 'OK' if torch.cuda.is_available() else 'not available (CPU)')"
 echo -----------------------------------------------
 echo Virtual environment: %PATH_VENV%
-echo Run the app:  app_run_x86.bat --source campus      (or: dtc local start --source campus)
+echo Run the app:  start_me.bat --source campus      (or: dtc local start --source campus)
 echo -----------------------------------------------

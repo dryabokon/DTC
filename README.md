@@ -31,9 +31,9 @@ saved next to each video under the same name (`clip.mp4` → `clip.gt.jsonl`).
 ```
 git clone --recursive https://github.com/dryabokon/DTC
 infrastructure\build_me_x86.bat
-app_run_x86.bat --source 0
+start_me.bat --source 0
 ```
 
 Open http://localhost:8509. `--source` takes a camera (`0`), an RTSP stream, a video file or a name from `videos/`
 (`python src/main.py --list-sources`). `videos/` is not in git: a fresh clone starts with it empty.
-On a Raspberry Pi: `infrastructure/build_me_arm.sh`, then `./app_run_pi.sh`. More: `dtc.py`, `AGENTS.md`.
+More: `dtc.py`, `AGENTS.md`.

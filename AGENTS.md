@@ -14,7 +14,7 @@ The laptop (Windows) is where code is edited and where the harness (`dtc`) drive
 | | ARM: Raspberry Pi 5 (8 GB, CPU only) | x86: this laptop (Windows, CUDA if present) |
 |---|---|---|
 | venv | `~/venv/p311_dtc` ← `infrastructure/build_me_arm.sh` + `requirements_arm.txt` | `<repo>\.venv` (or `DTC_VENV` / `DTC_PYTHON`) ← `infrastructure\build_me_x86.bat` + `requirements_x86.txt` |
-| launcher | `app_run_pi.sh` (detector: `models/yolov8n_ncnn_model`) | `app_run_x86.bat` (detector: `yolov8n.pt`) |
+| launcher | none since 2026-11-19 (x86 only; `dtc pi start` has no launcher to call) | `start_me.bat` / `stop_me.bat` (detector: `yolov8n.pt`) |
 | harness | `dtc pi …`, `dtc test …`, `dtc bench …` (`harness/pi_app.py`, over SSH) | `dtc local …`, `dtc test … --local`, `dtc bench … --local` (`harness/local_app.py`) |
 | code | the last *commit* (git → `dtc pi sync`) | the working tree as it is |
 | cameras | `/dev/videoN` (PyAV, MJPEG), `csi://N` (picamera2) | webcam indices (`camera` = `0`, DirectShow) |

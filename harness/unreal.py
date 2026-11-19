@@ -71,7 +71,7 @@ def ensure_mediamtx():
 def make_borderless(width, height, timeout=30):
     """UE 4.27 has no flag for a borderless window of a given size (-windowed has a frame, windowed-fullscreen fills the
     screen), so strip caption + frame from the game's window (class UnrealWindow) and set its client area to width x height.
-    Returns True when done. The window keeps its position; close it with session_stop.bat or Alt+F4."""
+    Returns True when done. The window keeps its position; close it with `dtc down` or Alt+F4."""
     import ctypes
     from ctypes import wintypes
     u32 = ctypes.windll.user32
@@ -107,7 +107,7 @@ def start(res=None, game_args=(), wait=90, borderless=False, log=print):
         s = stream_ok()
         if s:
             log(f'game already running and streaming ({s})'); return s
-        raise RuntimeError('Night427 runs but there is no stream (started before mediamtx?) - stop it first: session_stop.bat')
+        raise RuntimeError('Night427 runs but there is no stream (started before mediamtx?) - stop it first: dtc down')
     if not os.path.isfile(GAME_EXE):
         raise RuntimeError(f'game not found: {GAME_EXE} (set NIGHT427_EXE in .env)')
     w, h = (res or DEFAULT_RES).lower().split('x')

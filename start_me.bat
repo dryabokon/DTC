@@ -1,8 +1,9 @@
 @echo off
-:: x86 laptop / PC (Windows): run DTC here, in the foreground.  The Raspberry Pi (ARM) has its own launcher: app_run_pi.sh
-:: usage: app_run_x86.bat [--source campus|camera|oxford|<file>|<url>] [--<config_field> value ...]
+:: x86 laptop / PC (Windows): run DTC here, in the foreground.
+:: usage: start_me.bat [--source campus|camera|oxford|<file>|<url>] [--<config_field> value ...]
 ::        UI on http://localhost:8509 (--ui_port 8510 when 8509 is taken by the Pi tunnel or the Fly2 UI)
 :: venv: DTC_PYTHON, else %DTC_VENV%\Scripts\python.exe, else <repo>\.venv  (built by infrastructure\build_me_x86.bat)
+:: Stop: Ctrl+C here, or stop_me.bat from another window (saves the video and the report first).
 :: Detection: yolov8n.pt (downloaded on first use; CUDA when available) - the Pi uses the NCNN export instead.
 setlocal
 SET "PY=%DTC_PYTHON%"
