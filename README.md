@@ -34,6 +34,13 @@ infrastructure\build_me_x86.bat
 start_me.bat --source 0
 ```
 
+Ubuntu (22.04 / 24.04; needs `python3-venv libgl1 libglib2.0-0`):
+
+```
+infrastructure/build_me_x86.sh
+./start_me.sh --source /dev/video0
+```
+
 Open http://localhost:8509. `--source` takes a camera (`0`), an RTSP stream, a video file or a name from `videos/`
-(`python src/main.py --list-sources`). `videos/` is not in git: a fresh clone starts with it empty.
+(`python src/main.py --list-sources`); stop with Ctrl+C or `stop_me.bat` / `./stop_me.sh`. `videos/` is not in git: a fresh clone starts with it empty.
 More: `dtc.py`, `AGENTS.md`.

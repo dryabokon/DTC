@@ -1,0 +1,3 @@
+#!/bin/bash
+# The harness on Linux (dtc.bat on Windows): ./dtc.sh local start, ./dtc.sh test unit --local, ...
+exec python3 "$(cd "$(dirname "$0")" && pwd)/dtc.py" "$@"

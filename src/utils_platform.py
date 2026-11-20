@@ -6,7 +6,7 @@ import time
 # ----------------------------------------------------------------------------------------------------------------------
 # Where the app runs: the Raspberry Pi 5 (ARM, Linux, CPU only) or an x86 laptop / PC (Windows or Linux, CUDA if present).
 # The app is the same code on both; what differs at run time lives here (process checks, detaching a child, the name).
-# What differs at start-up (venv, default detector) lives in the launcher start_me.bat.
+# What differs at start-up (venv, default detector) lives in the launchers start_me.bat / start_me.sh.
 # ----------------------------------------------------------------------------------------------------------------------
 IS_WINDOWS = sys.platform == 'win32'
 MACHINE = platform.machine().lower()

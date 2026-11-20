@@ -10,7 +10,7 @@ and the tests. Two targets, one interface: "pi" (harness/pi_app.py, over SSH) an
   dtc pi run "<shell command>"     run anything on the Pi
 
   dtc local status | start [--source X ...] | stop | logs [-n 40] | open
-                                   the same on this x86 laptop (x86 venv: infrastructure/build_me_x86.bat), the working
+                                   the same on this x86 laptop (x86 venv: infrastructure/build_me_x86.bat / .sh), the working
                                    tree runs, nothing is synced; UI http://localhost:8509 (--ui_port N if that is taken)
 
   dtc sim start [--maneuver yaw]   Fly2 camera simulator on this PC -> rtsp://<this PC>:8554/sim

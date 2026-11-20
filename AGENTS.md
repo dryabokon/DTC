@@ -9,15 +9,15 @@ file named below before doing that task).
 
 DTC = detection, tracking, classification. The app (`src/main.py`) grabs a source (video file, camera, RTSP), runs YOLO
 detection / DeepSORT / click-to-track (SOT) and serves a web UI on port 8509 with tabs **Live · Benchmark · Runs · Label**.
-The laptop (Windows) is where code is edited and where the harness (`dtc`) drives the app. Two platforms, one code base:
+The laptop (Windows) is where code is edited and where the harness (`dtc`) drives the app. Two platforms, one code base (x86 also runs on Ubuntu: the `.sh` twins of the `.bat` files):
 
-| | ARM: Raspberry Pi 5 (8 GB, CPU only) | x86: this laptop (Windows, CUDA if present) |
+| | ARM: Raspberry Pi 5 (8 GB, CPU only) | x86: this laptop (Windows) or an Ubuntu PC, CUDA if present |
 |---|---|---|
-| venv | `~/venv/p311_dtc` ← `infrastructure/build_me_arm.sh` + `requirements_arm.txt` | `<repo>\.venv` (or `DTC_VENV` / `DTC_PYTHON`) ← `infrastructure\build_me_x86.bat` + `requirements_x86.txt` |
-| launcher | none since 2026-11-19 (x86 only; `dtc pi start` has no launcher to call) | `start_me.bat` / `stop_me.bat` (detector: `yolov8n.pt`) |
+| venv | `~/venv/p311_dtc` ← `infrastructure/build_me_arm.sh` + `requirements_arm.txt` | `<repo>\.venv` (or `DTC_VENV` / `DTC_PYTHON`) ← `infrastructure\build_me_x86.bat` (Ubuntu: `build_me_x86.sh`) + `requirements_x86.txt` |
+| launcher | none since 2026-11-19 (x86 only; `dtc pi start` has no launcher to call) | `start_me.bat` / `stop_me.bat`, Ubuntu `start_me.sh` / `stop_me.sh`, harness `dtc.sh` (detector: `yolov8n.pt`) |
 | harness | `dtc pi …`, `dtc test …`, `dtc bench …` (`harness/pi_app.py`, over SSH) | `dtc local …`, `dtc test … --local`, `dtc bench … --local` (`harness/local_app.py`) |
 | code | the last *commit* (git → `dtc pi sync`) | the working tree as it is |
-| cameras | `/dev/videoN` (PyAV, MJPEG), `csi://N` (picamera2) | webcam indices (`camera` = `0`, DirectShow) |
+| cameras | `/dev/videoN` (PyAV, MJPEG), `csi://N` (picamera2) | webcam indices (`camera` = `0`, DirectShow; Ubuntu: `/dev/videoN` as on the Pi) |
 
 Run-time differences live in `src/utils_platform.py` (process checks, detached children, platform name in `/status`);
 start-up differences only in the launchers. Don't add `if platform` branches elsewhere in `src/` without need.
@@ -73,7 +73,8 @@ start-up differences only in the launchers. Don't add `if platform` branches els
 ## Conventions
 
 - Python: long lines (~150), `# ---...---` separators between functions, docstrings say *why*; English in code and UI.
-- Files on Windows are CRLF in the working tree, LF in git (autocrlf) — patch scripts must keep the file's line endings.
+- Files on Windows are CRLF in the working tree, LF in git (autocrlf) — patch scripts must keep the file's line endings;
+  `*.sh` are always LF (`.gitattributes`) and executable in git (`git update-index --chmod=+x`).
 - Reply to the user in Russian (their preference); keep UI text plain, numbers over judgement, no clutter.
 
 ## Skills (`.claude/skills/`)

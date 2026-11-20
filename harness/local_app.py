@@ -1,7 +1,8 @@
 """Control the DTC app on this x86 laptop / PC: the same interface as harness/pi_app.Pi (start / stop / status / logs /
 HTTP calls / files), so `dtc local ...`, `dtc test ... --local` and `dtc bench ... --local` run the suites here.
 
-The app runs in the x86 venv (infrastructure/build_me_x86.bat): DTC_PYTHON, else DTC_VENV\\Scripts\\python.exe, else <repo>\\.venv.
+The app runs in the x86 venv (infrastructure/build_me_x86.bat, on Ubuntu build_me_x86.sh): DTC_PYTHON, else the venv's python in
+DTC_VENV (Scripts\\python.exe / bin/python), else <repo>/.venv.
 Unlike the Pi, it runs this working tree (uncommitted changes included) - nothing is synced.
 The app is started by a small detached wrapper (this file, --wrap) that writes the app's pid and, at the end, its exit code
 into the log, so a later `dtc local stop` (another process) still finds both.
@@ -26,7 +27,7 @@ APP_LOG = os.path.join(STATE, 'dtc_app.log')
 PID_FILE = os.path.join(STATE, 'dtc_app.pid')
 PORT_FILE = os.path.join(STATE, 'dtc_app.port')     # the --ui_port it was started with: stop / status talk to THAT app,
                                                     # never to another one on 8509 (the user's own instance)
-DEFAULT_ARGS = ['--source', 'campus']                       # as start_me.bat: main.py's own default is an RTSP stream
+DEFAULT_ARGS = ['--source', 'campus']                       # as start_me.bat / .sh: main.py's own default is an RTSP stream
 # ----------------------------------------------------------------------------------------------------------------------
 def venv_python():
     """The x86 venv's python.exe (see the module docstring), or None."""
@@ -76,7 +77,7 @@ class Local(AppClient):
     def __init__(self, verbose=True, port=None):
         self.python = venv_python()
         if self.python is None:
-            raise RuntimeError('no x86 venv: run infrastructure\\build_me_x86.bat (or set DTC_PYTHON / DTC_VENV)')
+            raise RuntimeError('no x86 venv: run infrastructure/build_me_x86.' + ('bat' if utils_platform.IS_WINDOWS else 'sh') + ' (or set DTC_PYTHON / DTC_VENV)')
         if port is None:                                  # the app the harness started, on the port it was started with
             port = PORT
             try:
