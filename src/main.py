@@ -53,7 +53,8 @@ if __name__ == '__main__':
     if getattr(config, 'imgsz_hw', ''):            # rectangular input (e.g. NCNN exported at 256x416); the CLI cannot pass a tuple to imgsz
         config.imgsz = tuple(int(v) for v in str(config.imgsz_hw).split(','))
 
-    E = utils_experiment_ops.Experimentor(getattr(config, 'folder_runs', folder_runs), config)
+    # relative to src/, not to the current folder ("python src/main.py" from the repo root wrote next to the repo)
+    E = utils_experiment_ops.Experimentor(os.path.join(_this_dir, getattr(config, 'folder_runs', folder_runs)), config)
     print('[  RUN  ]', os.path.abspath(E.folder_output_current_experiment), flush=True)
     try:
         E.run_experiment()

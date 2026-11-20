@@ -81,7 +81,9 @@ class Tracker_SOT:
     """
     def __init__(self, model='NANO', models_dir='../models/', score_th=None, lost_th=15,
                  edge_frames=8, edge_px=3, app_rel=0.6, app_window=30, app_base_frames=10, empty_rel=0.35, empty_frames=5):
-        models_dir = os.path.normpath(models_dir)
+        # relative to src/ like every path setting, not to the current folder: started as "python src/main.py" from the repo root,
+        # '../models/' pointed next to the repo, every model showed "(no weights)" in Live and a click silently ran MIL
+        models_dir = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), models_dir))
         if os.path.basename(models_dir) == 'nanotrack':     # older setting: the NanoTrack folder itself
             models_dir = os.path.dirname(models_dir)
         self.models_dir = models_dir
