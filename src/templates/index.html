@@ -167,6 +167,7 @@
   .clip { margin: 0; min-width: 0; } .clip video { width: 100%; display: block; background: #000; border-radius: 4px; }
   table.grid td.strips { padding-top: 4px; padding-bottom: 4px; } .f1cell { display: flex; align-items: center; gap: 10px; justify-content: flex-end; }
   .f1cell b { min-width: 34px; text-align: right; } .f1cell canvas { display: block; }
+  .hscroll { overflow-x: auto; max-width: 100%; }   /* F1 by video: many models -> scroll the table, not clip it */
   .clipHead { display: grid; grid-template-columns: 1fr 1fr; margin-bottom: 2px; }
   .legend { display: flex; flex-wrap: wrap; gap: 18px; margin: 6px 0 8px; color: var(--muted); }
   pre.report { white-space: pre-wrap; font-size: 11.5px; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 10px; }

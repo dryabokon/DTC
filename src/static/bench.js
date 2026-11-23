@@ -225,7 +225,7 @@
                 });
                 st.append(tr);
             });
-            box.appendChild(st);
+            box.appendChild(el('div', 'hscroll', st));     // 5+ models do not fit: scroll the table sideways
             const runId = d.id;
             Promise.all(models.map(m => timelines(runId, m))).then(tls => {
                 if (!detail || detail.id !== runId) return;
