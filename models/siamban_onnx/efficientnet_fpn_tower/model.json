@@ -1,0 +1,7 @@
+{
+    "label": "SiamBAN-ONNX EfficientNet-Lite FPN tower int8",
+    "score_th": null,
+    "pi_ms": 70,
+    "threads": 0,
+    "allow_spinning": false
+}

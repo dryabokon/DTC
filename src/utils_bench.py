@@ -196,6 +196,12 @@ def readiness(cfg):
             add('torch', 'ok', f'torch {torch.__version__}')
         except ImportError:
             add('torch', 'fail', 'not installed (needed by SIAMBAN / SIAMFC)')
+    if any(m in utils_tracker_sot.ONNX_MODELS for m in c['models']):
+        try:
+            import onnxruntime  # noqa: F401
+            add('onnxruntime', 'ok', f'onnxruntime {onnxruntime.__version__}')
+        except ImportError:
+            add('onnxruntime', 'fail', f'not installed (needed by {utils_tracker_sot.ONNX_PREFIX}* models)')
     for s in p['per_sequence']:
         add(f'sequence {s["seq"]}', 'ok' if s['runs'] else 'warn',
             f'{s["runs"]} task(s), {s["frames"]} frames, video {s["size"][0]}x{s["size"][1]}' if s['runs'] else

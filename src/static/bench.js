@@ -6,6 +6,9 @@
     const postJ = (url, body) => fetch(url, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body || {})}).then(r => r.json());
     const getJ = url => fetch(url).then(r => r.json());
     const COLORS = {NANO: '#0a84ff', VIT: '#30d158', SIAMBAN: '#ff9f0a', SIAMFC: '#bf5af2', MIL: '#8e8e93', NCCM: '#64d2ff', NCCS: '#ff375f'};
+    // models outside COLORS (SBAN_* from models/siamban_onnx/): a colour picked from the name, the same in every run
+    const EXTRA = ['#ffd60a', '#ac8e68', '#5e5ce6', '#66d4cf', '#ff6482', '#a2845e', '#32ade6', '#da8fff'];
+    function color(m) { if (COLORS[m]) return COLORS[m]; let h = 0; for (const ch of String(m)) h = (h * 31 + ch.charCodeAt(0)) >>> 0; return EXTRA[h % EXTRA.length]; }
     const fmtS = s => { s = Math.max(0, Math.round(s || 0)); return s >= 3600 ? `${Math.floor(s / 3600)} h ${Math.floor(s % 3600 / 60)} min` : s >= 60 ? `${Math.floor(s / 60)} min ${s % 60} s` : `${s} s`; };
     const num = v => (v === null || v === undefined || v === '') ? '–' : v;
 
@@ -46,7 +49,7 @@
             const ms = $('b_models'); ms.innerHTML = '';
             o.models.forEach(m => {
                 const l = E('label', null, 'check'); const i = E('input'); i.type = 'checkbox'; i.value = m.name; i.disabled = !m.ok;
-                const sw = E('span', '■'); sw.style.color = COLORS[m.name] || 'inherit';
+                const sw = E('span', '■'); sw.style.color = color(m.name);
                 l.append(i, sw, document.createTextNode(` ${m.label}`), E('span', ` ~${m.pi_ms} ms` + (m.ok ? '' : ' · no weights'), 'hint'));
                 ms.appendChild(l);
             });
@@ -170,7 +173,7 @@
     };
     const TL = {caught: '#30c8d8', missed: '#ff453a', onTarget: '#30d158', falseBox: '#ff9f0a'};   // lost = red, false box = orange
     function el(tag, cls, ...kids) { const e = E(tag, null, cls); kids.forEach(k => k !== null && k !== undefined && e.append(k instanceof Node ? k : document.createTextNode(String(k)))); return e; }
-    function swatch(m) { const s = E('span', '■ ', 'sw'); s.style.color = COLORS[m] || '#888'; return s; }
+    function swatch(m) { const s = E('span', '■ ', 'sw'); s.style.color = color(m); return s; }
     function th(text, key) { const t = E('th', text); if (key) { t.title = HELP[key]; t.classList.add('helpable'); } return t; }
     const v3 = v => v === null || v === undefined ? '–' : v.toFixed(2);
     let tlModel = null;

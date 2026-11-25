@@ -9,6 +9,8 @@ import numpy as np
 #   SIAMBAN  SiamBAN, MobileNetV3 backbone, trained in DTC_Training     models/siamban/          torch, tools/DL/siamban_pytorch
 #   SIAMFC   SiamFC, AlexNet backbone (siamfc_alexnet_e50)              tools/DL/siamfc_pytorch/ torch
 #   MIL      cv2.TrackerMIL, no weights                                                          fallback only
+#   SBAN_<NAME>  SiamBAN on ONNX Runtime (DTC_Training), one per folder   models/siamban_onnx/<name>/  utils_siamban_onnx.py
+#            each folder: backbone.onnx + head.onnx + model.json (label, score_th, pi_ms, threads, allow_spinning)
 # score_th: below it a frame counts as "lost" (lost_th such frames in a row stop SOT). Every model has its own score
 # scale, so the default is per model (None = no score check; the loss rules of Tracker_SOT still apply).
 # RPi5 CPU, SOT benchmark 2026-11-04 (drone_ir + 10 PETS09 runs x 300 frames, raw tracker, IoU vs truth):
@@ -23,6 +25,37 @@ SOT_MODELS = {                      # pi_ms: typical tracker time per frame on t
     'SIAMFC':  {'label': 'SiamFC AlexNet',                              'score_th': None, 'pi_ms': 384},
     'MIL':     {'label': 'MIL (OpenCV, no weights)',                    'score_th': None, 'pi_ms': 70},
 }
+ONNX_PREFIX = 'SBAN_'
+ONNX_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'models', 'siamban_onnx')
+ONNX_MODELS = {}                    # SBAN_<NAME> -> {dir, backbone, head, threads, allow_spinning}
+# ----------------------------------------------------------------------------------------------------------------------
+def find_onnx_models(root=ONNX_DIR):
+    """{SBAN_<NAME>: {label, score_th, pi_ms, dir, backbone, head, threads, allow_spinning}} for every folder of root with a
+    model.json. Read once at import from <repo>/models (where every caller keeps its models_dir), so the models are listed
+    like the built-in ones; a folder with a broken model.json is skipped with a message, never stops the app."""
+    import json
+    out = {}
+    if not os.path.isdir(root):
+        return out
+    for n in sorted(os.listdir(root)):
+        d = os.path.join(root, n)
+        p = os.path.join(d, 'model.json')
+        if not os.path.isfile(p):
+            continue
+        try:
+            with open(p, encoding='utf-8') as f:
+                j = json.load(f)
+            out[ONNX_PREFIX + n.upper()] = {
+                'label': str(j.get('label') or f'SiamBAN-ONNX {n}'), 'score_th': j.get('score_th'), 'pi_ms': float(j.get('pi_ms', 50)),
+                'dir': d, 'backbone': os.path.join(d, j.get('backbone', 'backbone.onnx')), 'head': os.path.join(d, j.get('head', 'head.onnx')),
+                'threads': int(j.get('threads', 0)), 'allow_spinning': bool(j.get('allow_spinning', False))}
+        except Exception as e:
+            print(f'[SOT trk] {p}: skipped ({e})')
+    return out
+# ----------------------------------------------------------------------------------------------------------------------
+ONNX_MODELS.update(find_onnx_models())
+SOT_MODELS.update({m: {k: v[k] for k in ('label', 'score_th', 'pi_ms')} for m, v in ONNX_MODELS.items()})
+# ----------------------------------------------------------------------------------------------------------------------
 _TORCH_NETS = {}                    # loaded torch networks, shared by all tracker instances (loading takes seconds on the Pi);
                                     # the tracking state is per instance, so several tracks of one model can run side by side
 # ----------------------------------------------------------------------------------------------------------------------
@@ -63,6 +96,16 @@ class _SiamFC:
     def update(self, frame):
         box, score = self.t.update(frame)
         return True, tuple(float(v) for v in box), float(score)
+# ----------------------------------------------------------------------------------------------------------------------
+class _SBANOnnx:
+    def __init__(self, spec):
+        from utils_siamban_onnx import TrackerSiamBANOnnx
+        self.t = TrackerSiamBANOnnx(spec['backbone'], spec['head'], spec['threads'], spec['allow_spinning'])
+    def init(self, frame, xywh):
+        self.t.initialize(frame, list(xywh))
+    def update(self, frame):
+        box, score = self.t.track(frame)
+        return True, box, score
 # ----------------------------------------------------------------------------------------------------------------------
 class Tracker_SOT:
     """Lightweight single-object tracker for click-to-track (no detector involved). Models: SOT_MODELS above.
@@ -120,6 +163,9 @@ class Tracker_SOT:
     # ----------------------------------------------------------------------------------------------------------------------
     def weights(self, model=None):
         """Files the model needs (none for MIL)."""
+        if (model or self.model) in ONNX_MODELS:
+            s = ONNX_MODELS[model or self.model]
+            return [s['backbone'], s['head']]
         d = self.models_dir
         return {'NANO': [os.path.join(d, 'nanotrack', 'nanotrack_backbone_sim.onnx'), os.path.join(d, 'nanotrack', 'nanotrack_head_sim.onnx')],
                 'VIT': [os.path.join(d, 'vittrack', 'object_tracking_vittrack_2023sep.onnx')],
@@ -153,6 +199,8 @@ class Tracker_SOT:
             return _SiamBAN(files[0])
         if self.model == 'SIAMFC':
             return _SiamFC(files[0])
+        if self.model in ONNX_MODELS:
+            return _SBANOnnx(ONNX_MODELS[self.model])
         return _CV(cv2.TrackerMIL_create(), False)
     # ----------------------------------------------------------------------------------------------------------------------
     def _embed(self, frame, box):
