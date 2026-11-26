@@ -96,6 +96,7 @@
   #runsView h3 { font-size: 12px; margin-top: 24px; }
   table.grid { font-size: 13.5px; margin-top: 12px; } table.grid td, table.grid th { padding: 6px 14px; } table.grid td.n { text-align: right; } table.grid th { text-align: left; }
   .helpable { cursor: help; text-decoration: underline dotted var(--faint); text-underline-offset: 3px; }
+  th.sortable { cursor: pointer; user-select: none; } th.sortable:hover, th.sorted { color: var(--text); background: var(--field); }
   /* Label tab: one object per frame, operator + tracker */
   #labelView { min-height: 0; min-width: 0; display: flex; }          /* min-width: a long stop message must not widen the page */
   #l_main { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--video-bg); }

@@ -177,6 +177,14 @@
     function th(text, key) { const t = E('th', text); if (key) { t.title = HELP[key]; t.classList.add('helpable'); } return t; }
     const v3 = v => v === null || v === undefined ? '–' : v.toFixed(2);
     let tlModel = null;
+    let f1Sort = null;      // F1 by video sorted by one model: {model, dir: 1 ascending | -1 descending}; null = the run's order
+    function seqOrder(res, seqs) {
+        // the order of the videos in F1 by video and in the player (‹ › / ← →); no F1 for the model -> at the end
+        if (!f1Sort) return seqs.slice();
+        const f = s => { const x = (res.by_sequence[s] || {})[f1Sort.model]; return x && x.tasks ? x.f1 : null; };
+        return seqs.map((s, i) => ({s, i, v: f(s)})).sort((a, b) =>
+            (a.v === null) - (b.v === null) || (a.v === null ? 0 : f1Sort.dir * (a.v - b.v)) || a.i - b.i).map(x => x.s);
+    }
 
     function renderRun() {
         const box = $('r_detail'); box.innerHTML = '';
@@ -190,6 +198,7 @@
         if (res.version !== 2) { box.appendChild(E('p', 'Made by an older version of the benchmark (other metrics) — run it again to compare.', 'hint')); return; }
         const models = c.models.filter(m => res.models[m] && res.models[m].tasks);
         if (!models.includes(tlModel)) tlModel = models[0];
+        if (f1Sort && !models.includes(f1Sort.model)) f1Sort = null;
 
         // models: click a row to pick the model of the timeline
         const mt = E('table', null, 'grid clickable');
@@ -209,9 +218,19 @@
             box.appendChild(E('h3', 'F1 by video'));
             box.appendChild(legend());
             const st = E('table', null, 'grid clickable');
-            const hr = el('tr', null, th('video')); models.forEach(m => hr.append(el('th', null, swatch(m), m))); st.append(hr);
+            // a click on a model's header: its F1 ascending -> descending -> the run's order; the player walks the same order
+            const hr = el('tr', null, th('video'));
+            hr.cells[0].title = 'Videos in the order of the run'; hr.cells[0].classList.add('sortable'); hr.cells[0].onclick = () => setSort(null);
+            models.forEach(m => {
+                const on = f1Sort && f1Sort.model === m;
+                const t = el('th', 'sortable' + (on ? ' sorted' : ''), swatch(m), m, on ? (f1Sort.dir > 0 ? ' ▲' : ' ▼') : ''); t.dataset.model = m;
+                t.title = on ? (f1Sort.dir > 0 ? 'F1 ascending - click: descending' : 'F1 descending - click: the run order') : 'Sort the videos by F1 of ' + m + ' (ascending)';
+                t.onclick = () => setSort(!on ? {model: m, dir: 1} : f1Sort.dir > 0 ? {model: m, dir: -1} : null);
+                hr.append(t);
+            });
+            st.append(hr);
             const cells = [];
-            Object.entries(res.by_sequence).forEach(([s, mv]) => {
+            seqOrder(res, Object.keys(res.by_sequence)).forEach(s => { const mv = res.by_sequence[s];
                 const tr = el('tr', s === curSeq ? 'on' : null, E('td', s)); tr.dataset.seq = s;
                 tr.title = 'Show this video in the player below';
                 tr.onclick = () => {                            // this video in the player card, and the card on the screen
@@ -258,7 +277,7 @@
         timelines(d.id, tlModel).then(tl => {
             if (!detail || detail.id !== runId) return;
             tl = tl || {};
-            const vids = c.sequences.map(seq => {
+            const vids = seqOrder(res, c.sequences).map(seq => {
                 const rows = Object.values(tasks).filter(t => t.meta.seq === seq && tl[t.meta.task]).sort((a, b) => a.meta.start - b.meta.start || a.meta.track - b.meta.track);
                 if (!rows.length) return null;
                 const n = Math.max(videoFrames[seq] || 0, ...rows.map(t => t.meta.start + 1 + tl[t.meta.task].recall.length));
@@ -270,6 +289,29 @@
         });
     }
 
+    function setSort(x) {
+        // re-sort the rows in place (their strips stay drawn) and the player's list; the clip on the screen stays
+        f1Sort = x;
+        const res = detail && detail.results; if (!res) return;
+        const st = document.querySelector('#r_detail tr[data-seq]'); if (!st) return;
+        const table = st.parentNode, order = seqOrder(res, Object.keys(res.by_sequence));
+        const byS = Object.fromEntries([...table.querySelectorAll('tr[data-seq]')].map(tr => [tr.dataset.seq, tr]));
+        order.forEach(s => byS[s] && table.appendChild(byS[s]));
+        table.rows[0].querySelectorAll('th').forEach((t, i) => {
+            if (!i) return;
+            const m = t.dataset.model, on = f1Sort && f1Sort.model === m;
+            t.classList.toggle('sorted', !!on);
+            t.lastChild.nodeValue = on ? (f1Sort.dir > 0 ? ' ▲' : ' ▼') : '';
+            t.title = on ? (f1Sort.dir > 0 ? 'F1 ascending - click: descending' : 'F1 descending - click: the run order') : 'Sort the videos by F1 of ' + m + ' (ascending)';
+            t.onclick = () => setSort(!on ? {model: m, dir: 1} : f1Sort.dir > 0 ? {model: m, dir: -1} : null);
+        });
+        if (viewer) {
+            const pos = Object.fromEntries(seqOrder(res, viewer.vids.map(v => v.seq)).map((s, i) => [s, i]));
+            viewer.vids.sort((a, b) => pos[a.seq] - pos[b.seq]);
+            refreshViewerHead();
+        }
+    }
+
     // ---- the player card: one video of the run ---------------------------------------------------------------------------
     let curSeq = new URL(location).searchParams.get('seq'), viewer = null;
     function showVideo(seq, play) {
@@ -279,6 +321,14 @@
         const v = V.vids[i]; curSeq = v.seq;
         const u = new URL(location); u.searchParams.set('seq', curSeq); history.replaceState(null, '', u);
         document.querySelectorAll('#r_detail tr[data-seq]').forEach(tr => tr.classList.toggle('on', tr.dataset.seq === curSeq));
+        card.innerHTML = '';                                             // the old clip goes with it (it stops)
+        card.append(viewerHead(i));
+        card.append(videoRow(V.id, v.seq, v.rows, V.tl, v.n, ((V.res.videos || {})[v.seq] || {})[tlModel]));
+        if (play) { const x = card.querySelector('video'); if (x) x.play().catch(() => {}); }
+    }
+    function viewerHead(i) {
+        // ‹ list › and "k of N" of the player; rebuilt alone when the order changes (the clip keeps playing)
+        const V = viewer, v = V.vids[i];
         const f1 = seq => { const x = ((V.res.by_sequence || {})[seq] || {})[tlModel]; return x && x.tasks ? x.f1 : null; };
         const nav = (k, text, tip) => {
             const b = E('button', text, 'pbtn navb'); b.title = tip; b.disabled = k < 0 || k >= V.vids.length;
@@ -287,12 +337,13 @@
         const pick = E('select', null, 'small');
         V.vids.forEach((x, k) => pick.append(Object.assign(E('option', `${k + 1}. ${x.seq}` + (f1(x.seq) === null ? '' : `  ·  F1 ${v3(f1(x.seq))}`)), {value: x.seq})));
         pick.value = curSeq; pick.onchange = () => { showVideo(pick.value, true); pick.blur(); };
-        card.innerHTML = '';                                             // the old clip goes with it (it stops)
-        card.append(el('div', 'viewerHead', nav(i - 1, '‹', 'Previous video (←)'), pick, nav(i + 1, '›', 'Next video (→)'),
-                       E('span', `${i + 1} of ${V.vids.length} · ${v.n} frames · ${tlModel}` + (f1(v.seq) === null ? '' : ` F1 ${v3(f1(v.seq))}`), 'hint'),
-                       E('span', '← → other videos', 'hint keys')));
-        card.append(videoRow(V.id, v.seq, v.rows, V.tl, v.n, ((V.res.videos || {})[v.seq] || {})[tlModel]));
-        if (play) { const x = card.querySelector('video'); if (x) x.play().catch(() => {}); }
+        return el('div', 'viewerHead', nav(i - 1, '‹', 'Previous video (←)'), pick, nav(i + 1, '›', 'Next video (→)'),
+                  E('span', `${i + 1} of ${V.vids.length} · ${v.n} frames · ${tlModel}` + (f1(v.seq) === null ? '' : ` F1 ${v3(f1(v.seq))}`), 'hint'),
+                  E('span', '← → other videos', 'hint keys'));
+    }
+    function refreshViewerHead() {
+        const card = $('r_viewer'), h = card && card.querySelector('.viewerHead'); if (!h) return;
+        const i = viewer.vids.findIndex(v => v.seq === curSeq); if (i >= 0) h.replaceWith(viewerHead(i));
     }
     document.addEventListener('keydown', e => {                          // ← → : the previous / next video of the player
         if (tab !== 'runs' || !viewer || e.altKey || e.ctrlKey || e.metaKey || (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight')) return;
